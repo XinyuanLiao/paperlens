@@ -9,7 +9,52 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "rebuild": "electron-rebuild -f -w better-sqlite3"
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "dist": "electron-vite build && electron-builder",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:mac": "electron-vite build && electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.xinyuanliao.paperlens",
+    "productName": "PaperLens",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "shortcutName": "PaperLens"
+    },
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    }
   },
   "dependencies": {
     "@huggingface/transformers": "^3.5.0",
@@ -25,6 +70,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^35.0.0",
+    "electron-builder": "^26.0.12",
     "electron-vite": "^3.0.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0"

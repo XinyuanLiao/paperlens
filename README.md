@@ -19,4 +19,15 @@ npm run rebuild   # 重建 better-sqlite3 的 Electron 绑定
 npm run dev
 ```
 
+## 打包安装包
+
+```bash
+npm run dist:win   # Windows：dist/PaperLens Setup <版本>.exe（NSIS，可选安装目录 + 桌面快捷方式）
+npm run dist:mac   # macOS：dist/PaperLens-<版本>-arm64.dmg / -x64.dmg
+```
+
+- **macOS 必须在 Mac 上执行**（苹果工具链不支持交叉编译），Windows 上执行 `dist:win` 即可；打包会自动按目标平台重编 better-sqlite3，无需手动 rebuild。
+- 两个平台均未做代码签名：Windows 首次运行 SmartScreen 提示时选「仍要运行」；macOS 首次打开若提示无法验证开发者，右键 App → 打开，或执行 `xattr -cr /Applications/PaperLens.app`。
+- 版本号取自 package.json 的 `version`，发新版改它即可。
+
 技术栈：Electron + React + pdf.js + better-sqlite3(FTS5) + transformers.js。
