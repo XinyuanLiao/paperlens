@@ -16,6 +16,8 @@ interface Props {
   canBack: boolean
   canFwd: boolean
   onOpenPalette: () => void
+  mode: 'read' | 'chat'
+  onModeChange: (m: 'read' | 'chat') => void
 }
 
 export default function LibraryPane({
@@ -32,7 +34,9 @@ export default function LibraryPane({
   onFwd,
   canBack,
   canFwd,
-  onOpenPalette
+  onOpenPalette,
+  mode,
+  onModeChange
 }: Props): JSX.Element {
   const cats = useMemo(() => {
     const m = new Map<string, Paper[]>()
@@ -99,6 +103,22 @@ export default function LibraryPane({
   return (
     <div className="library">
       <div className="lib-func">
+        {/* 阅读 / 对话 模式切换（Kimi Workspace 式分段控件） */}
+        <div className="mode-toggle">
+          <button className={mode === 'read' ? 'on' : ''} onClick={() => onModeChange('read')} title="论文阅读（PDF + 翻译 + 问答）">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 6c-1.8-1.6-4.2-2-8-2v14c3.8 0 6.2.4 8 2 1.8-1.6 4.2-2 8-2V4c-3.8 0-6.2.4-8 2z" />
+              <path d="M12 6v14" />
+            </svg>
+            阅读
+          </button>
+          <button className={mode === 'chat' ? 'on' : ''} onClick={() => onModeChange('chat')} title="与全库文献对话（RAG）">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a8 8 0 0 1-8 8H4l2.2-2.6A8 8 0 1 1 21 12z" />
+            </svg>
+            对话
+          </button>
+        </div>
         <div className="nav-row">
           {navBtn('back')}
           {navBtn('fwd')}

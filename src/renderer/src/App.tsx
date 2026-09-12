@@ -5,6 +5,7 @@ import SidePanel, { type SideControl } from './SidePanel'
 import SettingsDialog from './SettingsDialog'
 import SetupWizard from './SetupWizard'
 import CommandPalette from './CommandPalette'
+import ChatView from './ChatView'
 import type { Paper, Settings } from './types'
 
 export interface Tab {
@@ -99,6 +100,7 @@ export default function App(): JSX.Element {
   const [llmChip, setLlmChip] = useState('')
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [mode, setMode] = useState<'read' | 'chat'>('read')
   const isMac = /Mac/.test(navigator.platform)
 
   // 命令面板：Ctrl/Cmd + K 全局唤起
@@ -292,12 +294,24 @@ export default function App(): JSX.Element {
     [importFiles]
   )
 
+  // 引用跳转 / 侧栏点开论文：都回到阅读模式
   const jumpTo = useCallback(
     (slug: string, page: number) => {
       const p = papers.find((x) => x.slug === slug)
-      if (p) openPaper(p, page)
+      if (p) {
+        setMode('read')
+        openPaper(p, page)
+      }
     },
     [papers, openPaper]
+  )
+
+  const openPaperFromTree = useCallback(
+    (p: Paper) => {
+      setMode('read')
+      openPaper(p)
+    },
+    [openPaper]
   )
 
   const saveSettings = useCallback(async (patch: Partial<Settings>) => {
@@ -394,9 +408,11 @@ export default function App(): JSX.Element {
         <div className="tb-title">PaperLens</div>
         <div className="tb-drag" />
         <div className="tb-side tb-right">
-          <button className={`icon-btn ${showSide ? 'on' : ''}`} title="显示/隐藏 问答·翻译" onClick={() => setShowSide((v) => !v)}>
-            <PanelIcon />
-          </button>
+          {mode === 'read' && (
+            <button className={`icon-btn ${showSide ? 'on' : ''}`} title="显示/隐藏 问答·翻译" onClick={() => setShowSide((v) => !v)}>
+              <PanelIcon />
+            </button>
+          )}
           <button className="icon-btn" title="设置" onClick={() => setShowSettings(true)}>
             <GearIcon />
           </button>
@@ -410,7 +426,7 @@ export default function App(): JSX.Element {
             activeId={activeId}
             q={q}
             onSetQ={setQ}
-            onOpen={openPaper}
+            onOpen={openPaperFromTree}
             onCycleStatus={cycleStatus}
             onAddPapers={addPapers}
             onReindex={() => {
@@ -422,47 +438,53 @@ export default function App(): JSX.Element {
             canBack={canBack}
             canFwd={canFwd}
             onOpenPalette={() => setPaletteOpen(true)}
+            mode={mode}
+            onModeChange={setMode}
           />
         )}
         <div className="workspace">
-          <div className="main-win">
-            {tabs.length === 0 ? (
-              <div className="start-pane">
-                <div className="workspace-empty">
-                  <div className="big">📚</div>
-                  <div className="headline">PaperLens</div>
-                  <div className="tip">从左侧选择论文开始阅读；右侧面板无需打开论文即可与全库文献对话</div>
-                  {papers.length === 0 && (
-                    <div className="empty-actions">
-                      <button className="add-btn" onClick={() => void pickLibraryNow()}>
-                        选择文献库文件夹
-                      </button>
-                      <button className="add-btn ghost" onClick={addPapers}>
-                        导入 PDF 文献
-                      </button>
-                    </div>
-                  )}
+          {mode === 'chat' ? (
+            <ChatView paperCount={papers.length} onJump={jumpTo} />
+          ) : (
+            <div className="main-win">
+              {tabs.length === 0 ? (
+                <div className="start-pane">
+                  <div className="workspace-empty">
+                    <div className="big">📚</div>
+                    <div className="headline">PaperLens</div>
+                    <div className="tip">从左侧选择论文开始阅读；右侧面板无需打开论文即可与全库文献对话</div>
+                    {papers.length === 0 && (
+                      <div className="empty-actions">
+                        <button className="add-btn" onClick={() => void pickLibraryNow()}>
+                          选择文献库文件夹
+                        </button>
+                        <button className="add-btn ghost" onClick={addPapers}>
+                          导入 PDF 文献
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <PdfViewer
-                ref={viewerRef}
-                tabs={tabs}
-                activeId={activeId}
-                onActivate={setActiveId}
-                onCloseTab={closeTab}
-                pendingJump={pendingJump}
-                onJumped={() => setPendingJump(null)}
-                onPageContext={(t) => {
-                  pageCtxRef.current = t
-                  setPageCtx(t)
-                }}
-                onSelect={onSelect}
-                onDeleteHighlight={onDeleteHighlight}
-              />
-            )}
-            {showSide && <SidePanel ref={sideControl} paper={activePaper} pageContext={pageCtx} onJump={jumpTo} />}
-          </div>
+              ) : (
+                <PdfViewer
+                  ref={viewerRef}
+                  tabs={tabs}
+                  activeId={activeId}
+                  onActivate={setActiveId}
+                  onCloseTab={closeTab}
+                  pendingJump={pendingJump}
+                  onJumped={() => setPendingJump(null)}
+                  onPageContext={(t) => {
+                    pageCtxRef.current = t
+                    setPageCtx(t)
+                  }}
+                  onSelect={onSelect}
+                  onDeleteHighlight={onDeleteHighlight}
+                />
+              )}
+              {showSide && <SidePanel ref={sideControl} paper={activePaper} pageContext={pageCtx} onJump={jumpTo} />}
+            </div>
+          )}
         </div>
       </div>
 

@@ -146,6 +146,14 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
+  const goToPage = useCallback(
+    (n: number) => {
+      if (!numPages) return
+      scrollToPage(Math.max(1, Math.min(numPages, n)))
+    },
+    [numPages, scrollToPage]
+  )
+
   // 把当前选区保存为持久化高亮
   const highlightSelection = useCallback(async () => {
     const sel = window.getSelection()
@@ -275,14 +283,28 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           <b>{active.paper.title}</b>
         </span>
         <span style={{ flex: 1 }} />
-        <div className="seg">
+        <div className="seg" title="页面导航">
+          <button onClick={() => goToPage(1)} disabled={curPage <= 1} title="首页">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" /></svg>
+          </button>
+          <button onClick={() => goToPage(curPage - 1)} disabled={curPage <= 1} title="上一页">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+          </button>
+          <span className="page-ind">
+            {curPage} / {numPages || '…'}
+          </span>
+          <button onClick={() => goToPage(curPage + 1)} disabled={!numPages || curPage >= numPages} title="下一页">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+          </button>
+          <button onClick={() => goToPage(numPages)} disabled={!numPages || curPage >= numPages} title="末页">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 7l5 5-5 5M6 7l5 5-5 5" /></svg>
+          </button>
+        </div>
+        <div className="seg" title="缩放">
           <button onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}>−</button>
           <button onClick={() => setZoom(1)} title="适应宽度">{Math.round(scale * 100)}%</button>
           <button onClick={() => setZoom((z) => Math.min(3, z + 0.15))}>+</button>
         </div>
-        <span>
-          {curPage} / {numPages || '…'}
-        </span>
       </div>
       <div className="viewer-scroll" ref={attachScrollEl} onMouseUp={onMouseUp} onScroll={onScroll}>
         {error && <div className="empty-viewer">PDF 打开失败：{error}</div>}

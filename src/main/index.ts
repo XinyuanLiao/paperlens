@@ -214,8 +214,12 @@ function registerIpc(): void {
     if (!norm(abs).startsWith(norm(lib) + path.sep) && norm(abs) !== norm(lib)) {
       throw new Error(`文件不在文献库内：${abs}`)
     }
-    if (!fs.existsSync(abs)) throw new Error(`文件不存在（可能已移动或库路径变更）：${abs}`)
-    return fs.readFileSync(abs) // Buffer 经结构化克隆成为 Uint8Array，长度精确
+    // 不预检 existsSync：iCloud/网盘占位文件在读取时会按需下载，预检反而拦掉
+    try {
+      return fs.readFileSync(abs)
+    } catch (e) {
+      throw new Error(`无法读取：${abs}（可能已被移动/删除，或网盘同步不完整）`)
+    }
   })
 
   // 渲染端主题变化时同步 Windows 标题栏 overlay 颜色
