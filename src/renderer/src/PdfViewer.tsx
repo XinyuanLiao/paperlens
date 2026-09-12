@@ -9,6 +9,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 export interface ViewerHandle {
   scrollToPage: (n: number) => void
   highlightSelection: () => Promise<void>
+  zoomBy: (delta: number) => void
+  zoomReset: () => void
 }
 
 interface Props {
@@ -182,6 +184,12 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   useImperativeHandle(ref, () => ({
     scrollToPage,
     highlightSelection,
+    zoomBy(delta: number) {
+      setZoom((z) => Math.max(0.4, Math.min(3, z + delta)))
+    },
+    zoomReset() {
+      setZoom(1)
+    },
     removeHighlightLocal(hid: number) {
       setHls((hs) => hs.filter((h) => h.id !== hid))
     }

@@ -25,7 +25,7 @@ function guessProvider(apiBase: string): string {
 }
 
 function workspaceName(p: string): string {
-  const parts = p.split('/').filter(Boolean)
+  const parts = p.split(/[\\/]+/).filter(Boolean)
   return parts[parts.length - 1] ?? p
 }
 
@@ -62,6 +62,7 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
     if (!p) return
     setBusy(true)
     setMsg('切换工作区并扫描…')
+    set({ libraryPath: p }) // 同步进表单，避免点「保存」时把旧路径写回去
     const s = await onSave({ libraryPath: p })
     const r = await window.api.scanLibrary(s.libraryPath)
     setMsg(`工作区：${workspaceName(p)}（${r.total} 篇）`)

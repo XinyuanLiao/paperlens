@@ -33,8 +33,15 @@ export interface Settings {
   theme: Theme
 }
 
+// 默认文献库：跟随平台放到「文档」目录（开发态 app 未 ready 前不能调 getPath，惰性求值）
+let defaultLibraryPath: string | null = null
+export function defaultLibrary(): string {
+  if (!defaultLibraryPath) defaultLibraryPath = path.join(app.getPath('documents'), 'PaperLens')
+  return defaultLibraryPath
+}
+
 const DEFAULTS: Settings = {
-  libraryPath: '/Users/planck/Library/Mobile Documents/com~apple~CloudDocs/Library',
+  libraryPath: '', // 由 initDb 填充（依赖 app ready）
   apiBase: 'https://open.bigmodel.cn/api/paas/v4',
   apiKey: '',
   model: 'glm-4.5-air',
@@ -83,7 +90,20 @@ export function initDb(): void {
   `)
   const st = db.prepare("SELECT value FROM meta WHERE key='settings'")
   if (!st.get()) {
-    db.prepare("INSERT INTO meta(key,value) VALUES('settings',?)").run(JSON.stringify(DEFAULTS))
+    db.prepare("INSERT INTO meta(key,value) VALUES('settings',?)").run(
+      JSON.stringify({ ...DEFAULTS, libraryPath: defaultLibrary() })
+    )
+  } else {
+    // 迁移：旧版本写死的 macOS 路径在 Windows 上必然失效。
+    // 优先探测同名库目录在 Windows 的常见位置（iCloud for Windows 同步盘），保住已扫描的文献。
+    const s = getSettings()
+    if (s.libraryPath.startsWith('/Users/') && !fs.existsSync(s.libraryPath)) {
+      const home = app.getPath('home')
+      const lastSeg = s.libraryPath.split('/').filter(Boolean).pop() ?? 'Library'
+      const candidates = [path.join(home, 'iCloudDrive', lastSeg), path.join(home, lastSeg)]
+      const moved = candidates.find((c) => fs.existsSync(c)) ?? defaultLibrary()
+      db.prepare("UPDATE meta SET value=? WHERE key='settings'").run(JSON.stringify({ ...s, libraryPath: moved }))
+    }
   }
 }
 
@@ -163,6 +183,27 @@ export function scanLibrary(libPath: string): ScanResult {
   `)
   const exists = db.prepare('SELECT id FROM papers WHERE path=?')
   for (const root of roots) {
+    // 根目录平铺的 PDF 也收进库（category 用根目录名），适配"直接指向一摞论文"的用法
+    for (const f of fs.readdirSync(root)) {
+      if (!f.toLowerCase().endsWith('.pdf')) continue
+      const pdf = path.join(root, f)
+      if (!fs.statSync(pdf).isFile()) continue
+      const slug = f.slice(0, -4)
+      const note = parseNote(path.join(root, `${slug}.md`))
+      const year = parseInt(note.year || slug.slice(0, 4), 10) || null
+      upsert.run({
+        slug,
+        title: note.title || slug,
+        authors: note.authors || '',
+        year,
+        venue: note.venue || '',
+        category: path.basename(root) || 'inbox',
+        path: pdf
+      })
+      if (exists.get(pdf)) res.updated++
+      else res.added++
+      res.total++
+    }
     for (const cat of fs.readdirSync(root)) {
       const catDir = path.join(root, cat)
       if (!fs.statSync(catDir).isDirectory() || cat.startsWith('.')) continue

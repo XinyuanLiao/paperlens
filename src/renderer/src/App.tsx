@@ -28,6 +28,46 @@ const GearIcon = (): JSX.Element => (
   </svg>
 )
 
+type MenuItem = { label: string; hint?: string; action?: () => void; sep?: boolean }
+
+const MenuBar = ({ menus, openMenu, setOpenMenu }: { menus: Array<{ name: string; items: MenuItem[] }>; openMenu: string | null; setOpenMenu: (m: string | null) => void }): JSX.Element => (
+  <div className="app-menu">
+    {menus.map((m) => (
+      <div key={m.name} className="menu-wrap">
+        <button
+          className={`menu-btn ${openMenu === m.name ? 'on' : ''}`}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => setOpenMenu(openMenu === m.name ? null : m.name)}
+          onMouseEnter={() => openMenu && setOpenMenu(m.name)}
+        >
+          {m.name}
+        </button>
+        {openMenu === m.name && (
+          <div className="menu-dropdown" onMouseDown={(e) => e.stopPropagation()}>
+            {m.items.map((it, i) =>
+              it.sep ? (
+                <div key={i} className="menu-sep" />
+              ) : (
+                <button
+                  key={i}
+                  className="menu-item"
+                  onClick={() => {
+                    setOpenMenu(null)
+                    it.action?.()
+                  }}
+                >
+                  <span>{it.label}</span>
+                  {it.hint && <span className="menu-hint">{it.hint}</span>}
+                </button>
+              )
+            )}
+          </div>
+        )}
+      </div>
+    ))}
+  </div>
+)
+
 const PROVIDER_LABEL: Record<string, string> = {
   zhipu: '智谱',
   deepseek: 'DeepSeek',
@@ -55,6 +95,8 @@ export default function App(): JSX.Element {
   const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string } | null>(null)
   const [q, setQ] = useState('')
   const [llmChip, setLlmChip] = useState('')
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
+  const isMac = /Mac/.test(navigator.platform)
 
   const viewerRef = useRef<ViewerHandle>(null)
   const sideControl = useRef<SideControl>(null)
@@ -64,11 +106,12 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     if (!settings) return
-    if (/Mac/.test(navigator.platform)) document.documentElement.classList.add('mac')
+    if (isMac) document.documentElement.classList.add('mac')
     const mq = window.matchMedia('(prefers-color-scheme: light)')
     const apply = () => {
       const t = settings.theme === 'system' ? (mq.matches ? 'light' : 'dark') : settings.theme
       document.documentElement.dataset.theme = t
+      window.api.syncTheme(t)
     }
     apply()
     mq.addEventListener('change', apply)
@@ -248,18 +291,74 @@ export default function App(): JSX.Element {
     return s
   }, [])
 
+  // 文件菜单 / 空库引导：直接选库文件夹并扫描（与设置页同效）
+  const pickLibraryNow = useCallback(async () => {
+    const p = await window.api.pickLibrary()
+    if (!p) return
+    const s = await saveSettings({ libraryPath: p })
+    await window.api.scanLibrary(s.libraryPath)
+    await refreshPapers()
+  }, [saveSettings, refreshPapers])
+
   const statusLeft = classifyInfo || (indexInfo ? `正在索引 ${indexInfo.done}/${indexInfo.total}` : `已索引 ${indexedCount.indexed}/${indexedCount.papers} 篇 · ${indexedCount.chunks} 块`)
   const canBack = hIdx > 0
   const canFwd = hIdx < hist.length - 1
 
+  const menus = [
+    {
+      name: '文件',
+      items: [
+        { label: '导入 PDF 文献…', hint: '拖入窗口也可以', action: addPapers },
+        { label: '选择文献库文件夹…', action: () => void pickLibraryNow() },
+        { label: '重建全库索引', action: () => void window.api.rebuildIndex() },
+        { sep: true, label: '' },
+        { label: '设置…', action: () => setShowSettings(true) },
+        { label: '退出', action: () => window.close() }
+      ] as MenuItem[]
+    },
+    {
+      name: '视图',
+      items: [
+        { label: showLib ? '隐藏文献侧栏' : '显示文献侧栏', action: () => setShowLib((v) => !v) },
+        { label: showSide ? '隐藏问答面板' : '显示问答面板', action: () => setShowSide((v) => !v) },
+        { sep: true, label: '' },
+        { label: '放大', hint: 'Ctrl +', action: () => viewerRef.current?.zoomBy(0.15) },
+        { label: '缩小', hint: 'Ctrl -', action: () => viewerRef.current?.zoomBy(-0.15) },
+        { label: '适应宽度', hint: 'Ctrl 0', action: () => viewerRef.current?.zoomReset() },
+        { sep: true, label: '' },
+        { label: '重新加载', hint: 'Ctrl R', action: () => location.reload() }
+      ] as MenuItem[]
+    },
+    {
+      name: '帮助',
+      items: [
+        { label: '关于 PaperLens', action: () => window.open('https://github.com/XinyuanLiao/paperlens', '_blank') },
+        { label: 'GitHub 仓库', action: () => window.open('https://github.com/XinyuanLiao/paperlens', '_blank') }
+      ] as MenuItem[]
+    }
+  ]
+
   return (
-    <div className="shell" onMouseDown={() => setFloatBar(null)} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+    <div
+      className="shell"
+      onMouseDown={() => {
+        setFloatBar(null)
+        setOpenMenu(null)
+      }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={onDrop}
+    >
       <div className="titlebar">
+        {!isMac && (
+          <MenuBar menus={menus} openMenu={openMenu} setOpenMenu={setOpenMenu} />
+        )}
         <div className="tb-side tb-left">
           <button className={`icon-btn ${showLib ? 'on' : ''}`} title="显示/隐藏 侧栏" onClick={() => setShowLib((v) => !v)}>
             <SidebarIcon />
           </button>
         </div>
+        <div className="tb-drag" />
+        <div className="tb-title">PaperLens</div>
         <div className="tb-drag" />
         <div className="tb-side tb-right">
           <button className={`icon-btn ${showSide ? 'on' : ''}`} title="显示/隐藏 问答·翻译" onClick={() => setShowSide((v) => !v)}>
@@ -297,6 +396,16 @@ export default function App(): JSX.Element {
               <div className="big">📚</div>
               <div className="headline">PaperLens</div>
               <div className="tip">从左侧选择论文，或添加新的文献</div>
+              {papers.length === 0 && (
+                <div className="empty-actions">
+                  <button className="add-btn" onClick={() => void pickLibraryNow()}>
+                    选择文献库文件夹
+                  </button>
+                  <button className="add-btn ghost" onClick={addPapers}>
+                    导入 PDF 文献
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className={`float-win ${showSide ? 'with-side' : ''}`}>

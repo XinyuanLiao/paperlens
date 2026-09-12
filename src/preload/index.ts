@@ -62,7 +62,8 @@ const api = {
     ipcRenderer.on('import:progress', h)
     return () => ipcRenderer.removeListener('import:progress', h)
   },
-  openExternal: (url: string) => ipcRenderer.send('open-external', url)
+  openExternal: (url: string) => ipcRenderer.send('open-external', url),
+  syncTheme: (theme: string) => ipcRenderer.send('ui:theme', theme)
 }
 
 contextBridge.exposeInMainWorld('api', api)

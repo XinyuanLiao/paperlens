@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, nativeImage, nativeTheme } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import * as dbmod from './db'
@@ -11,6 +11,13 @@ let win: BrowserWindow | null = null
 
 function send(ev: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(ev, payload)
+}
+
+// Windows/Linux 上窗口控制按钮由系统绘制在自绘顶栏右上角（titleBarOverlay），
+// 颜色随应用主题同步；macOS 用隐藏标题栏 + 红绿灯。
+function overlayColors(theme: string): { color: string; symbolColor: string } {
+  const dark = theme === 'dark' || (theme !== 'light' && nativeTheme.shouldUseDarkColors)
+  return dark ? { color: '#211d1e', symbolColor: '#ece7e9' } : { color: '#f6f4f2', symbolColor: '#241f21' }
 }
 
 function createWindow(): void {
@@ -27,8 +34,12 @@ function createWindow(): void {
     minHeight: 640,
     backgroundColor: '#16171a',
     title: 'PaperLens',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    trafficLightPosition: { x: 14, y: 13 },
+    titleBarStyle: 'hidden',
+    ...(process.platform === 'win32'
+      ? { titleBarOverlay: { ...overlayColors('system'), height: 40 } }
+      : process.platform === 'darwin'
+        ? { trafficLightPosition: { x: 14, y: 13 } }
+        : {}),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -189,10 +200,28 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('pdf:read', (_e, pdfPath: string) => {
-    const lib = path.resolve(dbmod.getSettings().libraryPath)
+    const libSetting = dbmod.getSettings().libraryPath
+    if (!libSetting) throw new Error('文献库未设置，请先在设置中选择工作区文件夹')
+    const lib = path.resolve(libSetting)
     const abs = path.resolve(pdfPath)
-    if (!abs.startsWith(lib)) throw new Error('路径不在工作区内')
+    // Windows 路径大小写不敏感，统一小写后做前缀比较；分隔符由 resolve 归一化
+    const norm = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p)
+    if (!norm(abs).startsWith(norm(lib) + path.sep) && norm(abs) !== norm(lib)) {
+      throw new Error(`文件不在文献库内：${abs}`)
+    }
+    if (!fs.existsSync(abs)) throw new Error(`文件不存在（可能已移动或库路径变更）：${abs}`)
     return fs.readFileSync(abs) // Buffer 经结构化克隆成为 Uint8Array，长度精确
+  })
+
+  // 渲染端主题变化时同步 Windows 标题栏 overlay 颜色
+  ipcMain.on('ui:theme', (_e, theme: string) => {
+    if (process.platform === 'win32' && win && !win.isDestroyed()) {
+      try {
+        win.setTitleBarOverlay(overlayColors(theme))
+      } catch {
+        /* 旧系统不支持 */
+      }
+    }
   })
 
   ipcMain.handle('index:status', () => {
