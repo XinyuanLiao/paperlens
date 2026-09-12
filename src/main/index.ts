@@ -34,7 +34,7 @@ function createWindow(): void {
     minHeight: 640,
     backgroundColor: '#16171a',
     title: 'PaperLens',
-    titleBarStyle: 'hidden',
+    titleBarStyle: process.platform === 'linux' ? 'default' : 'hidden',
     ...(process.platform === 'win32'
       ? { titleBarOverlay: { ...overlayColors('system'), height: 40 } }
       : process.platform === 'darwin'

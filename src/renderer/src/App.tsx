@@ -3,6 +3,7 @@ import LibraryPane from './LibraryPane'
 import PdfViewer, { type ViewerHandle } from './PdfViewer'
 import SidePanel, { type SideControl } from './SidePanel'
 import SettingsDialog from './SettingsDialog'
+import CommandPalette from './CommandPalette'
 import type { Paper, Settings } from './types'
 
 export interface Tab {
@@ -96,7 +97,20 @@ export default function App(): JSX.Element {
   const [q, setQ] = useState('')
   const [llmChip, setLlmChip] = useState('')
   const [openMenu, setOpenMenu] = useState<string | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const isMac = /Mac/.test(navigator.platform)
+
+  // 命令面板：Ctrl/Cmd + K 全局唤起
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const viewerRef = useRef<ViewerHandle>(null)
   const sideControl = useRef<SideControl>(null)
@@ -319,21 +333,23 @@ export default function App(): JSX.Element {
     {
       name: '视图',
       items: [
+        { label: '命令面板…', hint: isMac ? '⌘K' : 'Ctrl+K', action: () => setPaletteOpen(true) },
+        { sep: true, label: '' },
         { label: showLib ? '隐藏文献侧栏' : '显示文献侧栏', action: () => setShowLib((v) => !v) },
         { label: showSide ? '隐藏问答面板' : '显示问答面板', action: () => setShowSide((v) => !v) },
         { sep: true, label: '' },
-        { label: '放大', hint: 'Ctrl +', action: () => viewerRef.current?.zoomBy(0.15) },
-        { label: '缩小', hint: 'Ctrl -', action: () => viewerRef.current?.zoomBy(-0.15) },
-        { label: '适应宽度', hint: 'Ctrl 0', action: () => viewerRef.current?.zoomReset() },
+        { label: '放大', hint: isMac ? '⌘ +' : 'Ctrl +', action: () => viewerRef.current?.zoomBy(0.15) },
+        { label: '缩小', hint: isMac ? '⌘ -' : 'Ctrl -', action: () => viewerRef.current?.zoomBy(-0.15) },
+        { label: '适应宽度', hint: isMac ? '⌘ 0' : 'Ctrl 0', action: () => viewerRef.current?.zoomReset() },
         { sep: true, label: '' },
-        { label: '重新加载', hint: 'Ctrl R', action: () => location.reload() }
+        { label: '重新加载', hint: isMac ? '⌘ R' : 'Ctrl R', action: () => location.reload() }
       ] as MenuItem[]
     },
     {
       name: '帮助',
       items: [
-        { label: '关于 PaperLens', action: () => window.open('https://github.com/XinyuanLiao/paperlens', '_blank') },
-        { label: 'GitHub 仓库', action: () => window.open('https://github.com/XinyuanLiao/paperlens', '_blank') }
+        { label: '命令面板…', hint: isMac ? '⌘K' : 'Ctrl+K', action: () => setPaletteOpen(true) },
+        { label: 'GitHub 仓库', action: () => window.api.openExternal('https://github.com/XinyuanLiao/paperlens') }
       ] as MenuItem[]
     }
   ]
@@ -388,6 +404,7 @@ export default function App(): JSX.Element {
             onFwd={navFwd}
             canBack={canBack}
             canFwd={canFwd}
+            onOpenPalette={() => setPaletteOpen(true)}
           />
         )}
         <div className="workspace">
@@ -408,7 +425,7 @@ export default function App(): JSX.Element {
               )}
             </div>
           ) : (
-            <div className={`float-win ${showSide ? 'with-side' : ''}`}>
+            <div className={`main-win ${showSide ? 'with-side' : ''}`}>
               <PdfViewer
                 ref={viewerRef}
                 tabs={tabs}
@@ -455,6 +472,24 @@ export default function App(): JSX.Element {
       )}
       {showSettings && settings && (
         <SettingsDialog settings={settings} indexed={indexedCount} indexInfo={indexInfo} onSave={saveSettings} onRescanned={refreshPapers} onClose={() => setShowSettings(false)} />
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          papers={papers}
+          onClose={() => setPaletteOpen(false)}
+          onOpenPaper={openPaper}
+          commands={[
+            { id: 'add', label: '导入 PDF 文献…', hint: '文件', run: addPapers },
+            { id: 'picklib', label: '选择文献库文件夹…', hint: '文件', run: () => void pickLibraryNow() },
+            { id: 'reindex', label: '重建全库索引', hint: '文件', run: () => void window.api.rebuildIndex() },
+            { id: 'reclassify', label: 'AI 重新归类全部文献', hint: '文件', run: reclassifyAll },
+            { id: 'settings', label: '打开设置…', hint: '界面', run: () => setShowSettings(true) },
+            { id: 'theme', label: '切换 深色/浅色 主题', hint: '界面', run: () => void saveSettings({ theme: document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark' }) },
+            { id: 'sidebar', label: showLib ? '隐藏文献侧栏' : '显示文献侧栏', hint: '视图', run: () => setShowLib((v) => !v) },
+            { id: 'panel', label: showSide ? '隐藏问答面板' : '显示问答面板', hint: '视图', run: () => setShowSide((v) => !v) },
+            { id: 'reload', label: '重新加载窗口', hint: '视图', run: () => location.reload() }
+          ]}
+        />
       )}
     </div>
   )

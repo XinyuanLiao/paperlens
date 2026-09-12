@@ -15,6 +15,7 @@ interface Props {
   onFwd: () => void
   canBack: boolean
   canFwd: boolean
+  onOpenPalette: () => void
 }
 
 export default function LibraryPane({
@@ -30,7 +31,8 @@ export default function LibraryPane({
   onBack,
   onFwd,
   canBack,
-  canFwd
+  canFwd,
+  onOpenPalette
 }: Props): JSX.Element {
   const cats = useMemo(() => {
     const m = new Map<string, Paper[]>()
@@ -110,7 +112,12 @@ export default function LibraryPane({
           </svg>
           添加文献
         </button>
-        <input className="searchbox" placeholder="搜索" value={q} onChange={(e) => onSetQ(e.target.value)} />
+        <div className="search-wrap">
+          <input className="searchbox" placeholder="搜索" value={q} onChange={(e) => onSetQ(e.target.value)} />
+          <button className="kbd-hint" title="命令面板（搜索文献 / 执行命令）" onClick={onOpenPalette}>
+            {/Mac/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}
+          </button>
+        </div>
         <div className="func-row">
           <button className="mini-btn" onClick={onReindex} title="清空并重建全库索引">
             重建索引
