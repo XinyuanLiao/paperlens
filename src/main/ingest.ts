@@ -181,7 +181,8 @@ export async function hybridSearch(query: string, scopePaperId?: number, topK = 
   for (const [id, s] of top) {
     const c = getChunk.get(id) as { paper_id: number; page: number; text: string } | undefined
     if (!c) continue
-    const p = paperById.get(c.paper_id)!
+    const p = paperById.get(c.paper_id)
+    if (!p) continue // 孤儿块（论文行已删但块残留），跳过
     if (scopePaperId && c.paper_id !== scopePaperId) continue
     out.push({ paperId: c.paper_id, slug: p.slug, title: p.title, page: c.page, text: c.text, score: s })
     if (out.length >= topK) break

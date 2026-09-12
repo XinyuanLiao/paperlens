@@ -94,6 +94,10 @@ export function initDb(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_hl_paper ON highlights(paper_id);
   `)
+  // 清理孤儿块（外键级联默认关闭，删除论文行后块会残留）
+  db.exec('DELETE FROM chunks WHERE paper_id NOT IN (SELECT id FROM papers)')
+  db.exec('DELETE FROM chunks_fts WHERE paper_id NOT IN (SELECT id FROM papers)')
+
   const st = db.prepare("SELECT value FROM meta WHERE key='settings'")
   if (!st.get()) {
     db.prepare("INSERT INTO meta(key,value) VALUES('settings',?)").run(

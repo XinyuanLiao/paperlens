@@ -58,11 +58,12 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
 
   useEffect(() => {
     const h = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') void save()
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [onClose])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const set = (patch: Partial<Settings>): void => setForm((f) => ({ ...f, ...patch }))
 
@@ -124,6 +125,11 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
     onClose()
   }
 
+  // ✕ / 点击遮罩 / Esc：一律保存后关闭
+  const closeAndSave = (): void => {
+    void save()
+  }
+
   const themeCard = (id: Settings['theme'], label: string, preview: JSX.Element): JSX.Element => (
     <div className={`theme-card ${form.theme === id ? 'on' : ''}`} onClick={() => void pickTheme(id)}>
       <div className="theme-thumb">{preview}</div>
@@ -132,11 +138,11 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
   )
 
   return (
-    <div className="modal-mask" onMouseDown={onClose}>
+    <div className="modal-mask" onMouseDown={closeAndSave}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2>设置</h2>
-          <button className="modal-x" title="关闭（不保存）" onClick={onClose}>
+          <button className="modal-x" title="关闭（自动保存）" onClick={closeAndSave}>
             ✕
           </button>
         </div>
