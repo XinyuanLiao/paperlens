@@ -339,10 +339,10 @@ html[data-theme='dark'] .float-bar { background: #232124; backdrop-filter: blur(
 .chat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
 .msg { max-width: 100%; }
 .msg .who { font-size: 10px; color: var(--text-dim); margin-bottom: 4px; letter-spacing: 0.8px; text-transform: uppercase; font-family: var(--mono); }
-.msg .bubble { padding: 10px 13px; border-radius: 10px; line-height: 1.65; user-select: text; white-space: pre-wrap; word-break: break-word; font-size: 13px; }
-.msg.user { align-self: flex-end; max-width: 88%; }
-.msg.user .bubble { background: var(--accent); color: #fff; border-top-right-radius: 3px; }
-.msg.assistant .bubble { background: var(--bg); border: 1px solid var(--border); border-top-left-radius: 3px; }
+.msg .bubble { padding: 0; border-radius: 0; line-height: 1.75; user-select: text; white-space: normal; word-break: break-word; font-size: 13px; background: transparent; border: none; }
+.msg.user { align-self: stretch; max-width: 100%; }
+.msg.user .bubble { background: var(--bg2); padding: 12px 15px; border-radius: 10px; color: var(--text); white-space: pre-wrap; }
+.msg.assistant .bubble { padding: 0; }
 .cite-chip {
   display: inline-block; margin: 0 2px; padding: 0 6px; border-radius: 4px; font-size: 11px;
   background: var(--accent-soft); color: var(--accent2); cursor: pointer; transition: background 0.1s, color 0.1s;
@@ -523,7 +523,7 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .chat-hero .headline { font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif; font-size: 25px; font-weight: 600; color: var(--text); letter-spacing: 0.3px; }
 .chat-hero .tip { font-size: 12.5px; color: var(--text-dim); }
 .hero-input {
-  width: 680px; max-width: 100%; background: var(--bg); border: 1px solid var(--border-lit);
+  width: min(760px, 94%); max-width: 100%; background: var(--bg); border: 1px solid var(--border-lit);
   border-radius: 16px; box-shadow: var(--shadow); padding: 15px 16px 11px;
   display: flex; flex-direction: column; gap: 9px;
 }
@@ -541,9 +541,9 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
   transition: border-color var(--speed), color var(--speed), background var(--speed);
 }
 .hero-suggest button:hover { border-color: var(--accent); color: var(--accent2); background: var(--accent-soft); }
-.chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 0; display: flex; flex-direction: column; gap: 16px; width: 760px; max-width: 100%; margin: 0 auto; }
-.chat-view-input { flex-shrink: 0; padding: 10px 0 18px; width: 760px; max-width: 100%; margin: 0 auto; }
-.chat-view-input .hero-input { width: 100%; box-shadow: none; background: var(--bg2); }
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 28px 12px; display: flex; flex-direction: column; gap: 22px; }
+.chat-view-input { flex-shrink: 0; margin: 0 28px; padding: 12px 0 16px; border-top: 1px solid var(--border); }
+.chat-view-input .hero-input { width: 100%; background: var(--bg); border: 1px solid var(--border-lit); box-shadow: none; border-radius: 14px; }
 .page-ind { padding: 3px 6px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); min-width: 52px; text-align: center; }
 
 /* ============ 回答内 Markdown（AI 气泡） ============ */
