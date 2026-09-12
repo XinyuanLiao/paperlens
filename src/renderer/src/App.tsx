@@ -614,9 +614,6 @@ export default function App(): JSX.Element {
       <div className="statusbar">
         <span className="ellipsis">{statusLeft}</span>
         <span style={{ flex: 1 }} />
-        <span className="chip" title="向量嵌入">
-          {settings?.embedProvider === 'ollama' ? `嵌入 ${settings.ollamaEmbedModel}` : settings?.embedProvider === 'zhipu' ? '嵌入 embedding-3' : '嵌入本地 e5'}
-        </span>
         <span className="chip" title={llmChip} onClick={() => void refreshLlmChip()}>
           {llmChip || `${settings?.model ?? ''}${settings ? ` · ${PROVIDER_LABEL[settings.provider] ?? ''}` : ''}`}
         </span>

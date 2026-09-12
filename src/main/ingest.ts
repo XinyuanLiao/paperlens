@@ -58,6 +58,22 @@ export async function extractPages(pdfPath: string): Promise<string[]> {
   return pages
 }
 
+// 带缓存的整文抽取（问答整篇模式用；按 mtime 失效）
+const pageCache = new Map<string, { mtime: number; pages: string[] }>()
+export async function extractPagesCached(pdfPath: string): Promise<string[]> {
+  let mtime = 0
+  try {
+    mtime = fs.statSync(pdfPath).mtimeMs
+  } catch {
+    /* 读不到就没有缓存意义 */
+  }
+  const hit = pageCache.get(pdfPath)
+  if (hit && hit.mtime === mtime) return hit.pages
+  const pages = await extractPages(pdfPath)
+  pageCache.set(pdfPath, { mtime, pages })
+  return pages
+}
+
 export async function buildIndex(send: (ev: string, payload: unknown) => void): Promise<void> {
   if (running) return
   running = true
@@ -176,15 +192,29 @@ export async function hybridSearch(query: string, scopePaperId?: number, topK = 
   }
 
   const top = [...rrf.entries()].sort((a, b) => b[1] - a[1]).slice(0, topK * 2)
-  const getChunk = db.prepare('SELECT paper_id, page, text FROM chunks WHERE id=?')
+  const getChunk = db.prepare('SELECT paper_id, page, ord, text FROM chunks WHERE id=?')
+  const getNeighbor = db.prepare('SELECT text FROM chunks WHERE paper_id=? AND page=? AND ord=? AND id<>?')
   const out: RetrievedChunk[] = []
   for (const [id, s] of top) {
-    const c = getChunk.get(id) as { paper_id: number; page: number; text: string } | undefined
+    const c = getChunk.get(id) as { paper_id: number; page: number; ord: number; text: string } | undefined
     if (!c) continue
     const p = paperById.get(c.paper_id)
     if (!p) continue // 孤儿块（论文行已删但块残留），跳过
     if (scopePaperId && c.paper_id !== scopePaperId) continue
-    out.push({ paperId: c.paper_id, slug: p.slug, title: p.title, page: c.page, text: c.text, score: s })
+    // 上下文扩展：并入相邻块，让每个来源不只是孤立片段
+    let text = c.text
+    for (const [pg, od, pre] of [
+      [c.page, c.ord - 1, true],
+      [c.page, c.ord + 1, false],
+      [c.page + 1, 0, false]
+    ] as Array<[number, number, boolean]>) {
+      if (text.length > 3600) break
+      const n = getNeighbor.get(c.paper_id, pg, od, id) as { text: string } | undefined
+      if (n) text = pre ? `${n.text}（前接）
+${text}` : `${text}
+${n.text}`
+    }
+    out.push({ paperId: c.paper_id, slug: p.slug, title: p.title, page: c.page, text, score: s })
     if (out.length >= topK) break
   }
   return out

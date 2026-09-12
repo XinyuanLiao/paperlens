@@ -2,8 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, nativeImag
 import path from 'node:path'
 import fs from 'node:fs'
 import * as dbmod from './db'
-import { buildIndex, isIndexRunning, hybridSearch } from './ingest'
-import { chatStream, translateMessages, explainMessages, ragMessages, testLLM, type ChatMessage } from './llm'
+import { buildIndex, isIndexRunning, hybridSearch, extractPagesCached } from './ingest'
+import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
 import { importPapers, reclassifyAll, reclassifyOne } from './import'
 import { embed } from './embed'
 
@@ -331,17 +331,39 @@ function registerIpc(): void {
         if (args.mode === 'translate') msgs = translateMessages(args.text!, args.context ?? '', dbmod.getSettings().translateTarget)
         else if (args.mode === 'explain') msgs = explainMessages(args.text!, args.context ?? '')
         else if (args.mode === 'rag') {
-          sources = await hybridSearch(args.question!, args.scopePaperId, 8, args.category)
-          if (sources.length === 0) {
-            send(`llm:delta:${args.reqId}`, '⚠️ 检索不到相关片段（可能索引尚未建好），请先重建索引。')
-            send(`llm:end:${args.reqId}`, null)
-            return
+          if (args.scopePaperId) {
+            // 整篇模式：完整论文正文进提示词（按页标记，引用为 [页码]）
+            const paper = dbmod
+              .getDb()
+              .prepare('SELECT id, slug, title, path FROM papers WHERE id=?')
+              .get(args.scopePaperId) as { id: number; slug: string; title: string; path: string } | undefined
+            if (!paper) throw new Error('论文不存在')
+            let pages: string[] = []
+            try {
+              pages = await extractPagesCached(paper.path)
+            } catch {
+              pages = []
+            }
+            if (pages.length > 0) {
+              sources = pages.map((t, i) => ({ paperId: paper.id, slug: paper.slug, title: paper.title, page: i + 1, text: t, score: 1 }))
+              msgs = paperFullMessages(args.question!, pages, paper.title)
+            } else {
+              sources = await hybridSearch(args.question!, args.scopePaperId, 8, args.category)
+              msgs = ragMessages(args.question!, sources.map((s, i) => ({ label: `${s.title} (p.${s.page})`, text: s.text })), paper.title)
+            }
+          } else {
+            sources = await hybridSearch(args.question!, undefined, 12, args.category)
+            if (sources.length === 0) {
+              send(`llm:delta:${args.reqId}`, '⚠️ 检索不到相关片段（可能索引尚未建好），请先重建索引。')
+              send(`llm:end:${args.reqId}`, null)
+              return
+            }
+            msgs = ragMessages(
+              args.question!,
+              sources.map((s, i) => ({ label: `${s.title} (p.${s.page})`, text: s.text })),
+              args.paperTitle
+            )
           }
-          msgs = ragMessages(
-            args.question!,
-            sources.map((s, i) => ({ label: `${s.title} (p.${s.page})`, text: s.text })),
-            args.paperTitle
-          )
         } else msgs = args.messages ?? []
 
         for await (const delta of chatStream(msgs)) send(`llm:delta:${args.reqId}`, delta)

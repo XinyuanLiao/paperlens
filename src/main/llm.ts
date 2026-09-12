@@ -145,6 +145,34 @@ export async function testLLM(): Promise<TestResult> {
   }
 }
 
+// 整篇模式：全文按页标记进提示词，引用格式为 [页码]
+export function paperFullMessages(question: string, pages: string[], title: string, budget = 120000): ChatMessage[] {
+  const parts: string[] = []
+  let used = 0
+  let truncated = false
+  for (let i = 0; i < pages.length; i++) {
+    const block = `【第 ${i + 1} 页】
+${pages[i]}`
+    if (used + block.length > budget) {
+      truncated = true
+      break
+    }
+    parts.push(block)
+    used += block.length
+  }
+  return [
+    {
+      role: 'system',
+      content:
+        `你是严谨的学术问答助手。以下是论文《${title}》的完整正文（按页标记）。规则：` +
+        '1）仅依据该论文内容回答；2）每个关键论断后标注页码引用，格式为 [页码]，如 [5] 表示第 5 页；' +
+        '3）论文未覆盖的问题明确说明，不要编造；4）中文回答，专业术语首次出现给英文原文。' +
+        (truncated ? '注意：论文过长，仅提供了前部分页面。' : '')
+    },
+    { role: 'user', content: `【论文全文】\n${parts.join('\n\n')}\n\n【问题】\n${question}` }
+  ]
+}
+
 export function ragMessages(question: string, sources: Array<{ label: string; text: string }>, paperTitle?: string): ChatMessage[] {
   const ctx = sources.map((s, i) => `[${i + 1}] ${s.label}\n${s.text}`).join('\n\n')
   return [
