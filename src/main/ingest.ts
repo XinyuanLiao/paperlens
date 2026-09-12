@@ -120,10 +120,14 @@ export interface RetrievedChunk {
   score: number
 }
 
-// 混合检索：向量余弦 + FTS5(trigram) BM25，RRF 融合
-export async function hybridSearch(query: string, scopePaperId?: number, topK = 8): Promise<RetrievedChunk[]> {
+// 混合检索：向量余弦 + FTS5(trigram) BM25，RRF 融合；scopePaperId / category 过滤范围
+export async function hybridSearch(query: string, scopePaperId?: number, topK = 8, category?: string): Promise<RetrievedChunk[]> {
   const db = getDb()
-  const papers = db.prepare('SELECT id, slug, title FROM papers').all() as Array<{ id: number; slug: string; title: string }>
+  let papers = db.prepare('SELECT id, slug, title FROM papers').all() as Array<{ id: number; slug: string; title: string }>
+  if (category) {
+    const allowed = new Set(db.prepare('SELECT id FROM papers WHERE category=?').all(category).map((r: any) => r.id))
+    papers = papers.filter((p) => allowed.has(p.id))
+  }
   const paperById = new Map(papers.map((p) => [p.id, p]))
 
   const rrf = new Map<number, number>()
@@ -132,7 +136,12 @@ export async function hybridSearch(query: string, scopePaperId?: number, topK = 
   // 向量召回
   const { vectors } = await embed([query], true)
   const qv = vectors[0]
-  const rows = db.prepare('SELECT id, paper_id, page, vec FROM chunks').all() as Array<{ id: number; paper_id: number; page: number; vec: Buffer }>
+  const rows = db
+    .prepare(
+      `SELECT c.id, c.paper_id, c.page, c.vec FROM chunks c
+       WHERE (? IS NULL OR c.paper_id IN (SELECT id FROM papers WHERE category=?))`
+    )
+    .all(category ?? null, category ?? '') as Array<{ id: number; paper_id: number; page: number; vec: Buffer }>
   const scored: Array<{ id: number; s: number }> = []
   for (const r of rows) {
     if (scopePaperId && r.paper_id !== scopePaperId) continue
@@ -146,10 +155,22 @@ export async function hybridSearch(query: string, scopePaperId?: number, topK = 
   try {
     const fts = db
       .prepare(
-        `SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) LIMIT 40`
+        `SELECT f.rowid FROM chunks_fts f
+         WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) LIMIT 200`
       )
       .all(query) as Array<{ rowid: number }>
-    fts.forEach((x, i) => bump(x.rowid, i))
+    const inScope = (rowid: number): boolean => {
+      const c = db.prepare('SELECT paper_id, category FROM chunks JOIN papers ON papers.id=chunks.paper_id WHERE chunks.id=?').get(rowid) as
+        | { paper_id: number; category: string }
+        | undefined
+      if (!c) return false
+      if (scopePaperId && c.paper_id !== scopePaperId) return false
+      if (category && c.category !== category) return false
+      return true
+    }
+    fts.forEach((x, i) => {
+      if (inScope(x.rowid)) bump(x.rowid, i)
+    })
   } catch {
     /* 查询词过短或无匹配时忽略 */
   }

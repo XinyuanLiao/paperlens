@@ -1,10 +1,14 @@
 import { useRef, useState } from 'react'
 import { renderRich } from './rich'
-import { ModelPill, ThinkingPill } from './ChatControls'
+import { ModelPill, ThinkingPill, ScopePill, type ChatScope } from './ChatControls'
 import type { ChatMsg } from './types'
 
 interface Props {
   paperCount: number
+  cats: string[]
+  catCounts: Map<string, number>
+  scope: ChatScope
+  onScopeChange: (s: ChatScope) => void
   models: string[]
   model: string
   thinking: string
@@ -20,7 +24,7 @@ const SUGGESTIONS = [
 ]
 
 // 全库对话主界面（Chat 模式）：hero 欢迎态 + 全屏 RAG 问答
-export default function ChatView({ paperCount, models, model, thinking, onChangeModel, onChangeThinking, onJump }: Props): JSX.Element {
+export default function ChatView({ paperCount, cats, catCounts, scope, onScopeChange, models, model, thinking, onChangeModel, onChangeThinking, onJump }: Props): JSX.Element {
   const [msgs, setMsgs] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -35,7 +39,7 @@ export default function ChatView({ paperCount, models, model, thinking, onChange
     setBusy(true)
     scrollBottom()
     window.api.stream(
-      { mode: 'rag', question: q },
+      { mode: 'rag', question: q, category: scope.type === 'cat' ? scope.cat : undefined },
       {
         onDelta: (d) =>
           setMsgs((ms) => {
@@ -75,9 +79,9 @@ export default function ChatView({ paperCount, models, model, thinking, onChange
         }}
       />
       <div className="hero-input-foot">
+        <ScopePill cats={cats} scope={scope} onChange={onScopeChange} paperCount={paperCount} catCounts={catCounts} />
         <ModelPill models={models} model={model} onChange={onChangeModel} />
         <ThinkingPill level={thinking} onChange={onChangeThinking} />
-        <span className="hero-scope">全库 · {paperCount} 篇</span>
         <span style={{ flex: 1 }} />
         <button className="send-btn" onClick={() => send()} disabled={busy || !input.trim()}>
           发送

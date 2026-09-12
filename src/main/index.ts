@@ -235,6 +235,63 @@ function registerIpc(): void {
     }
   })
 
+  // 分类右键菜单：重命名 / 批量导出
+  ipcMain.on('category:menu', (_e, cat: string, x: number, y: number) => {
+    if (!win) return
+    const menu = Menu.buildFromTemplate([
+      {
+        label: '重命名…',
+        click: () => win!.webContents.send('category:rename-request', cat)
+      },
+      {
+        label: '导出该分类…',
+        click: () => void exportCategory(cat)
+      }
+    ])
+    menu.popup({ window: win, x: Math.round(x), y: Math.round(y) })
+  })
+
+  ipcMain.handle('category:rename', (_e, from: string, to: string) => {
+    const toSlug = String(to)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+    if (!toSlug) throw new Error('名称无效（仅限小写字母/数字/连字符）')
+    const db = dbmod.getDb()
+    const rows = db.prepare('SELECT id, path FROM papers WHERE category=?').all(from) as Array<{ id: number; path: string }>
+    const libPapers = path.join(dbmod.getSettings().libraryPath, 'papers')
+    const dirs = [...new Set(rows.map((r) => path.dirname(path.dirname(r.path))))]
+    for (const dir of dirs) {
+      const target = path.join(path.dirname(dir), `${dir.split(/[/\\]/).pop()!.match(/^(\d+-)/)?.[1] ?? ''}${toSlug}`)
+      if (!fs.existsSync(target)) fs.renameSync(dir, target)
+    }
+    const r = dbmod.scanLibrary(dbmod.getSettings().libraryPath)
+    return { renamed: toSlug, scan: r }
+  })
+
+  async function exportCategory(cat: string): Promise<void> {
+    const db = dbmod.getDb()
+    const rows = db.prepare('SELECT path, slug FROM papers WHERE category=?').all(cat) as Array<{ path: string; slug: string }>
+    if (!win) return
+    const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], message: `选择导出「${cat}」的目标文件夹` })
+    if (r.canceled || !r.filePaths[0]) return
+    const destRoot = r.filePaths[0]
+    let copied = 0
+    for (const row of rows) {
+      const srcDir = path.dirname(row.path)
+      const destDir = path.join(destRoot, row.slug)
+      try {
+        fs.mkdirSync(destDir, { recursive: true })
+        for (const f of fs.readdirSync(srcDir)) fs.copyFileSync(path.join(srcDir, f), path.join(destDir, f))
+        copied++
+      } catch (err) {
+        console.error('[export]', row.slug, err)
+      }
+    }
+    dialog.showMessageBox(win, { message: `已导出 ${copied}/${rows.length} 篇到 ${destRoot}` })
+  }
+
   ipcMain.handle('index:status', () => {
     const total = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers').get() as { n: number }
     const done = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers WHERE indexed=1').get() as { n: number }
@@ -266,7 +323,7 @@ function registerIpc(): void {
     'llm:stream',
     async (
       _e,
-      args: { reqId: number; mode: 'chat' | 'translate' | 'explain' | 'rag'; messages?: ChatMessage[]; text?: string; context?: string; question?: string; scopePaperId?: number; paperTitle?: string }
+      args: { reqId: number; mode: 'chat' | 'translate' | 'explain' | 'rag'; messages?: ChatMessage[]; text?: string; context?: string; question?: string; scopePaperId?: number; category?: string; paperTitle?: string }
     ) => {
       try {
         let msgs: ChatMessage[]
@@ -274,7 +331,7 @@ function registerIpc(): void {
         if (args.mode === 'translate') msgs = translateMessages(args.text!, args.context ?? '', dbmod.getSettings().translateTarget)
         else if (args.mode === 'explain') msgs = explainMessages(args.text!, args.context ?? '')
         else if (args.mode === 'rag') {
-          sources = await hybridSearch(args.question!, args.scopePaperId)
+          sources = await hybridSearch(args.question!, args.scopePaperId, 8, args.category)
           if (sources.length === 0) {
             send(`llm:delta:${args.reqId}`, '⚠️ 检索不到相关片段（可能索引尚未建好），请先重建索引。')
             send(`llm:end:${args.reqId}`, null)

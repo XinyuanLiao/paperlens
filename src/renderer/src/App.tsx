@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import LibraryPane from './LibraryPane'
 import PdfViewer, { type ViewerHandle } from './PdfViewer'
 import SidePanel, { type SideControl } from './SidePanel'
@@ -6,6 +6,8 @@ import SettingsDialog from './SettingsDialog'
 import SetupWizard from './SetupWizard'
 import CommandPalette from './CommandPalette'
 import ChatView from './ChatView'
+import RefViewer from './RefViewer'
+import type { ChatScope } from './ChatControls'
 import type { Paper, Settings } from './types'
 
 export interface Tab {
@@ -248,11 +250,6 @@ export default function App(): JSX.Element {
     setShowSide(true)
     sideControl.current?.explain(text, pageCtxRef.current)
   }, [])
-  const doQuote = useCallback((text: string) => {
-    setFloatBar(null)
-    setShowSide(true)
-    sideControl.current?.quote(text)
-  }, [])
   const onDeleteHighlight = useCallback((hid: number) => {
     void window.api.deleteHighlight(hid)
     viewerRef.current?.removeHighlightLocal(hid)
@@ -327,6 +324,24 @@ export default function App(): JSX.Element {
   const models = profiles.length ? profiles.flatMap((p) => p.models) : settings?.models?.length ? settings.models : settings?.model ? [settings.model] : []
   const model = settings?.model ?? ''
   const thinking = settings?.thinkingLevel ?? 'default'
+
+  // 对话模式：检索范围与引用面板
+  const [chatScope, setChatScope] = useState<ChatScope>({ type: 'all', cat: '' })
+  const [refView, setRefView] = useState<{ paper: Paper; page: number } | null>(null)
+  const cats = useMemo(() => [...new Set(papers.map((p) => p.category))].sort((a, b) => a.localeCompare(b)), [papers])
+  const catCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const p of papers) m.set(p.category, (m.get(p.category) ?? 0) + 1)
+    return m
+  }, [papers])
+  // Chat 模式点引用：在右侧引用面板打开，不离开对话
+  const openCite = useCallback(
+    (slug: string, page: number) => {
+      const p = papers.find((x) => x.slug === slug)
+      if (p) setRefView({ paper: p, page })
+    },
+    [papers]
+  )
   const changeModel = useCallback(
     (m: string) => {
       // 跨供应商：该模型属于哪个配置，就同步切换到那个供应商
@@ -488,77 +503,93 @@ export default function App(): JSX.Element {
               onOpenPalette={() => setPaletteOpen(true)}
               mode={mode}
               onModeChange={setMode}
+              onPapersChanged={refreshPapers}
             />
             <div className="col-resizer" onMouseDown={startDrag('lib')} title="拖动调节宽度，双击复位" onDoubleClick={() => { setLibWidth(264); localStorage.setItem('pl.libW', '264') }} />
           </>
         )}
         <div className="workspace">
-          {mode === 'chat' ? (
+          {/* 阅读区：模式切换只隐藏不卸载，保留标签页与滚动状态 */}
+          <div className={`main-win ${mode === 'read' ? '' : 'pane-hidden'}`}>
+            {tabs.length === 0 ? (
+              <div className="start-pane">
+                <div className="workspace-empty">
+                  <div className="big">📚</div>
+                  <div className="headline">PaperLens</div>
+                  <div className="tip">从左侧选择论文开始阅读；对话模式可与全库文献直接对话</div>
+                  {papers.length === 0 && (
+                    <div className="empty-actions">
+                      <button className="add-btn" onClick={() => void pickLibraryNow()}>
+                        选择文献库文件夹
+                      </button>
+                      <button className="add-btn ghost" onClick={addPapers}>
+                        导入 PDF 文献
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <PdfViewer
+                ref={viewerRef}
+                tabs={tabs}
+                activeId={activeId}
+                onActivate={setActiveId}
+                onCloseTab={closeTab}
+                pendingJump={pendingJump}
+                onJumped={() => setPendingJump(null)}
+                onPageContext={(t) => {
+                  pageCtxRef.current = t
+                  setPageCtx(t)
+                }}
+                onSelect={onSelect}
+                onDeleteHighlight={onDeleteHighlight}
+              />
+            )}
+            {showSide && (
+              <div
+                className="col-resizer"
+                onMouseDown={startDrag('side')}
+                title="拖动调节宽度，双击复位"
+                onDoubleClick={() => {
+                  setSideWidth(380)
+                  localStorage.setItem('pl.sideW', '380')
+                }}
+              />
+            )}
+            {/* 问答面板常驻：隐藏时保留聊天与翻译记录 */}
+            <div className={`side-wrap ${showSide ? '' : 'pane-hidden'}`}>
+              <SidePanel
+                ref={sideControl}
+                width={sideWidth}
+                paper={activePaper}
+                pageContext={pageCtx}
+                onJump={jumpTo}
+                models={models}
+                model={model}
+                thinking={thinking}
+                onChangeModel={changeModel}
+                onChangeThinking={changeThinking}
+              />
+            </div>
+          </div>
+          {/* 对话区：同样常驻，保留对话历史 */}
+          <div className={`chat-wrap ${mode === 'chat' ? '' : 'pane-hidden'}`}>
             <ChatView
               paperCount={papers.length}
+              cats={cats}
+              catCounts={catCounts}
+              scope={chatScope}
+              onScopeChange={setChatScope}
               models={models}
               model={model}
               thinking={thinking}
               onChangeModel={changeModel}
               onChangeThinking={changeThinking}
-              onJump={jumpTo}
+              onJump={openCite}
             />
-          ) : (
-            <div className="main-win">
-              {tabs.length === 0 ? (
-                <div className="start-pane">
-                  <div className="workspace-empty">
-                    <div className="big">📚</div>
-                    <div className="headline">PaperLens</div>
-                    <div className="tip">从左侧选择论文开始阅读；右侧面板无需打开论文即可与全库文献对话</div>
-                    {papers.length === 0 && (
-                      <div className="empty-actions">
-                        <button className="add-btn" onClick={() => void pickLibraryNow()}>
-                          选择文献库文件夹
-                        </button>
-                        <button className="add-btn ghost" onClick={addPapers}>
-                          导入 PDF 文献
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <PdfViewer
-                  ref={viewerRef}
-                  tabs={tabs}
-                  activeId={activeId}
-                  onActivate={setActiveId}
-                  onCloseTab={closeTab}
-                  pendingJump={pendingJump}
-                  onJumped={() => setPendingJump(null)}
-                  onPageContext={(t) => {
-                    pageCtxRef.current = t
-                    setPageCtx(t)
-                  }}
-                  onSelect={onSelect}
-                  onDeleteHighlight={onDeleteHighlight}
-                />
-              )}
-              {showSide && (
-                <>
-                  <div className="col-resizer" onMouseDown={startDrag('side')} title="拖动调节宽度，双击复位" onDoubleClick={() => { setSideWidth(380); localStorage.setItem('pl.sideW', '380') }} />
-                  <SidePanel
-                    ref={sideControl}
-                    width={sideWidth}
-                    paper={activePaper}
-                    pageContext={pageCtx}
-                    onJump={jumpTo}
-                    models={models}
-                    model={model}
-                    thinking={thinking}
-                    onChangeModel={changeModel}
-                    onChangeThinking={changeThinking}
-                  />
-                </>
-              )}
-            </div>
-          )}
+            {refView && <RefViewer paper={refView.paper} page={refView.page} onClose={() => setRefView(null)} />}
+          </div>
         </div>
       </div>
 
@@ -582,7 +613,6 @@ export default function App(): JSX.Element {
           <button onClick={doHighlight}>高亮</button>
           <button onClick={() => doTranslate(floatBar.text)}>翻译</button>
           <button onClick={() => doExplain(floatBar.text)}>解释</button>
-          <button onClick={() => doQuote(floatBar.text)}>追问</button>
         </div>
       )}
       {showSettings && settings && (

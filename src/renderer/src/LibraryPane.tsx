@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Paper } from './types'
 
 interface Props {
@@ -19,6 +19,7 @@ interface Props {
   mode: 'read' | 'chat'
   onModeChange: (m: 'read' | 'chat') => void
   width: number
+  onPapersChanged: () => void
 }
 
 export default function LibraryPane({
@@ -38,7 +39,8 @@ export default function LibraryPane({
   onOpenPalette,
   mode,
   onModeChange,
-  width
+  width,
+  onPapersChanged
 }: Props): JSX.Element {
   const cats = useMemo(() => {
     const m = new Map<string, Paper[]>()
@@ -61,6 +63,28 @@ export default function LibraryPane({
   const kw = q.trim().toLowerCase()
   const match = (p: Paper): boolean => !kw || p.title.toLowerCase().includes(kw) || p.authors.toLowerCase().includes(kw) || p.slug.includes(kw)
   const searching = kw.length > 0
+
+  // 分类右键：重命名（主进程菜单触发请求 → 本地输入框确认）
+  const [renameCat, setRenameCat] = useState<string | null>(null)
+  const [renameVal, setRenameVal] = useState('')
+  const [renaming, setRenaming] = useState(false)
+  useEffect(() => window.api.onCategoryRenameRequest((cat) => {
+    setRenameCat(cat)
+    setRenameVal(cat)
+  }), [])
+  const doRename = async (): Promise<void> => {
+    if (!renameCat || !renameVal.trim() || renaming) return
+    setRenaming(true)
+    try {
+      await window.api.renameCategory(renameCat, renameVal.trim())
+      setRenameCat(null)
+      onPapersChanged()
+    } catch (e) {
+      alert(String(e))
+    } finally {
+      setRenaming(false)
+    }
+  }
 
   const navBtn = (dir: 'back' | 'fwd'): JSX.Element => (
     <button className="icon-btn" disabled={dir === 'back' ? !canBack : !canFwd} title={dir === 'back' ? '上一篇' : '下一篇'} onClick={dir === 'back' ? onBack : onFwd}>
@@ -154,7 +178,15 @@ export default function LibraryPane({
           ? papers.filter(match).map(paperRow)
           : cats.map(([c, list]) => (
               <div key={c}>
-                <div className="cat-item" onClick={() => toggle(c)}>
+                <div
+                  className="cat-item"
+                  onClick={() => toggle(c)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    window.api.categoryMenu(c, e.clientX, e.clientY)
+                  }}
+                  title="右键：重命名 / 导出该分类"
+                >
                   <svg
                     className={`chev ${expanded.has(c) ? 'open' : ''}`}
                     width="11"
@@ -177,6 +209,32 @@ export default function LibraryPane({
               </div>
             ))}
       </div>
+      {renameCat && (
+        <div className="modal-mask" onMouseDown={() => setRenameCat(null)}>
+          <div className="modal" style={{ width: 380 }} onMouseDown={(e) => e.stopPropagation()}>
+            <h2>重命名分类</h2>
+            <div className="field">
+              <label>新名称（小写字母 / 数字 / 连字符）</label>
+              <input
+                autoFocus
+                value={renameVal}
+                onChange={(e) => setRenameVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void doRename()
+                }}
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => void doRename()} disabled={renaming}>
+                确认重命名
+              </button>
+              <button className="btn ghost" onClick={() => setRenameCat(null)}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

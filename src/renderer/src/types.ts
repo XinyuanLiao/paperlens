@@ -85,6 +85,9 @@ declare global {
       listHighlights: (paperId: number) => Promise<Highlight[]>
       deleteHighlight: (id: number) => Promise<boolean>
       paperMenu: (id: number, x: number, y: number) => void
+      categoryMenu: (cat: string, x: number, y: number) => void
+      renameCategory: (from: string, to: string) => Promise<{ renamed: string; scan: { added: number; updated: number; total: number } }>
+      onCategoryRenameRequest: (cb: (cat: string) => void) => () => void
       reclassifyAll: () => void
       reclassifyOne: (id: number) => Promise<boolean>
       testLLM: () => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; error?: string }>

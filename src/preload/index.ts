@@ -19,6 +19,13 @@ const api = {
   listHighlights: (paperId: number) => ipcRenderer.invoke('highlights:list', paperId),
   deleteHighlight: (id: number) => ipcRenderer.invoke('highlights:delete', id),
   paperMenu: (id: number, x: number, y: number) => ipcRenderer.send('papers:menu', id, x, y),
+  categoryMenu: (cat: string, x: number, y: number) => ipcRenderer.send('category:menu', cat, x, y),
+  renameCategory: (from: string, to: string) => ipcRenderer.invoke('category:rename', from, to),
+  onCategoryRenameRequest: (cb: (cat: string) => void) => {
+    const h = (_e: unknown, cat: string) => cb(cat)
+    ipcRenderer.on('category:rename-request', h)
+    return () => ipcRenderer.removeListener('category:rename-request', h)
+  },
   reclassifyAll: () => ipcRenderer.send('papers:reclassify-all'),
   reclassifyOne: (id: number) => ipcRenderer.invoke('papers:reclassify-one', id),
   testLLM: () => ipcRenderer.invoke('llm:test'),

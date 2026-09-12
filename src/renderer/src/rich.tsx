@@ -3,36 +3,44 @@ import type { SourceRef } from './types'
 
 type Jump = (slug: string, page: number) => void
 
-// 行内：先按引用 [n] 切分出可点击芯片，其余片段再做 **bold** / `code`
+// 行内：markdown 链接 / 引用 [n] 芯片 / **bold** / `code`
 function inline(text: string, keyBase: string, sources: SourceRef[] | undefined, onJump: Jump): ReactNode[] {
-  const parts = text.split(/(\[\d+\])/g)
-  return parts.map((p, i) => {
-    const m = p.match(/^\[(\d+)\]$/)
-    if (m && sources) {
-      const src = sources.find((s) => s.n === parseInt(m[1]))
+  const out: ReactNode[] = []
+  const re = /(\[(\d+)\])|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*[^*]+\*\*|`[^`]+`)/g
+  let last = 0
+  let k = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    const tok = m[0]
+    if (m[2]) {
+      const src = sources?.find((s) => s.n === parseInt(m[2]))
       if (src) {
-        return (
-          <span key={`${keyBase}-${i}`} className="cite-chip" title={`${src.title} · 第 ${src.page} 页`} onClick={() => onJump(src.slug, src.page)}>
+        out.push(
+          <span key={`${keyBase}-${k++}`} className="cite-chip" title={`${src.title} · 第 ${src.page} 页`} onClick={() => onJump(src.slug, src.page)}>
             [{src.n}] p.{src.page}
           </span>
         )
-      }
-    }
-    const out: ReactNode[] = []
-    const re = /(\*\*[^*]+\*\*|`[^`]+`)/g
-    let last = 0
-    let k = 0
-    let mm: RegExpExecArray | null
-    while ((mm = re.exec(p))) {
-      if (mm.index > last) out.push(p.slice(last, mm.index))
-      const tok = mm[0]
-      if (tok.startsWith('**')) out.push(<strong key={`${keyBase}-${i}-${k++}`}>{tok.slice(2, -2)}</strong>)
-      else out.push(<code key={`${keyBase}-${i}-${k++}`} className="md-code">{tok.slice(1, -1)}</code>)
-      last = mm.index + tok.length
-    }
-    if (last < p.length) out.push(p.slice(last))
-    return <span key={`${keyBase}-${i}`}>{out}</span>
-  })
+      } else out.push(tok)
+    } else if (m[3]) {
+      const lm = tok.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/)!
+      const label = lm[1]
+      const url = lm[2]
+      out.push(
+        /^https?:\/\//.test(url) ? (
+          <a key={`${keyBase}-${k++}`} className="md-link" href={url} onClick={(e) => { e.preventDefault(); window.api.openExternal(url) }}>
+            {label}
+          </a>
+        ) : (
+          <span key={`${keyBase}-${k++}`}>{label}</span>
+        )
+      )
+    } else if (tok.startsWith('**')) out.push(<strong key={`${keyBase}-${k++}`}>{tok.slice(2, -2)}</strong>)
+    else out.push(<code key={`${keyBase}-${k++}`} className="md-code">{tok.slice(1, -1)}</code>)
+    last = m.index + tok.length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
 }
 
 // 块级：### 标题 / --- 分割线 / - 与 1. 列表 / 普通段落

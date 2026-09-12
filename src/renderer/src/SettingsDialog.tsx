@@ -127,10 +127,13 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
   return (
     <div className="modal-mask" onMouseDown={onClose}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-        <button className="modal-x" title="关闭（不保存）" onClick={onClose}>
-          ✕
-        </button>
-        <h2>设置</h2>
+        <div className="modal-head">
+          <h2>设置</h2>
+          <button className="modal-x" title="关闭（不保存）" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="modal-scroll">
 
         <div className="section">
           <div className="section-title">外观</div>
@@ -264,14 +267,14 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
         </div>
 
         <div className="section">
-          <div className="section-title">向量嵌入（切换后需重建索引）</div>
+          <div className="section-title">向量嵌入</div>
           <div className="field-row">
             <div className="field grow">
               <label>嵌入来源</label>
               <select value={form.embedProvider} onChange={(e) => set({ embedProvider: e.target.value as Settings['embedProvider'] })}>
-                <option value="local">本地 e5-small（离线免费，首次下载约 130MB）</option>
-                <option value="ollama">Ollama 本地模型（bge-m3 等，效果更好）</option>
-                <option value="zhipu">智谱 embedding-3（云端，按量计费）</option>
+                <option value="local">本地 e5-small</option>
+                <option value="ollama">Ollama</option>
+                <option value="zhipu">智谱 embedding-3</option>
               </select>
             </div>
             {form.embedProvider === 'ollama' && (
@@ -319,6 +322,7 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
           <button className="btn" onClick={save}>
             保存
           </button>
+        </div>
         </div>
       </div>
     </div>
