@@ -217,8 +217,10 @@ function registerIpc(): void {
     // 不预检 existsSync：iCloud/网盘占位文件在读取时会按需下载，预检反而拦掉
     try {
       return fs.readFileSync(abs)
-    } catch (e) {
-      throw new Error(`无法读取：${abs}（可能已被移动/删除，或网盘同步不完整）`)
+    } catch {
+      throw new Error(
+        `无法读取（文件未同步到本机或已移动）：${abs}\n若是 iCloud / 网盘文献，请在文件管理器中右键对应文件夹选择「始终保留在此设备上」，同步完成后再试。`
+      )
     }
   })
 

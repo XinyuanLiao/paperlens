@@ -149,7 +149,8 @@ html.mac .titlebar { height: 44px; width: 100%; padding-left: 78px; }
 .pdf-pane { min-height: 0; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
 
 /* 主工作区：全出血面板 + hairline 分隔（Zed 式，无悬浮卡片） */
-.workspace { flex: 1; min-width: 0; position: relative; overflow: hidden; }
+/* display:flex 使 .chat-view 高度受约束——chat-log 内部滚动的关键 */
+.workspace { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: hidden; display: flex; }
 .main-win { position: absolute; inset: 0; display: flex; background: var(--bg); }
 .main-win .pdf-pane { flex: 1; min-width: 0; }
 .main-win .side { width: 380px; flex-shrink: 0; border-left: 1px solid var(--border); }
@@ -515,16 +516,16 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .mode-toggle button.on { background: var(--bg); color: var(--text); font-weight: 600; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14); }
 
 /* ============ Chat 模式：全库对话主界面 ============ */
-.chat-view { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
+.chat-view { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
 .chat-hero-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 40px; gap: 22px; }
-.chat-hero { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
-.chat-hero .big { font-size: 44px; opacity: 0.9; }
-.chat-hero .headline { font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: 0.3px; }
+.chat-hero { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.chat-hero .big { font-size: 46px; opacity: 0.9; }
+.chat-hero .headline { font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif; font-size: 25px; font-weight: 600; color: var(--text); letter-spacing: 0.3px; }
 .chat-hero .tip { font-size: 12.5px; color: var(--text-dim); }
 .hero-input {
   width: 680px; max-width: 100%; background: var(--bg); border: 1px solid var(--border-lit);
-  border-radius: 14px; box-shadow: var(--shadow); padding: 13px 14px 10px;
-  display: flex; flex-direction: column; gap: 8px;
+  border-radius: 16px; box-shadow: var(--shadow); padding: 15px 16px 11px;
+  display: flex; flex-direction: column; gap: 9px;
 }
 .hero-textarea {
   border: none; background: transparent; outline: none; resize: none; color: var(--text);
@@ -533,10 +534,10 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .hero-textarea::placeholder { color: var(--text-dim); }
 .hero-input-foot { display: flex; align-items: center; gap: 10px; }
 .hero-scope { font-size: 11px; color: var(--text-dim); font-family: var(--mono); background: var(--bg2); border: 1px solid var(--border); border-radius: 5px; padding: 2px 8px; }
-.hero-suggest { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.hero-suggest { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .hero-suggest button {
-  background: var(--bg2); border: 1px solid var(--border); color: var(--text-dim);
-  border-radius: 16px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-family: inherit;
+  background: var(--bg); border: 1px solid var(--border-lit); color: var(--text-dim);
+  border-radius: 18px; padding: 8px 16px; cursor: pointer; font-size: 12.5px; font-family: inherit;
   transition: border-color var(--speed), color var(--speed), background var(--speed);
 }
 .hero-suggest button:hover { border-color: var(--accent); color: var(--accent2); background: var(--accent-soft); }
@@ -544,3 +545,16 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .chat-view-input { flex-shrink: 0; padding: 10px 0 18px; width: 760px; max-width: 100%; margin: 0 auto; }
 .chat-view-input .hero-input { width: 100%; box-shadow: none; background: var(--bg2); }
 .page-ind { padding: 3px 6px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); min-width: 52px; text-align: center; }
+
+/* ============ 回答内 Markdown（AI 气泡） ============ */
+.bubble { white-space: normal; }
+.bubble .md-p { margin: 3px 0; line-height: 1.7; }
+.bubble .md-p:first-child { margin-top: 0; }
+.bubble .md-p:last-child { margin-bottom: 0; }
+.bubble .md-h { font-weight: 650; font-size: 13.5px; margin: 12px 0 5px; color: var(--text); }
+.bubble .md-h:first-child { margin-top: 0; }
+.bubble .md-list { margin: 5px 0; padding-left: 18px; }
+.bubble .md-list li { margin: 3.5px 0; line-height: 1.7; }
+.bubble .md-hr { border: none; border-top: 1px dashed var(--border-lit); margin: 11px 0; }
+.bubble .md-code { font-family: var(--mono); font-size: 11.5px; background: var(--bg3); border-radius: 4px; padding: 0 4px; }
+.bubble strong { font-weight: 650; }

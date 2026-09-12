@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
-import type { ChatMsg, Paper, SourceRef } from './types'
+import { renderRich } from './rich'
+import type { ChatMsg, Paper } from './types'
 
 export interface SideControl {
   translate: (text: string, context: string) => void
@@ -84,24 +85,6 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel({ paper, pag
 
   const ctxTranslation = ctxOn && current?.out ? current : null
 
-  const renderCitations = (content: string, sources?: SourceRef[]) => {
-    const parts = content.split(/(\[\d+\])/g)
-    return parts.map((p, i) => {
-      const m = p.match(/^\[(\d+)\]$/)
-      if (m && sources) {
-        const src = sources.find((s) => s.n === parseInt(m[1]))
-        if (src) {
-          return (
-            <span key={i} className="cite-chip" title={`${src.title} · 第 ${src.page} 页`} onClick={() => onJump(src.slug, src.page)}>
-              [{src.n}] p.{src.page}
-            </span>
-          )
-        }
-      }
-      return <span key={i}>{p}</span>
-    })
-  }
-
   const send = () => {
     const q = input.trim()
     if (!q || busy) return
@@ -168,23 +151,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel({ paper, pag
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
                 <div className="who">{m.role === 'user' ? '你' : 'AI'}</div>
-                <div className="bubble">
-                  {m.role === 'assistant' ? renderCitations(m.content, m.sources) : m.content}
-                  {m.sources && m.sources.length > 0 && (
-                    <div className="sources">
-                      引用来源：
-                      <ol style={{ margin: '4px 0 0' }}>
-                        {m.sources.map((s) => (
-                          <li key={s.n}>
-                            <span className="src" onClick={() => onJump(s.slug, s.page)}>
-                              [{s.n}] {s.title} · p.{s.page}
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
-                </div>
+                <div className="bubble">{m.role === 'assistant' ? renderRich(m.content, m.sources, onJump) : m.content}</div>
               </div>
             ))}
             {busy && (

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import type { ChatMsg, SourceRef } from './types'
+import { renderRich } from './rich'
+import type { ChatMsg } from './types'
 
 interface Props {
   paperCount: number
@@ -52,24 +53,6 @@ export default function ChatView({ paperCount, onJump }: Props): JSX.Element {
     )
   }
 
-  const citations = (content: string, sources?: SourceRef[]): JSX.Element[] => {
-    const parts = content.split(/(\[\d+\])/g)
-    return parts.map((p, i) => {
-      const m = p.match(/^\[(\d+)\]$/)
-      if (m && sources) {
-        const src = sources.find((s) => s.n === parseInt(m[1]))
-        if (src) {
-          return (
-            <span key={i} className="cite-chip" title={`${src.title} · 第 ${src.page} 页`} onClick={() => onJump(src.slug, src.page)}>
-              [{src.n}] p.{src.page}
-            </span>
-          )
-        }
-      }
-      return <span key={i}>{p}</span>
-    })
-  }
-
   const inputBox = (
     <div className="hero-input">
       <textarea
@@ -119,23 +102,7 @@ export default function ChatView({ paperCount, onJump }: Props): JSX.Element {
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
                 <div className="who">{m.role === 'user' ? '你' : 'AI'}</div>
-                <div className="bubble">
-                  {m.role === 'assistant' ? citations(m.content, m.sources) : m.content}
-                  {m.sources && m.sources.length > 0 && (
-                    <div className="sources">
-                      引用来源：
-                      <ol style={{ margin: '4px 0 0' }}>
-                        {m.sources.map((s) => (
-                          <li key={s.n}>
-                            <span className="src" onClick={() => onJump(s.slug, s.page)}>
-                              [{s.n}] {s.title} · p.{s.page}
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
-                </div>
+                <div className="bubble">{renderRich(m.content, m.sources, onJump)}</div>
               </div>
             ))}
             {busy && (

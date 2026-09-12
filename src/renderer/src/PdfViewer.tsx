@@ -58,7 +58,14 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         if (baseVwRef.current > 0) {
           setBaseScale(Math.max(0.5, Math.min(2.2, (el.clientWidth - 56) / baseVwRef.current)))
           setZoom(1)
-          setTimeout(() => pageRefs.current.get(curPageRef.current)?.scrollIntoView({ block: 'start' }), 120)
+          setTimeout(() => {
+            const target = pageRefs.current.get(curPageRef.current)
+            const first = pageRefs.current.get(1)
+            if (target && first) {
+              const top = target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
+              el.scrollTo({ top, behavior: 'auto' })
+            }
+          }, 120)
         }
       }, 140)
     })
@@ -141,9 +148,14 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
 
   const scale = baseScale * zoom
 
+  // 只滚动 .viewer-scroll 自身：scrollIntoView 会连带滚动 overflow:hidden 的祖先
+  // （.shell/.workspace），把标题栏顶出窗口外
   const scrollToPage = useCallback((n: number) => {
+    const sc = scrollRef.current
     const el = pageRefs.current.get(n)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (!sc || !el) return
+    const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop
+    sc.scrollTo({ top, behavior: 'smooth' })
   }, [])
 
   const goToPage = useCallback(
