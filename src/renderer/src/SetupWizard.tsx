@@ -78,7 +78,7 @@ export default function SetupWizard({ initial, onDone }: Props): JSX.Element {
           <div className="wizard-logo">📚</div>
           <div>
             <h1>欢迎使用 PaperLens</h1>
-            <p>三步完成初始化：选择文献库、配置 LLM、设置嵌入模型</p>
+            <p>三步完成初始化</p>
           </div>
         </div>
         <div className="wizard-steps">
@@ -93,36 +93,30 @@ export default function SetupWizard({ initial, onDone }: Props): JSX.Element {
         <div className="wizard-body">
           {step === 0 && (
             <>
-              <p className="wizard-tip">选择存放论文的文件夹（多设备可通过 iCloud / 同步盘指向同一目录），也可以先用默认位置稍后调整。</p>
               <div className="wizard-actions">
                 <button className="btn" onClick={() => void pickLibrary()} disabled={busy}>
                   选择文献库文件夹…
                 </button>
                 <button className="btn ghost" onClick={() => void useDefault()} disabled={busy}>
-                  使用默认位置（文档/PaperLens）
+                  使用默认位置
                 </button>
               </div>
               {libMsg && <div className="wizard-msg">{libMsg}</div>}
-              <div className="wizard-hint">结构约定：库内 papers/分类/论文文件夹/paper.pdf；平铺的单个 PDF 也会被识别。之后可随时拖 PDF 入窗口导入（AI 自动归类）。</div>
             </>
           )}
 
           {step === 1 && (
             <>
-              <p className="wizard-tip">配置用于对话 / 翻译 / AI 归类的 LLM。国内服务开箱即用，密钥只保存在本机。</p>
-              <div className="field">
-                <label>服务商</label>
-                <div className="preset-row">
-                  {PRESETS.map((p) => (
-                    <button
-                      key={p.id}
-                      className={`preset-chip ${form.provider === p.id ? 'on' : ''}`}
-                      onClick={() => set(p.id === 'custom' ? { provider: p.id } : { provider: p.id, apiBase: p.base, model: p.model })}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
+              <div className="preset-row">
+                {PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    className={`preset-chip ${form.provider === p.id ? 'on' : ''}`}
+                    onClick={() => set(p.id === 'custom' ? { provider: p.id } : { provider: p.id, apiBase: p.base, model: p.model })}
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
               <div className="field-row">
                 <div className="field">
@@ -149,20 +143,16 @@ export default function SetupWizard({ initial, onDone }: Props): JSX.Element {
 
           {step === 2 && (
             <>
-              <p className="wizard-tip">嵌入模型用于全库语义检索（RAG）。默认本地 e5-small（首次使用自动下载，约 130 MB），也可用智谱或 Ollama。</p>
-              <div className="field">
-                <label>嵌入来源</label>
-                <div className="preset-row">
-                  <button className={`preset-chip ${form.embedProvider === 'local' ? 'on' : ''}`} onClick={() => set({ embedProvider: 'local' })}>
-                    本地 e5-small
-                  </button>
-                  <button className={`preset-chip ${form.embedProvider === 'zhipu' ? 'on' : ''}`} onClick={() => set({ embedProvider: 'zhipu' })}>
-                    智谱 embedding-3
-                  </button>
-                  <button className={`preset-chip ${form.embedProvider === 'ollama' ? 'on' : ''}`} onClick={() => set({ embedProvider: 'ollama' })}>
-                    Ollama
-                  </button>
-                </div>
+              <div className="preset-row">
+                <button className={`preset-chip ${form.embedProvider === 'local' ? 'on' : ''}`} onClick={() => set({ embedProvider: 'local' })}>
+                  本地 e5-small
+                </button>
+                <button className={`preset-chip ${form.embedProvider === 'zhipu' ? 'on' : ''}`} onClick={() => set({ embedProvider: 'zhipu' })}>
+                  智谱 embedding-3
+                </button>
+                <button className={`preset-chip ${form.embedProvider === 'ollama' ? 'on' : ''}`} onClick={() => set({ embedProvider: 'ollama' })}>
+                  Ollama
+                </button>
               </div>
               {form.embedProvider === 'ollama' && (
                 <div className="field-row">

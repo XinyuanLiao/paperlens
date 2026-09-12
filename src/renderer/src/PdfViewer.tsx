@@ -35,6 +35,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
 ): JSX.Element {
   const active = tabs.find((t) => t.paper.id === activeId) ?? null
   const [doc, setDoc] = useState<any>(null)
+  const [pageDims, setPageDims] = useState<Array<{ w: number; h: number }>>([])
   const [error, setError] = useState('')
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pageRefs = useRef(new Map<number, HTMLDivElement>())
@@ -47,29 +48,10 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   const [curPage, setCurPage] = useState(1)
   const [numPages, setNumPages] = useState(0)
 
-  // 滚动容器挂载后：容器尺寸变化 → 重新适配宽度并回到当前页
+  // 挂载滚动容器：Ctrl+滚轮缩放；不再在 resize 时重缩放/回跳（保持阅读位置）
   const attachScrollEl = useCallback((el: HTMLDivElement | null) => {
     scrollRef.current = el
     if (!el) return
-    let t: ReturnType<typeof setTimeout> | null = null
-    const ro = new ResizeObserver(() => {
-      if (t) clearTimeout(t)
-      t = setTimeout(() => {
-        if (baseVwRef.current > 0) {
-          setBaseScale(Math.max(0.5, Math.min(2.2, (el.clientWidth - 56) / baseVwRef.current)))
-          setZoom(1)
-          setTimeout(() => {
-            const target = pageRefs.current.get(curPageRef.current)
-            const first = pageRefs.current.get(1)
-            if (target && first) {
-              const top = target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
-              el.scrollTo({ top, behavior: 'auto' })
-            }
-          }, 120)
-        }
-      }, 140)
-    })
-    ro.observe(el)
     const onWheel = (e: WheelEvent): void => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
@@ -99,6 +81,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
 
   useEffect(() => {
     setDoc(null)
+    setPageDims([])
     setNumPages(0)
     setError('')
     setHls([])
@@ -111,10 +94,9 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         void window.api
           .listHighlights(active.paper.id)
           .then((hs) => {
-            console.log('[hl] loaded', active.paper.id, hs.length)
             if (!cancelled) setHls(hs)
           })
-          .catch((e) => console.error('[hl] load failed', e))
+          .catch(() => {})
         // 兼容 dev(http) 与打包(file://) 两种环境的静态资源基路径
         const assetBase = window.location.href.replace(/[^/]*$/, '')
         const d = await pdfjsLib.getDocument({
@@ -127,11 +109,21 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           void d.destroy()
           return
         }
-        const p1 = await d.getPage(1)
-        const vw = p1.getViewport({ scale: 1 }).width
-        baseVwRef.current = vw
+        // 预取每页尺寸：未渲染页也能占出真实高度，页码跳转/滚动条才准确
+        const metas: Array<{ w: number; h: number }> = []
+        for (let n = 1; n <= d.numPages; n++) {
+          const pg = await d.getPage(n)
+          const vp = pg.getViewport({ scale: 1 })
+          metas.push({ w: vp.width, h: vp.height })
+        }
+        if (cancelled) {
+          void d.destroy()
+          return
+        }
+        setPageDims(metas)
+        baseVwRef.current = metas[0]?.w ?? 612
         const w = scrollRef.current?.clientWidth ?? 800
-        setBaseScale(Math.max(0.5, Math.min(2.2, (w - 56) / vw)))
+        setBaseScale(Math.max(0.5, Math.min(2.2, (w - 56) / baseVwRef.current)))
         setDoc(d)
         setNumPages(d.numPages)
         setCurPage(1)
@@ -149,14 +141,23 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   const scale = baseScale * zoom
 
   // 只滚动 .viewer-scroll 自身：scrollIntoView 会连带滚动 overflow:hidden 的祖先
-  // （.shell/.workspace），把标题栏顶出窗口外
-  const scrollToPage = useCallback((n: number) => {
-    const sc = scrollRef.current
-    const el = pageRefs.current.get(n)
-    if (!sc || !el) return
-    const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop
-    sc.scrollTo({ top, behavior: 'smooth' })
-  }, [])
+  // （.shell/.workspace），把标题栏顶出窗口外。长距离跳页用瞬时滚动（平滑滚动
+  // 在懒渲染内容变化时会被 Chromium 静默取消）
+  const scrollToPage = useCallback(
+    (n: number) => {
+      const sc = scrollRef.current
+      const el = pageRefs.current.get(n)
+      if (!sc || !el) return
+      const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop
+      const dist = Math.abs(top - sc.scrollTop)
+      sc.scrollTo({ top, behavior: dist > sc.clientHeight * 2 ? 'auto' : 'smooth' })
+      // 跳页立即同步页码指示（窗口被遮挡时 scroll 事件不会触发）
+      setCurPage(n)
+      curPageRef.current = n
+      onPageContext(textCache.current[n] ?? '')
+    },
+    [onPageContext]
+  )
 
   const goToPage = useCallback(
     (n: number) => {
@@ -196,7 +197,6 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     if (rects.length === 0) return
     const text = sel.toString()
     const id = await window.api.addHighlight(active.paper.id, pageNum, rects, text)
-    console.log('[hl] saved', { id, pageNum, rects: rects.slice(0, 2) })
     setHls((hs) => [...hs, { id, page: pageNum, rects, text }])
     sel.removeAllRanges()
   }, [active])
@@ -228,9 +228,11 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   const onScroll = useCallback(() => {
     const sc = scrollRef.current
     if (!sc) return
+    // 用视口相对位置判定当前页（offsetTop 受 offsetParent 影响，不可靠）
+    const scTop = sc.getBoundingClientRect().top
     for (let n = 1; n <= numPages; n++) {
       const el = pageRefs.current.get(n)
-      if (el && el.offsetTop + el.offsetHeight > sc.scrollTop + 80) {
+      if (el && el.getBoundingClientRect().bottom > scTop + 80) {
         setCurPage(n)
         curPageRef.current = n
         onPageContext(textCache.current[n] ?? '')
@@ -327,6 +329,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
               doc={doc}
               num={i + 1}
               scale={scale}
+              dim={pageDims[i]}
               hls={hls.filter((h) => h.page === i + 1)}
               onDeleteHl={onDeleteHighlight}
               registerRef={(el) => {
@@ -348,13 +351,14 @@ interface PageViewProps {
   doc: any
   num: number
   scale: number
+  dim?: { w: number; h: number }
   hls: Highlight[]
   onDeleteHl: (id: number) => void
   registerRef: (el: HTMLDivElement | null) => void
   onPageText: (n: number, text: string) => void
 }
 
-function PageView({ doc, num, scale, hls, onDeleteHl, registerRef, onPageText }: PageViewProps): JSX.Element {
+function PageView({ doc, num, scale, dim, hls, onDeleteHl, registerRef, onPageText }: PageViewProps): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
@@ -440,12 +444,15 @@ function PageView({ doc, num, scale, hls, onDeleteHl, registerRef, onPageText }:
   }, [])
 
   return (
-    <div className="page-wrap" ref={(el) => { registerRef(el); (wrapRef as any).current = el }}>
-      <canvas ref={canvasRef} />
+    <div
+      className="page-wrap"
+      ref={(el) => { registerRef(el); (wrapRef as any).current = el }}
+      style={dim ? { width: Math.floor(dim.w * scale), height: Math.floor(dim.h * scale) } : undefined}
+    >
+      <canvas ref={canvasRef} style={dim ? { width: Math.floor(dim.w * scale), height: Math.floor(dim.h * scale) } : undefined} />
       <div className="textLayer" ref={textRef} />
       {/* 高亮层置于文本层之上：点击高亮即删除 */}
       <div className="hl-layer" data-n={hls.length}>
-        {console.log(`[hl] PageView ${num} renders ${hls.length} groups`)}
         {hls.map((h) => (
           <div
             key={h.id}

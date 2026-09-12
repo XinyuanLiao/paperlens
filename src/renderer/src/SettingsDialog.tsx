@@ -31,6 +31,19 @@ function workspaceName(p: string): string {
 
 export default function SettingsDialog({ settings, indexed, indexInfo, onSave, onRescanned, onClose }: Props): JSX.Element {
   const [form, setForm] = useState<Settings>(settings)
+  const [profiles, setProfiles] = useState<NonNullable<Settings['profiles']>>(
+    () =>
+      settings.profiles?.length
+        ? settings.profiles
+        : [
+            {
+              provider: settings.provider,
+              apiBase: settings.apiBase,
+              apiKey: settings.apiKey,
+              models: settings.models?.length ? settings.models : settings.model ? [settings.model] : []
+            }
+          ]
+  )
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
   const [llmTest, setLlmTest] = useState('')
@@ -50,11 +63,6 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
   const pickTheme = async (theme: Settings['theme']): Promise<void> => {
     set({ theme })
     await onSave({ theme })
-  }
-
-  const pickPreset = (id: string): void => {
-    const p = PRESETS.find((x) => x.id === id)!
-    set(id === 'custom' ? { provider: id } : { provider: id, apiBase: p.base, model: p.model })
   }
 
   const pickWorkspace = async (): Promise<void> => {
@@ -99,7 +107,13 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
   }
 
   const save = async (): Promise<void> => {
-    await onSave(form)
+    // 当前使用的模型属于哪个配置，就把那个供应商的信息同步为激活配置
+    const active = profiles.find((p) => p.models.includes(form.model)) ?? profiles[0]
+    await onSave({
+      ...form,
+      profiles,
+      ...(active ? { provider: active.provider, apiBase: active.apiBase, apiKey: active.apiKey, models: active.models } : {})
+    })
     onClose()
   }
 
@@ -160,7 +174,7 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
             <div className="ws-icon">📁</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="ws-name">{workspaceName(form.libraryPath)}</div>
-              <div className="hint">论文的存储结构由应用自动管理，无需关心内部文件。导入、归类、索引全自动。</div>
+              <div className="hint">导入、归类、索引全自动。</div>
             </div>
             <button className="btn ghost" onClick={pickWorkspace} disabled={busy}>
               更改…
@@ -169,41 +183,78 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
         </div>
 
         <div className="section">
-          <div className="section-title">AI 服务</div>
-          <div className="field">
-            <label>服务商（内置 OpenAI 兼容地址，可切换后手动微调）</label>
-            <select value={form.provider === 'custom' ? 'custom' : guessProvider(form.apiBase)} onChange={(e) => pickPreset(e.target.value)}>
-              {PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>API Base</label>
-            <input value={form.apiBase} onChange={(e) => set({ apiBase: e.target.value, provider: guessProvider(e.target.value) })} />
-          </div>
-          <div className="field-row">
-            <div className="field grow">
-              <label>API Key</label>
-              <input type="password" value={form.apiKey} onChange={(e) => set({ apiKey: e.target.value })} placeholder="粘贴 API Key" />
-            </div>
-            <div className="field grow">
-              <label>模型（可填多个，逗号分隔，对话界面可切换）</label>
-              <input
-                value={(form.models?.length ? form.models : form.model ? [form.model] : []).join(', ')}
-                onChange={(e) => {
-                  const list = e.target.value
-                    .split(/[,，]/)
-                    .map((s) => s.trim())
-                    .filter(Boolean)
-                  set({ models: list, model: list.includes(form.model) ? form.model : (list[0] ?? '') })
-                }}
-                placeholder="deepseek-chat, deepseek-reasoner"
-              />
-            </div>
-          </div>
+          <div className="section-title">模型与服务商（对话界面可切换）</div>
+          {profiles.map((pf, i) => {
+            const isActive = pf.models.includes(form.model)
+            const upd = (patch: Partial<{ provider: string; apiBase: string; apiKey: string; models: string[] }>): void =>
+              setProfiles((list) => list.map((x, idx) => (idx === i ? { ...x, ...patch } : x)))
+            return (
+              <div className={`profile-card ${isActive ? 'active' : ''}`} key={i}>
+                <div className="field-row">
+                  <div className="field">
+                    <label>服务商</label>
+                    <select
+                      value={pf.provider === 'custom' ? 'custom' : guessProvider(pf.apiBase)}
+                      onChange={(e) => {
+                        const preset = PRESETS.find((x) => x.id === e.target.value)!
+                        upd(preset.id === 'custom' ? { provider: 'custom' } : { provider: preset.id, apiBase: preset.base })
+                      }}
+                    >
+                      {PRESETS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field grow">
+                    <label>API Base</label>
+                    <input value={pf.apiBase} onChange={(e) => upd({ apiBase: e.target.value })} />
+                  </div>
+                </div>
+                <div className="field">
+                  <label>API Key</label>
+                  <input type="password" value={pf.apiKey} onChange={(e) => upd({ apiKey: e.target.value })} placeholder="sk-…" />
+                </div>
+                <div className="field">
+                  <label>模型（逗号分隔）</label>
+                  <input
+                    value={pf.models.join(', ')}
+                    onChange={(e) =>
+                      upd({
+                        models: e.target.value
+                          .split(/[,，]/)
+                          .map((s) => s.trim())
+                          .filter(Boolean)
+                      })
+                    }
+                    placeholder="deepseek-chat, deepseek-reasoner"
+                  />
+                </div>
+                <div className="profile-foot">
+                  {isActive ? (
+                    <span className="active-tag">使用中</span>
+                  ) : (
+                    <span
+                      className="profile-link"
+                      onClick={() => set({ provider: pf.provider, apiBase: pf.apiBase, apiKey: pf.apiKey, model: pf.models[0] ?? form.model })}
+                    >
+                      启用此配置
+                    </span>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  {profiles.length > 1 && (
+                    <button className="profile-del" onClick={() => setProfiles((list) => list.filter((_, idx) => idx !== i))}>
+                      删除
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+          <button className="profile-add" onClick={() => setProfiles((list) => [...list, { provider: 'zhipu', apiBase: PRESETS[0].base, apiKey: '', models: [] }])}>
+            + 添加服务商配置
+          </button>
           <div className="test-row">
             <button className="btn ghost" onClick={() => void testLlm()} disabled={busy}>
               测试连接

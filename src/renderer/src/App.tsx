@@ -240,14 +240,17 @@ export default function App(): JSX.Element {
   }, [])
   const doTranslate = useCallback((text: string) => {
     setFloatBar(null)
+    setShowSide(true)
     sideControl.current?.translate(text, pageCtxRef.current)
   }, [])
   const doExplain = useCallback((text: string) => {
     setFloatBar(null)
+    setShowSide(true)
     sideControl.current?.explain(text, pageCtxRef.current)
   }, [])
   const doQuote = useCallback((text: string) => {
     setFloatBar(null)
+    setShowSide(true)
     sideControl.current?.quote(text)
   }, [])
   const onDeleteHighlight = useCallback((hid: number) => {
@@ -320,14 +323,18 @@ export default function App(): JSX.Element {
     return s
   }, [])
 
-  const models = settings?.models?.length ? settings.models : settings?.model ? [settings.model] : []
+  const profiles = settings?.profiles ?? []
+  const models = profiles.length ? profiles.flatMap((p) => p.models) : settings?.models?.length ? settings.models : settings?.model ? [settings.model] : []
   const model = settings?.model ?? ''
   const thinking = settings?.thinkingLevel ?? 'default'
   const changeModel = useCallback(
     (m: string) => {
-      void saveSettings({ model: m })
+      // 跨供应商：该模型属于哪个配置，就同步切换到那个供应商
+      const pf = profiles.find((p) => p.models.includes(m))
+      if (pf) void saveSettings({ model: m, provider: pf.provider, apiBase: pf.apiBase, apiKey: pf.apiKey })
+      else void saveSettings({ model: m })
     },
-    [saveSettings]
+    [profiles, saveSettings]
   )
   const changeThinking = useCallback(
     (l: string) => {
@@ -335,6 +342,29 @@ export default function App(): JSX.Element {
     },
     [saveSettings]
   )
+
+  // 侧栏无级拖宽（宽度记忆在 localStorage）
+  const [libWidth, setLibWidth] = useState(() => Number(localStorage.getItem('pl.libW')) || 264)
+  const [sideWidth, setSideWidth] = useState(() => Number(localStorage.getItem('pl.sideW')) || 380)
+  const startDrag = useCallback((which: 'lib' | 'side') => (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = which === 'lib' ? Number(localStorage.getItem('pl.libW')) || 264 : Number(localStorage.getItem('pl.sideW')) || 380
+    const move = (ev: MouseEvent): void => {
+      const dx = ev.clientX - startX
+      const w = which === 'lib' ? startW + dx : startW - dx
+      const clamped = Math.max(which === 'lib' ? 200 : 300, Math.min(which === 'lib' ? 480 : 680, w))
+      if (which === 'lib') setLibWidth(clamped)
+      else setSideWidth(clamped)
+      localStorage.setItem(which === 'lib' ? 'pl.libW' : 'pl.sideW', String(clamped))
+    }
+    const up = (): void => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }, [])
 
   // 文件菜单 / 空库引导：直接选库文件夹并扫描（与设置页同效）
   const pickLibraryNow = useCallback(async () => {
@@ -437,26 +467,30 @@ export default function App(): JSX.Element {
 
       <div className="body3">
         {showLib && (
-          <LibraryPane
-            papers={papers}
-            activeId={activeId}
-            q={q}
-            onSetQ={setQ}
-            onOpen={openPaperFromTree}
-            onCycleStatus={cycleStatus}
-            onAddPapers={addPapers}
-            onReindex={() => {
-              void window.api.rebuildIndex()
-            }}
-            onReclassify={reclassifyAll}
-            onBack={navBack}
-            onFwd={navFwd}
-            canBack={canBack}
-            canFwd={canFwd}
-            onOpenPalette={() => setPaletteOpen(true)}
-            mode={mode}
-            onModeChange={setMode}
-          />
+          <>
+            <LibraryPane
+              width={libWidth}
+              papers={papers}
+              activeId={activeId}
+              q={q}
+              onSetQ={setQ}
+              onOpen={openPaperFromTree}
+              onCycleStatus={cycleStatus}
+              onAddPapers={addPapers}
+              onReindex={() => {
+                void window.api.rebuildIndex()
+              }}
+              onReclassify={reclassifyAll}
+              onBack={navBack}
+              onFwd={navFwd}
+              canBack={canBack}
+              canFwd={canFwd}
+              onOpenPalette={() => setPaletteOpen(true)}
+              mode={mode}
+              onModeChange={setMode}
+            />
+            <div className="col-resizer" onMouseDown={startDrag('lib')} title="拖动调节宽度，双击复位" onDoubleClick={() => { setLibWidth(264); localStorage.setItem('pl.libW', '264') }} />
+          </>
         )}
         <div className="workspace">
           {mode === 'chat' ? (
@@ -507,17 +541,21 @@ export default function App(): JSX.Element {
                 />
               )}
               {showSide && (
-                <SidePanel
-                  ref={sideControl}
-                  paper={activePaper}
-                  pageContext={pageCtx}
-                  onJump={jumpTo}
-                  models={models}
-                  model={model}
-                  thinking={thinking}
-                  onChangeModel={changeModel}
-                  onChangeThinking={changeThinking}
-                />
+                <>
+                  <div className="col-resizer" onMouseDown={startDrag('side')} title="拖动调节宽度，双击复位" onDoubleClick={() => { setSideWidth(380); localStorage.setItem('pl.sideW', '380') }} />
+                  <SidePanel
+                    ref={sideControl}
+                    width={sideWidth}
+                    paper={activePaper}
+                    pageContext={pageCtx}
+                    onJump={jumpTo}
+                    models={models}
+                    model={model}
+                    thinking={thinking}
+                    onChangeModel={changeModel}
+                    onChangeThinking={changeThinking}
+                  />
+                </>
               )}
             </div>
           )}

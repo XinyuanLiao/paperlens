@@ -18,6 +18,7 @@ interface Props {
   onOpenPalette: () => void
   mode: 'read' | 'chat'
   onModeChange: (m: 'read' | 'chat') => void
+  width: number
 }
 
 export default function LibraryPane({
@@ -36,7 +37,8 @@ export default function LibraryPane({
   canFwd,
   onOpenPalette,
   mode,
-  onModeChange
+  onModeChange,
+  width
 }: Props): JSX.Element {
   const cats = useMemo(() => {
     const m = new Map<string, Paper[]>()
@@ -101,7 +103,7 @@ export default function LibraryPane({
   )
 
   return (
-    <div className="library">
+    <div className="library" style={{ width }}>
       <div className="lib-func">
         {/* 阅读 / 对话 模式切换（Kimi Workspace 式分段控件） */}
         <div className="mode-toggle">

@@ -18,6 +18,7 @@ interface Props {
   thinking: string
   onChangeModel: (m: string) => void
   onChangeThinking: (l: string) => void
+  width: number
 }
 
 interface Translation {
@@ -26,7 +27,7 @@ interface Translation {
 }
 
 const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
-  { paper, pageContext, onJump, models, model, thinking, onChangeModel, onChangeThinking },
+  { paper, pageContext, onJump, models, model, thinking, onChangeModel, onChangeThinking, width },
   ref
 ): JSX.Element {
   const [tab, setTab] = useState<'chat' | 'translate'>('chat')
@@ -130,7 +131,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
   }
 
   return (
-    <div className="side">
+    <div className="side" style={{ width }}>
       <div className="side-tabs">
         <div className={`side-tab ${tab === 'chat' ? 'active' : ''}`} onClick={() => setTab('chat')}>
           问答

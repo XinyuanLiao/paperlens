@@ -583,3 +583,27 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .pill-item.on { color: var(--accent2); font-weight: 600; }
 .pill-note { font-size: 10.5px; color: var(--text-dim); padding: 5px 9px 3px; line-height: 1.5; }
 .side-controls { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+/* ============ 侧栏拖宽把手 ============ */
+.col-resizer { width: 5px; flex-shrink: 0; cursor: col-resize; background: transparent; transition: background 0.15s; position: relative; z-index: 5; }
+.col-resizer:hover { background: var(--accent-soft); }
+
+/* ============ 多供应商配置卡片 ============ */
+.profile-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+.profile-card.active { border-color: var(--accent); }
+.profile-foot { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.active-tag { font-size: 10.5px; color: var(--accent2); background: var(--accent-soft); border-radius: 4px; padding: 2px 8px; font-weight: 600; }
+.profile-link { font-size: 11.5px; color: var(--accent2); cursor: pointer; }
+.profile-link:hover { text-decoration: underline; }
+.profile-del { background: none; border: none; color: var(--danger); font-size: 11.5px; cursor: pointer; padding: 2px 4px; }
+.profile-del:hover { text-decoration: underline; }
+.profile-add { width: 100%; background: var(--bg2); border: 1px dashed var(--border-lit); color: var(--text-dim); border-radius: 8px; padding: 8px 0; cursor: pointer; font-size: 12px; margin-bottom: 6px; }
+.profile-add:hover { color: var(--text); border-color: var(--accent); }
+
+/* 设置弹窗 ✕ 不随内容滚动 */
+.modal-x { position: sticky; top: 10px; display: block; margin: -8px 0 -34px auto; z-index: 5; }
+
+/* 胶囊与发送按钮留出间距 */
+.hero-input-foot { flex-wrap: wrap; }
+.ctl-pill { max-width: 150px; }
+.hero-input-foot .ctl-pill:first-child { margin-right: 2px; }
