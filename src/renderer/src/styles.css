@@ -235,6 +235,8 @@ button { font-family: inherit; }
   padding: 5px 9px; border-radius: var(--radius-sm); cursor: pointer; color: var(--text-dim);
   display: flex; justify-content: space-between; align-items: center; font-size: 12.5px;
   transition: background var(--speed), color var(--speed);
+  /* 展开长列表下滑时，分类头吸附在文件区顶部，方便随时收起 */
+  position: sticky; top: 0; z-index: 3; background: var(--bg2);
 }
 .cat-item:hover { background: var(--bg3); color: var(--text); }
 .cat-count { font-size: 10px; background: var(--bg3); border-radius: 4px; padding: 1px 6px; color: var(--text-dim); font-family: var(--mono); }

@@ -49,6 +49,15 @@ function Pill({
     ro.observe(el)
     return () => ro.disconnect()
   }, [iconOnly])
+  // 点击空白处关闭下拉
+  useEffect(() => {
+    if (!open) return
+    const h = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [open, setOpen])
   return (
     <div className="pill-wrap" ref={ref}>
       <button ref={btnRef} className={`ctl-pill ${open ? 'on' : ''}`} title={`${label} · ${title ?? ''}`} onClick={() => setOpen(!open)}>

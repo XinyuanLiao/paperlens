@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Settings } from './types'
 
 interface Props {
@@ -48,6 +48,13 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
   const [busy, setBusy] = useState(false)
   const [llmTest, setLlmTest] = useState('')
   const [embedTest, setEmbedTest] = useState('')
+  const profileSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveProfiles = (list: NonNullable<Settings['profiles']>): void => {
+    if (profileSaveTimer.current) clearTimeout(profileSaveTimer.current)
+    profileSaveTimer.current = setTimeout(() => {
+      void onSave({ profiles: list })
+    }, 300)
+  }
 
   useEffect(() => {
     const h = (e: KeyboardEvent): void => {
@@ -190,7 +197,11 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
           {profiles.map((pf, i) => {
             const isActive = pf.models.includes(form.model)
             const upd = (patch: Partial<{ provider: string; apiBase: string; apiKey: string; models: string[] }>): void =>
-              setProfiles((list) => list.map((x, idx) => (idx === i ? { ...x, ...patch } : x)))
+              setProfiles((list) => {
+                const next = list.map((x, idx) => (idx === i ? { ...x, ...patch } : x))
+                saveProfiles(next)
+                return next
+              })
             return (
               <div className={`profile-card ${isActive ? 'active' : ''}`} key={i}>
                 <div className="field-row">
@@ -247,7 +258,13 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
                   )}
                   <span style={{ flex: 1 }} />
                   {profiles.length > 1 && (
-                    <button className="profile-del" onClick={() => setProfiles((list) => list.filter((_, idx) => idx !== i))}>
+                    <button className="profile-del" onClick={() =>
+                      setProfiles((list) => {
+                        const next = list.filter((_, idx) => idx !== i)
+                        saveProfiles(next)
+                        return next
+                      })
+                    }>
                       删除
                     </button>
                   )}
@@ -255,7 +272,16 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
               </div>
             )
           })}
-          <button className="profile-add" onClick={() => setProfiles((list) => [...list, { provider: 'zhipu', apiBase: PRESETS[0].base, apiKey: '', models: [] }])}>
+          <button
+            className="profile-add"
+            onClick={() =>
+              setProfiles((list) => {
+                const next = [...list, { provider: 'zhipu', apiBase: PRESETS[0].base, apiKey: '', models: [] }]
+                saveProfiles(next)
+                return next
+              })
+            }
+          >
             + 添加服务商配置
           </button>
           <div className="test-row">
