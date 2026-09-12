@@ -31,6 +31,7 @@ export interface Settings {
   ollamaEmbedModel: string
   translateTarget: string
   theme: Theme
+  setupDone: boolean
 }
 
 // 默认文献库：跟随平台放到「文档」目录（开发态 app 未 ready 前不能调 getPath，惰性求值）
@@ -50,7 +51,8 @@ const DEFAULTS: Settings = {
   ollamaUrl: 'http://127.0.0.1:11434',
   ollamaEmbedModel: 'bge-m3',
   translateTarget: '中文',
-  theme: 'system'
+  theme: 'system',
+  setupDone: false
 }
 
 let db: Database.Database

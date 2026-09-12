@@ -161,13 +161,13 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel({ paper, pag
                     在 PDF 里划词会自动翻译并加入这里的上下文。
                   </>
                 ) : (
-                  '打开一篇论文后即可提问；「全库」模式无需打开论文也能跨文献问答。'
+                  '全库模式：无需打开论文，直接跨所有文献检索问答，回答自带页码引用，点击可跳转。'
                 )}
               </div>
             )}
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
-                <div className="who">{m.role === 'user' ? '你' : 'GLM'}</div>
+                <div className="who">{m.role === 'user' ? '你' : 'AI'}</div>
                 <div className="bubble">
                   {m.role === 'assistant' ? renderCitations(m.content, m.sources) : m.content}
                   {m.sources && m.sources.length > 0 && (
@@ -207,14 +207,18 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel({ paper, pag
             )}
             <div className="rag-toggle">
               检索范围
-              <div className="seg">
-                <span className={scope === 'paper' ? 'on' : ''} onClick={() => setScope('paper')}>
-                  当前论文
-                </span>
-                <span className={scope === 'lib' ? 'on' : ''} onClick={() => setScope('lib')}>
-                  全库
-                </span>
-              </div>
+              {paper ? (
+                <div className="seg">
+                  <span className={scope === 'paper' ? 'on' : ''} onClick={() => setScope('paper')}>
+                    当前论文
+                  </span>
+                  <span className={scope === 'lib' ? 'on' : ''} onClick={() => setScope('lib')}>
+                    全库
+                  </span>
+                </div>
+              ) : (
+                <span className="lib-only-chip">全库检索</span>
+              )}
               <span style={{ flex: 1 }} />
               <span className="index-badge ellipsis" style={{ maxWidth: 110 }}>
                 {paper ? paper.slug : '未打开论文'}
@@ -223,7 +227,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel({ paper, pag
             <div className="input-row">
               <textarea
                 className="chat-input"
-                placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"
+                placeholder={paper ? '问点什么…（Enter 发送，Shift+Enter 换行）' : '与全库文献对话…（Enter 发送，Shift+Enter 换行）'}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {

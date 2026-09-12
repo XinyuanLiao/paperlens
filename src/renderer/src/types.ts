@@ -24,6 +24,7 @@ export interface Settings {
   ollamaEmbedModel: string
   translateTarget: string
   theme: 'system' | 'light' | 'dark'
+  setupDone?: boolean
 }
 
 export interface HighlightRect {

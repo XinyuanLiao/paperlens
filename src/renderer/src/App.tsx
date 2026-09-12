@@ -3,6 +3,7 @@ import LibraryPane from './LibraryPane'
 import PdfViewer, { type ViewerHandle } from './PdfViewer'
 import SidePanel, { type SideControl } from './SidePanel'
 import SettingsDialog from './SettingsDialog'
+import SetupWizard from './SetupWizard'
 import CommandPalette from './CommandPalette'
 import type { Paper, Settings } from './types'
 
@@ -318,6 +319,22 @@ export default function App(): JSX.Element {
   const canBack = hIdx > 0
   const canFwd = hIdx < hist.length - 1
 
+  // 首次启动：走完「文献库 → LLM → 嵌入」向导才进主界面（已有文献库的老用户自动跳过）
+  if (settings && !settings.setupDone && papers.length === 0) {
+    return (
+      <SetupWizard
+        initial={settings}
+        onDone={() => {
+          void (async () => {
+            setSettings(await window.api.getSettings())
+            await refreshPapers()
+            setIndexedCount(await window.api.indexStatus())
+          })()
+        }}
+      />
+    )
+  }
+
   const menus = [
     {
       name: '文件',
@@ -408,24 +425,26 @@ export default function App(): JSX.Element {
           />
         )}
         <div className="workspace">
-          {tabs.length === 0 ? (
-            <div className="workspace-empty">
-              <div className="big">📚</div>
-              <div className="headline">PaperLens</div>
-              <div className="tip">从左侧选择论文，或添加新的文献</div>
-              {papers.length === 0 && (
-                <div className="empty-actions">
-                  <button className="add-btn" onClick={() => void pickLibraryNow()}>
-                    选择文献库文件夹
-                  </button>
-                  <button className="add-btn ghost" onClick={addPapers}>
-                    导入 PDF 文献
-                  </button>
+          <div className="main-win">
+            {tabs.length === 0 ? (
+              <div className="start-pane">
+                <div className="workspace-empty">
+                  <div className="big">📚</div>
+                  <div className="headline">PaperLens</div>
+                  <div className="tip">从左侧选择论文开始阅读；右侧面板无需打开论文即可与全库文献对话</div>
+                  {papers.length === 0 && (
+                    <div className="empty-actions">
+                      <button className="add-btn" onClick={() => void pickLibraryNow()}>
+                        选择文献库文件夹
+                      </button>
+                      <button className="add-btn ghost" onClick={addPapers}>
+                        导入 PDF 文献
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className={`main-win ${showSide ? 'with-side' : ''}`}>
+              </div>
+            ) : (
               <PdfViewer
                 ref={viewerRef}
                 tabs={tabs}
@@ -441,9 +460,9 @@ export default function App(): JSX.Element {
                 onSelect={onSelect}
                 onDeleteHighlight={onDeleteHighlight}
               />
-              {showSide && <SidePanel ref={sideControl} paper={activePaper} pageContext={pageCtx} onJump={jumpTo} />}
-            </div>
-          )}
+            )}
+            {showSide && <SidePanel ref={sideControl} paper={activePaper} pageContext={pageCtx} onJump={jumpTo} />}
+          </div>
         </div>
       </div>
 

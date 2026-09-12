@@ -55,6 +55,11 @@ function createWindow(): void {
 
 app.setName('PaperLens')
 
+// 便携/测试：允许用环境变量指定数据目录（默认在 %APPDATA%/PaperLens）
+if (process.env.PAPERLENS_DATA_DIR) {
+  app.setPath('userData', path.resolve(process.env.PAPERLENS_DATA_DIR))
+}
+
 app.whenReady().then(() => {
   dbmod.initDb()
   registerIpc()

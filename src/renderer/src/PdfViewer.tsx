@@ -284,7 +284,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           {curPage} / {numPages || '…'}
         </span>
       </div>
-      <div className="viewer-scroll" ref={scrollRef} onMouseUp={onMouseUp} onScroll={onScroll}>
+      <div className="viewer-scroll" ref={attachScrollEl} onMouseUp={onMouseUp} onScroll={onScroll}>
         {error && <div className="empty-viewer">PDF 打开失败：{error}</div>}
         {doc &&
           Array.from({ length: numPages }, (_, i) => (
