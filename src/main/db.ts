@@ -208,9 +208,10 @@ export function scanLibrary(libPath: string): ScanResult {
       const slug = f.slice(0, -4)
       const note = parseNote(path.join(root, `${slug}.md`))
       const year = parseInt(note.year || slug.slice(0, 4), 10) || null
+      const dtitle = note.title || slug.replace(/^\d{4}-/, '').replace(/-\d+$/, '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
       upsert.run({
         slug: uniqueSlug(slug, pdf),
-        title: note.title || slug,
+        title: dtitle,
         authors: note.authors || '',
         year,
         venue: note.venue || '',
@@ -235,9 +236,10 @@ export function scanLibrary(libPath: string): ScanResult {
         }
         const note = parseNote(path.join(d, `${slug}.md`))
         const year = parseInt(note.year || slug.slice(0, 4), 10) || null
+        const dtitle = note.title || slug.replace(/^\d{4}-/, '').replace(/-\d+$/, '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
         upsert.run({
           slug: uniqueSlug(slug, pdf),
-          title: note.title || slug,
+          title: dtitle,
           authors: note.authors || '',
           year,
           venue: note.venue || '',
