@@ -203,18 +203,6 @@ export default function App(): JSX.Element {
     [hIdx]
   )
 
-  const navBack = useCallback(() => {
-    if (hIdx > 0) {
-      setHIdx(hIdx - 1)
-      setActiveId(hist[hIdx - 1])
-    }
-  }, [hist, hIdx])
-  const navFwd = useCallback(() => {
-    if (hIdx < hist.length - 1) {
-      setHIdx(hIdx + 1)
-      setActiveId(hist[hIdx + 1])
-    }
-  }, [hist, hIdx])
 
   const closeTab = useCallback(
     (id: number) => {
@@ -314,6 +302,16 @@ export default function App(): JSX.Element {
     [openPaper]
   )
 
+// 相对当前论文在排序列表中前后移动（而非浏览历史）
+  const navBack = useCallback(() => {
+    const idx = papers.findIndex((p) => p.id === activeId)
+    if (idx > 0) openPaperFromTree(papers[idx - 1])
+  }, [papers, activeId, openPaperFromTree])
+  const navFwd = useCallback(() => {
+    const idx = papers.findIndex((p) => p.id === activeId)
+    if (idx >= 0 && idx < papers.length - 1) openPaperFromTree(papers[idx + 1])
+  }, [papers, activeId, openPaperFromTree])
+
   const saveSettings = useCallback(async (patch: Partial<Settings>) => {
     const s = await window.api.saveSettings(patch)
     setSettings(s)
@@ -369,7 +367,8 @@ export default function App(): JSX.Element {
     const startW = Number(localStorage.getItem(key)) || (which === 'lib' ? 264 : which === 'side' ? 380 : 460)
     const move = (ev: MouseEvent): void => {
       const dx = ev.clientX - startX
-      const w = which === 'ref' ? startW - dx : startW + dx
+      // lib 把手在右缘（右拖变宽）；side/ref 把手在左缘（左拖变宽）
+      const w = which === 'lib' ? startW + dx : startW - dx
       const min = which === 'lib' ? 200 : 300
       const max = which === 'lib' ? 480 : which === 'side' ? 680 : 900
       const clamped = Math.max(min, Math.min(max, w))
@@ -396,8 +395,9 @@ export default function App(): JSX.Element {
   }, [saveSettings, refreshPapers])
 
   const statusLeft = classifyInfo || (indexInfo ? `正在索引 ${indexInfo.done}/${indexInfo.total}` : `已索引 ${indexedCount.indexed}/${indexedCount.papers} 篇 · ${indexedCount.chunks} 块`)
-  const canBack = hIdx > 0
-  const canFwd = hIdx < hist.length - 1
+  const curIdx = papers.findIndex((p) => p.id === activeId)
+  const canBack = curIdx > 0
+  const canFwd = curIdx >= 0 && curIdx < papers.length - 1
 
   // 首次启动：走完「文献库 → LLM → 嵌入」向导才进主界面（已有文献库的老用户自动跳过）
   if (settings && !settings.setupDone && papers.length === 0) {

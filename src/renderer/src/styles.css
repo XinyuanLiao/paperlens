@@ -631,13 +631,16 @@ html.mac { --tb-h: 44px; }
 .modal { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
 .modal-scroll { overflow-y: auto; padding: 14px 22px 22px; }
 .modal-x { position: static; order: 99; margin: 0; }
-.modal-head { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; margin: -22px -22px 0; padding: 16px 22px 10px; background: var(--bg); border-bottom: 1px solid var(--border); }
-.modal-head h2 { margin: 0; font-size: 16px; }
+.modal-head { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; margin: 0; padding: 13px 14px 11px 18px; background: var(--bg2); border-bottom: 1px solid var(--border); border-radius: 14px 14px 0 0; }
+.modal-head h2 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: 0.2px; }
+.modal-head::before { content: ''; width: 3px; height: 14px; border-radius: 2px; background: var(--accent); }
 .modal-head .modal-x { position: static; margin: 0; }
 
 /* ============ 胶囊恒定高度 / 设置头精修 / 引用面板 ============ */
-.ctl-pill { white-space: nowrap; flex-shrink: 0; }
-.ctl-label { overflow: hidden; text-overflow: ellipsis; }
+.ctl-pill { white-space: nowrap; min-width: 0; width: 100%; }
+.pill-wrap { min-width: 0; }
+.ctl-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.side-controls .pill-wrap { flex: 0 1 auto; }
 .modal-head h2 { font-size: 15px; font-weight: 650; letter-spacing: 0.2px; }
 .modal-head .modal-x { width: 26px; height: 26px; border-radius: 7px; font-size: 12px; }
 .ref-page-slot { display: flex; justify-content: center; margin-bottom: 14px; }
