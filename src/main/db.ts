@@ -32,6 +32,8 @@ export interface Settings {
   translateTarget: string
   theme: Theme
   setupDone: boolean
+  models: string[]
+  thinkingLevel: 'default' | 'off' | 'low' | 'medium' | 'high'
 }
 
 // 默认文献库：跟随平台放到「文档」目录（开发态 app 未 ready 前不能调 getPath，惰性求值）
@@ -52,7 +54,9 @@ const DEFAULTS: Settings = {
   ollamaEmbedModel: 'bge-m3',
   translateTarget: '中文',
   theme: 'system',
-  setupDone: false
+  setupDone: false,
+  models: [],
+  thinkingLevel: 'default'
 }
 
 let db: Database.Database
@@ -184,6 +188,17 @@ export function scanLibrary(libPath: string): ScanResult {
       year=excluded.year, venue=excluded.venue, category=excluded.category
   `)
   const exists = db.prepare('SELECT id FROM papers WHERE path=?')
+  const slugOwner = db.prepare('SELECT path FROM papers WHERE slug=?')
+  // slug 全库唯一：同一 slug 出现在不同路径（重复导入/移动残留）时自动加后缀，避免整个扫描崩溃
+  const uniqueSlug = (slug: string, pdf: string): string => {
+    const row = slugOwner.get(slug) as { path: string } | undefined
+    if (!row || path.resolve(row.path) === path.resolve(pdf)) return slug
+    for (let n = 2; ; n++) {
+      const cand = `${slug}-${n}`
+      const r2 = slugOwner.get(cand) as { path: string } | undefined
+      if (!r2 || path.resolve(r2.path) === path.resolve(pdf)) return cand
+    }
+  }
   for (const root of roots) {
     // 根目录平铺的 PDF 也收进库（category 用根目录名），适配"直接指向一摞论文"的用法
     for (const f of fs.readdirSync(root)) {
@@ -194,7 +209,7 @@ export function scanLibrary(libPath: string): ScanResult {
       const note = parseNote(path.join(root, `${slug}.md`))
       const year = parseInt(note.year || slug.slice(0, 4), 10) || null
       upsert.run({
-        slug,
+        slug: uniqueSlug(slug, pdf),
         title: note.title || slug,
         authors: note.authors || '',
         year,
@@ -221,7 +236,7 @@ export function scanLibrary(libPath: string): ScanResult {
         const note = parseNote(path.join(d, `${slug}.md`))
         const year = parseInt(note.year || slug.slice(0, 4), 10) || null
         upsert.run({
-          slug,
+          slug: uniqueSlug(slug, pdf),
           title: note.title || slug,
           authors: note.authors || '',
           year,

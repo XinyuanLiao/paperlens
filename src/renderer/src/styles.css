@@ -558,3 +558,28 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .bubble .md-hr { border: none; border-top: 1px dashed var(--border-lit); margin: 11px 0; }
 .bubble .md-code { font-family: var(--mono); font-size: 11.5px; background: var(--bg3); border-radius: 4px; padding: 0 4px; }
 .bubble strong { font-weight: 650; }
+
+/* ============ 模型/思考 选择器（Ollama 风格胶囊） ============ */
+.pill-wrap { position: relative; min-width: 0; }
+.ctl-pill {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 220px;
+  background: var(--bg2); border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 16px; padding: 4px 10px; cursor: pointer; font-size: 11.5px; font-family: inherit;
+  transition: border-color var(--speed), color var(--speed), background var(--speed);
+}
+.ctl-pill:hover { border-color: var(--border-lit); color: var(--text); background: var(--bg); }
+.ctl-label { min-width: 0; }
+.pill-menu {
+  position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 80; min-width: 230px;
+  background: var(--bg); border: 1px solid var(--border-lit); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 4px; animation: pop 0.1s ease;
+}
+.pill-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%;
+  border: none; background: transparent; color: var(--text); font: inherit; font-size: 12px;
+  padding: 6px 9px; border-radius: 6px; cursor: pointer; text-align: left;
+}
+.pill-item:hover { background: var(--accent-soft); }
+.pill-item.on { color: var(--accent2); font-weight: 600; }
+.pill-note { font-size: 10.5px; color: var(--text-dim); padding: 5px 9px 3px; line-height: 1.5; }
+.side-controls { display: flex; align-items: center; gap: 8px; min-width: 0; }

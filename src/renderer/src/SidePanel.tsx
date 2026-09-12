@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { renderRich } from './rich'
+import { ModelPill, ThinkingPill } from './ChatControls'
 import type { ChatMsg, Paper } from './types'
 
 export interface SideControl {
@@ -12,6 +13,11 @@ interface Props {
   paper: Paper | null
   pageContext: string
   onJump: (slug: string, page: number) => void
+  models: string[]
+  model: string
+  thinking: string
+  onChangeModel: (m: string) => void
+  onChangeThinking: (l: string) => void
 }
 
 interface Translation {
@@ -19,7 +25,10 @@ interface Translation {
   out: string
 }
 
-const SidePanel = forwardRef<SideControl, Props>(function SidePanel({ paper, pageContext, onJump }, ref): JSX.Element {
+const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
+  { paper, pageContext, onJump, models, model, thinking, onChangeModel, onChangeThinking },
+  ref
+): JSX.Element {
   const [tab, setTab] = useState<'chat' | 'translate'>('chat')
   const [msgs, setMsgs] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
@@ -186,6 +195,10 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel({ paper, pag
               ) : (
                 <span className="lib-only-chip">全库检索</span>
               )}
+            </div>
+            <div className="side-controls">
+              <ModelPill models={models} model={model} onChange={onChangeModel} />
+              <ThinkingPill level={thinking} onChange={onChangeThinking} />
               <span style={{ flex: 1 }} />
               <span className="index-badge ellipsis" style={{ maxWidth: 110 }}>
                 {paper ? paper.slug : '未打开论文'}

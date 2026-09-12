@@ -18,6 +18,8 @@ export interface Settings {
   apiBase: string
   apiKey: string
   model: string
+  models?: string[]
+  thinkingLevel?: 'default' | 'off' | 'low' | 'medium' | 'high'
   provider: string
   embedProvider: 'local' | 'zhipu' | 'ollama'
   ollamaUrl: string

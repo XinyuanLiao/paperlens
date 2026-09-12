@@ -5,6 +5,30 @@ export interface ChatMessage {
   content: string
 }
 
+export type ThinkingLevel = 'default' | 'off' | 'low' | 'medium' | 'high'
+
+// 思考等级 → 各服务商参数映射；不支持的服务商保持默认（思考行为由模型自身决定）
+function applyThinking(body: Record<string, unknown>, provider: string, level: ThinkingLevel): void {
+  if (!level || level === 'default') return
+  const off = level === 'off'
+  if (provider === 'zhipu') {
+    body.thinking = { type: off ? 'disabled' : 'enabled' }
+  } else if (provider === 'qwen') {
+    body.enable_thinking = !off
+    if (!off) body.thinking_budget = level === 'high' ? 38912 : level === 'medium' ? 8192 : 2048
+  } else if (provider === 'openai') {
+    body.reasoning_effort = level === 'high' ? 'high' : level === 'medium' ? 'medium' : 'low'
+  }
+  // deepseek / moonshot / custom：无通用思考参数，交给模型选择（如 deepseek-reasoner）
+}
+
+function buildBody(model: string, messages: ChatMessage[], stream: boolean, temperature?: number): Record<string, unknown> {
+  const s = getSettings()
+  const body: Record<string, unknown> = { model, messages, stream, temperature: temperature ?? 0.3 }
+  applyThinking(body, s.provider, (s.thinkingLevel ?? 'default') as ThinkingLevel)
+  return body
+}
+
 // 智谱 GLM 等 OpenAI 兼容接口的 SSE 流式调用
 export async function* chatStream(messages: ChatMessage[], opts: { temperature?: number } = {}): AsyncGenerator<string> {
   const s = getSettings()
@@ -15,7 +39,7 @@ export async function* chatStream(messages: ChatMessage[], opts: { temperature?:
   const resp = await fetch(`${s.apiBase}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.apiKey}` },
-    body: JSON.stringify({ model: s.model, messages, stream: true, temperature: opts.temperature ?? 0.3 })
+    body: JSON.stringify(buildBody(s.model, messages, true, opts.temperature ?? 0.3))
   })
   if (!resp.ok || !resp.body) {
     throw new Error(`LLM API ${resp.status}: ${await resp.text().catch(() => '')}`)
@@ -80,7 +104,7 @@ export async function chatOnce(messages: ChatMessage[]): Promise<{ latencyMs: nu
   const resp = await fetch(`${s.apiBase}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.apiKey}` },
-    body: JSON.stringify({ model: s.model, messages, max_tokens: 8, stream: false })
+    body: JSON.stringify(buildBody(s.model, messages, false))
   })
   if (!resp.ok) throw new Error(`API ${resp.status}: ${(await resp.text()).slice(0, 200)}`)
   const json = (await resp.json()) as { choices: Array<{ message: { content: string } }> }

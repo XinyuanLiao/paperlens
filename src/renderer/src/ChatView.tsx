@@ -1,9 +1,15 @@
 import { useRef, useState } from 'react'
 import { renderRich } from './rich'
+import { ModelPill, ThinkingPill } from './ChatControls'
 import type { ChatMsg } from './types'
 
 interface Props {
   paperCount: number
+  models: string[]
+  model: string
+  thinking: string
+  onChangeModel: (m: string) => void
+  onChangeThinking: (l: string) => void
   onJump: (slug: string, page: number) => void
 }
 
@@ -14,7 +20,7 @@ const SUGGESTIONS = [
 ]
 
 // 全库对话主界面（Chat 模式）：hero 欢迎态 + 全屏 RAG 问答
-export default function ChatView({ paperCount, onJump }: Props): JSX.Element {
+export default function ChatView({ paperCount, models, model, thinking, onChangeModel, onChangeThinking, onJump }: Props): JSX.Element {
   const [msgs, setMsgs] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -69,7 +75,9 @@ export default function ChatView({ paperCount, onJump }: Props): JSX.Element {
         }}
       />
       <div className="hero-input-foot">
-        <span className="hero-scope">全库检索 · {paperCount} 篇</span>
+        <ModelPill models={models} model={model} onChange={onChangeModel} />
+        <ThinkingPill level={thinking} onChange={onChangeThinking} />
+        <span className="hero-scope">全库 · {paperCount} 篇</span>
         <span style={{ flex: 1 }} />
         <button className="send-btn" onClick={() => send()} disabled={busy || !input.trim()}>
           发送

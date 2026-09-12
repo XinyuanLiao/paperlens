@@ -320,6 +320,22 @@ export default function App(): JSX.Element {
     return s
   }, [])
 
+  const models = settings?.models?.length ? settings.models : settings?.model ? [settings.model] : []
+  const model = settings?.model ?? ''
+  const thinking = settings?.thinkingLevel ?? 'default'
+  const changeModel = useCallback(
+    (m: string) => {
+      void saveSettings({ model: m })
+    },
+    [saveSettings]
+  )
+  const changeThinking = useCallback(
+    (l: string) => {
+      void saveSettings({ thinkingLevel: l as Settings['thinkingLevel'] })
+    },
+    [saveSettings]
+  )
+
   // 文件菜单 / 空库引导：直接选库文件夹并扫描（与设置页同效）
   const pickLibraryNow = useCallback(async () => {
     const p = await window.api.pickLibrary()
@@ -444,7 +460,15 @@ export default function App(): JSX.Element {
         )}
         <div className="workspace">
           {mode === 'chat' ? (
-            <ChatView paperCount={papers.length} onJump={jumpTo} />
+            <ChatView
+              paperCount={papers.length}
+              models={models}
+              model={model}
+              thinking={thinking}
+              onChangeModel={changeModel}
+              onChangeThinking={changeThinking}
+              onJump={jumpTo}
+            />
           ) : (
             <div className="main-win">
               {tabs.length === 0 ? (
@@ -482,7 +506,19 @@ export default function App(): JSX.Element {
                   onDeleteHighlight={onDeleteHighlight}
                 />
               )}
-              {showSide && <SidePanel ref={sideControl} paper={activePaper} pageContext={pageCtx} onJump={jumpTo} />}
+              {showSide && (
+                <SidePanel
+                  ref={sideControl}
+                  paper={activePaper}
+                  pageContext={pageCtx}
+                  onJump={jumpTo}
+                  models={models}
+                  model={model}
+                  thinking={thinking}
+                  onChangeModel={changeModel}
+                  onChangeThinking={changeThinking}
+                />
+              )}
             </div>
           )}
         </div>

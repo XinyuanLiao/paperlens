@@ -190,8 +190,18 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
               <input type="password" value={form.apiKey} onChange={(e) => set({ apiKey: e.target.value })} placeholder="粘贴 API Key" />
             </div>
             <div className="field grow">
-              <label>模型</label>
-              <input value={form.model} onChange={(e) => set({ model: e.target.value })} />
+              <label>模型（可填多个，逗号分隔，对话界面可切换）</label>
+              <input
+                value={(form.models?.length ? form.models : form.model ? [form.model] : []).join(', ')}
+                onChange={(e) => {
+                  const list = e.target.value
+                    .split(/[,，]/)
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                  set({ models: list, model: list.includes(form.model) ? form.model : (list[0] ?? '') })
+                }}
+                placeholder="deepseek-chat, deepseek-reasoner"
+              />
             </div>
           </div>
           <div className="test-row">
