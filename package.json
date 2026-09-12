@@ -1,0 +1,32 @@
+{
+  "name": "paperlens",
+  "version": "0.1.0",
+  "description": "PaperLens — PDF 文献阅读 + 划词翻译 + LLM 问答 + 全库 RAG",
+  "main": "out/main/index.js",
+  "productName": "PaperLens",
+  "author": "planck",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "rebuild": "electron-rebuild -f -w better-sqlite3"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.5.0",
+    "better-sqlite3": "^11.9.0",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^35.0.0",
+    "electron-vite": "^3.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

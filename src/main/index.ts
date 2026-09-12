@@ -1,0 +1,263 @@
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, nativeImage } from 'electron'
+import path from 'node:path'
+import fs from 'node:fs'
+import * as dbmod from './db'
+import { buildIndex, isIndexRunning, hybridSearch } from './ingest'
+import { chatStream, translateMessages, explainMessages, ragMessages, testLLM, type ChatMessage } from './llm'
+import { importPapers, reclassifyAll, reclassifyOne } from './import'
+import { embed } from './embed'
+
+let win: BrowserWindow | null = null
+
+function send(ev: string, payload: unknown): void {
+  if (win && !win.isDestroyed()) win.webContents.send(ev, payload)
+}
+
+function createWindow(): void {
+  const { screen } = require('electron') as typeof import('electron')
+  const wa = screen.getPrimaryDisplay().workArea
+  const w = Math.min(1560, wa.width - 16)
+  const h = Math.min(960, wa.height - 8)
+  win = new BrowserWindow({
+    width: w,
+    height: h,
+    x: wa.x + Math.max(0, Math.floor((wa.width - w) / 2)),
+    y: wa.y + Math.max(0, Math.floor((wa.height - h) / 2)),
+    minWidth: 1080,
+    minHeight: 640,
+    backgroundColor: '#16171a',
+    title: 'PaperLens',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    trafficLightPosition: { x: 14, y: 13 },
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  if (process.env.ELECTRON_RENDERER_URL) {
+    win.loadURL(process.env.ELECTRON_RENDERER_URL)
+  } else {
+    win.loadFile(path.join(__dirname, '../renderer/index.html'))
+  }
+}
+
+app.setName('PaperLens')
+
+app.whenReady().then(() => {
+  dbmod.initDb()
+  registerIpc()
+  createWindow()
+  // macOS：Dock 图标与名字（打包后由 app bundle 提供，开发态手动设）
+  if (process.platform === 'darwin') {
+    const iconPng = path.join(app.getAppPath(), 'build/icon.png')
+    if (fs.existsSync(iconPng)) {
+      app.dock.setIcon(nativeImage.createFromPath(iconPng))
+    }
+  }
+  const s = dbmod.getSettings()
+  if (s.libraryPath && fs.existsSync(s.libraryPath)) {
+    try {
+      const r = dbmod.scanLibrary(s.libraryPath)
+      console.log(`[scan] 新增 ${r.added} 更新 ${r.updated} 共 ${r.total}`)
+      const pending = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers WHERE indexed=0').get() as { n: number }
+      if (pending.n > 0 && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
+    } catch (e) {
+      console.error('[scan]', e)
+    }
+  }
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
+
+function registerIpc(): void {
+  ipcMain.handle('settings:get', () => dbmod.getSettings())
+  ipcMain.handle('settings:save', (_e, patch) => dbmod.saveSettings(patch))
+
+  ipcMain.handle('library:pick', async () => {
+    const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], message: '选择工作区文件夹（论文存储结构由应用自动管理）' })
+    return r.canceled ? null : r.filePaths[0]
+  })
+
+  ipcMain.handle('library:scan', (_e, libPath?: string) => {
+    const p = libPath ?? dbmod.getSettings().libraryPath
+    const r = dbmod.scanLibrary(p)
+    if (libPath) dbmod.saveSettings({ libraryPath: libPath })
+    const pending = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers WHERE indexed=0').get() as { n: number }
+    if (pending.n > 0 && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
+    return { ...r, indexing: pending.n > 0 }
+  })
+
+  ipcMain.handle('papers:list', () => dbmod.listPapers())
+  ipcMain.handle('papers:status', (_e, id: number, status: string) => dbmod.setStatus(id, status))
+
+  // 添加文献（AI 自动归类）
+  ipcMain.handle('papers:pick-import', async () => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: '选择要导入的 PDF 论文',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      properties: ['openFile', 'multiSelections']
+    })
+    return r.canceled ? [] : r.filePaths
+  })
+  ipcMain.handle('papers:import', async (_e, paths: string[]) => {
+    const outcomes = await importPapers(paths, send)
+    const r = dbmod.scanLibrary(dbmod.getSettings().libraryPath)
+    const pending = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers WHERE indexed=0').get() as { n: number }
+    if (pending.n > 0 && !isIndexRunning()) void buildIndex(send).catch(() => {})
+    return { outcomes, scan: r }
+  })
+
+  // AI 重新归类
+  ipcMain.on('papers:reclassify-all', () => {
+    if (!dbmod.getSettings().apiKey) {
+      send('classify:progress', { done: 0, total: 0, current: '', error: '未配置 API Key，无法 AI 归类' })
+      return
+    }
+    void reclassifyAll(send).catch((e) => send('classify:progress', { done: 0, total: 0, current: '', error: String(e) }))
+  })
+  ipcMain.handle('papers:reclassify-one', async (_e, id: number) => {
+    if (!dbmod.getSettings().apiKey) return false
+    return reclassifyOne(id, send)
+  })
+
+  // 右键菜单：导出 / 分享 / 归类
+  ipcMain.on('papers:menu', (_e, id: number, x: number, y: number) => {
+    const p = dbmod.getDb().prepare('SELECT id, slug, title, year, path FROM papers WHERE id=?').get(id) as
+      | { id: number; slug: string; title: string; year: number | null; path: string }
+      | undefined
+    if (!p || !win) return
+    const menu = Menu.buildFromTemplate([
+      {
+        label: '导出 PDF…',
+        click: () => {
+          void dialog
+            .showSaveDialog(win!, { defaultPath: `${p.title.slice(0, 60) || p.slug}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+            .then((r) => {
+              if (!r.canceled && r.filePath) fs.copyFileSync(p.path, r.filePath)
+            })
+        }
+      },
+      { label: '在访达中显示', click: () => shell.showItemInFolder(p.path) },
+      { label: '复制标题', click: () => clipboard.writeText(p.title) },
+      {
+        label: '复制引用',
+        click: () => clipboard.writeText(`${p.title} (${p.year ?? 'n.d.'})`)
+      },
+      { type: 'separator' },
+      {
+        label: 'AI 重新归类这篇',
+        click: () => {
+          if (!dbmod.getSettings().apiKey) {
+            dialog.showMessageBox(win!, { message: '未配置 API Key，无法 AI 归类' })
+            return
+          }
+          void reclassifyOne(id, send)
+        }
+      }
+    ])
+    menu.popup({ window: win, x: Math.round(x), y: Math.round(y) })
+  })
+
+  // 划词高亮持久化
+  ipcMain.handle(
+    'highlights:add',
+    (_e, paperId: number, page: number, rects: Array<{ x: number; y: number; w: number; h: number }>, text: string) => {
+      const r = dbmod
+        .getDb()
+        .prepare('INSERT INTO highlights(paper_id,page,rects,text) VALUES(?,?,?,?)')
+        .run(paperId, page, JSON.stringify(rects), text.slice(0, 500))
+      return Number(r.lastInsertRowid)
+    }
+  )
+  ipcMain.handle('highlights:list', (_e, paperId: number) =>
+    (dbmod.getDb().prepare('SELECT id, page, rects, text FROM highlights WHERE paper_id=?').all(paperId) as Array<{
+      id: number
+      page: number
+      rects: string
+      text: string
+    }>).map((h) => ({ ...h, rects: JSON.parse(h.rects) }))
+  )
+  ipcMain.handle('highlights:delete', (_e, hid: number) => {
+    dbmod.getDb().prepare('DELETE FROM highlights WHERE id=?').run(hid)
+    return true
+  })
+
+  ipcMain.handle('pdf:read', (_e, pdfPath: string) => {
+    const lib = path.resolve(dbmod.getSettings().libraryPath)
+    const abs = path.resolve(pdfPath)
+    if (!abs.startsWith(lib)) throw new Error('路径不在工作区内')
+    return fs.readFileSync(abs) // Buffer 经结构化克隆成为 Uint8Array，长度精确
+  })
+
+  ipcMain.handle('index:status', () => {
+    const total = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers').get() as { n: number }
+    const done = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers WHERE indexed=1').get() as { n: number }
+    const nChunks = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }
+    return { papers: total.n, indexed: done.n, chunks: nChunks.n, running: isIndexRunning() }
+  })
+  ipcMain.handle('index:rebuild', async () => {
+    dbmod.getDb().exec('DELETE FROM chunks; DELETE FROM chunks_fts; UPDATE papers SET indexed=0')
+    if (!isIndexRunning()) void buildIndex(send).catch((e) => send('index:error', String(e)))
+    return true
+  })
+  ipcMain.on('index:start', () => {
+    if (!isIndexRunning()) void buildIndex(send).catch((e) => send('index:error', String(e)))
+  })
+
+  // 连接测试
+  ipcMain.handle('llm:test', () => testLLM())
+  ipcMain.handle('embed:test', async () => {
+    try {
+      const { dim } = await embed(['connection test'])
+      return { ok: true, dim }
+    } catch (err) {
+      return { ok: false, error: String(err).slice(0, 300) }
+    }
+  })
+
+  // LLM 流式：reqId 关联渲染端回调
+  ipcMain.on(
+    'llm:stream',
+    async (
+      _e,
+      args: { reqId: number; mode: 'chat' | 'translate' | 'explain' | 'rag'; messages?: ChatMessage[]; text?: string; context?: string; question?: string; scopePaperId?: number; paperTitle?: string }
+    ) => {
+      try {
+        let msgs: ChatMessage[]
+        let sources: import('./ingest').RetrievedChunk[] = []
+        if (args.mode === 'translate') msgs = translateMessages(args.text!, args.context ?? '', dbmod.getSettings().translateTarget)
+        else if (args.mode === 'explain') msgs = explainMessages(args.text!, args.context ?? '')
+        else if (args.mode === 'rag') {
+          sources = await hybridSearch(args.question!, args.scopePaperId)
+          if (sources.length === 0) {
+            send(`llm:delta:${args.reqId}`, '⚠️ 检索不到相关片段（可能索引尚未建好），请先重建索引。')
+            send(`llm:end:${args.reqId}`, null)
+            return
+          }
+          msgs = ragMessages(
+            args.question!,
+            sources.map((s, i) => ({ label: `${s.title} (p.${s.page})`, text: s.text })),
+            args.paperTitle
+          )
+        } else msgs = args.messages ?? []
+
+        for await (const delta of chatStream(msgs)) send(`llm:delta:${args.reqId}`, delta)
+        if (args.mode === 'rag') send(`llm:sources:${args.reqId}`, sources.map((s, i) => ({ n: i + 1, slug: s.slug, title: s.title, page: s.page })))
+        send(`llm:end:${args.reqId}`, null)
+      } catch (err) {
+        send(`llm:delta:${args.reqId}`, `\n\n❌ ${String(err)}`)
+        send(`llm:end:${args.reqId}`, null)
+      }
+    }
+  )
+
+  ipcMain.on('open-external', (_e, url: string) => {
+    if (/^https?:\/\//.test(url)) shell.openExternal(url)
+  })
+}
