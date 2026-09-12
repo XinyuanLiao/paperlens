@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { Paper } from './types'
 
 interface Props {
@@ -6,13 +6,15 @@ interface Props {
   activeId: number | null
   q: string
   onSetQ: (q: string) => void
-  cat: string
-  onSetCat: (c: string) => void
   onOpen: (p: Paper) => void
   onCycleStatus: (p: Paper) => void
   onAddPapers: () => void
   onReindex: () => void
   onReclassify: () => void
+  onBack: () => void
+  onFwd: () => void
+  canBack: boolean
+  canFwd: boolean
 }
 
 export default function LibraryPane({
@@ -20,100 +22,131 @@ export default function LibraryPane({
   activeId,
   q,
   onSetQ,
-  cat,
-  onSetCat,
   onOpen,
   onCycleStatus,
   onAddPapers,
   onReindex,
-  onReclassify
+  onReclassify,
+  onBack,
+  onFwd,
+  canBack,
+  canFwd
 }: Props): JSX.Element {
   const cats = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const p of papers) m.set(p.category, (m.get(p.category) ?? 0) + 1)
+    const m = new Map<string, Paper[]>()
+    for (const p of papers) {
+      if (!m.has(p.category)) m.set(p.category, [])
+      m.get(p.category)!.push(p)
+    }
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [papers])
 
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggle = (c: string): void =>
+    setExpanded((s) => {
+      const n = new Set(s)
+      if (n.has(c)) n.delete(c)
+      else n.add(c)
+      return n
+    })
+
   const kw = q.trim().toLowerCase()
-  const filtered = useMemo(
-    () =>
-      papers.filter(
-        (p) =>
-          (cat === '__all' || p.category === cat) &&
-          (!kw || p.title.toLowerCase().includes(kw) || p.authors.toLowerCase().includes(kw) || p.slug.includes(kw))
-      ),
-    [papers, cat, kw]
+  const match = (p: Paper): boolean => !kw || p.title.toLowerCase().includes(kw) || p.authors.toLowerCase().includes(kw) || p.slug.includes(kw)
+  const searching = kw.length > 0
+
+  const navBtn = (dir: 'back' | 'fwd'): JSX.Element => (
+    <button className="icon-btn" disabled={dir === 'back' ? !canBack : !canFwd} title={dir === 'back' ? '上一篇' : '下一篇'} onClick={dir === 'back' ? onBack : onFwd}>
+      {dir === 'back' ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+      )}
+    </button>
+  )
+
+  const paperRow = (p: Paper): JSX.Element => (
+    <div
+      key={p.id}
+      className={`paper-item ${p.id === activeId ? 'active' : ''}`}
+      onClick={() => onOpen(p)}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        window.api.paperMenu(p.id, e.clientX, e.clientY)
+      }}
+    >
+      <div className="t">{p.title}</div>
+      <div className="m">
+        <span
+          className={`status-dot status-${p.status}`}
+          title={`${p.status}（点击切换）`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onCycleStatus(p)
+          }}
+        />
+        <span>{p.year ?? '—'}</span>
+        <span className="cat">{p.category}</span>
+      </div>
+    </div>
   )
 
   return (
     <div className="library">
-      {/* 上半部分：功能区 */}
       <div className="lib-func">
-        <button className="add-btn" onClick={onAddPapers} title="选择 PDF 导入，AI 自动归类；也可直接拖入窗口">
+        <div className="nav-row">
+          {navBtn('back')}
+          {navBtn('fwd')}
+          <span className="nav-label">文献</span>
+          <span style={{ flex: 1 }} />
+          <span className="cat-count">{papers.length}</span>
+        </div>
+        <button className="add-btn" onClick={onAddPapers} title="导入 PDF，AI 自动归类；也可拖入窗口">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
             <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
           添加文献
         </button>
-        <input className="searchbox" placeholder="搜索标题 / 作者" value={q} onChange={(e) => onSetQ(e.target.value)} />
+        <input className="searchbox" placeholder="搜索" value={q} onChange={(e) => onSetQ(e.target.value)} />
         <div className="func-row">
-          <button className="mini-btn" onClick={onReindex} title="清空并重建全库向量索引">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M21 12a9 9 0 1 1-2.6-6.3M21 4v5h-5" />
-            </svg>
+          <button className="mini-btn" onClick={onReindex} title="清空并重建全库索引">
             重建索引
           </button>
-          <button className="mini-btn" onClick={onReclassify} title="AI 重新归类全部文献，可创建新分类">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2H2v10l9.3 9.3a1.7 1.7 0 0 0 2.4 0l7.6-7.6a1.7 1.7 0 0 0 0-2.4L12 2z" />
-              <circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" />
-            </svg>
+          <button className="mini-btn" onClick={onReclassify} title="AI 重新归类全部文献">
             AI 归类
           </button>
         </div>
       </div>
-      {/* 下半部分：文件区（标签 + 论文） */}
       <div className="lib-files">
-        <div className="cat-list">
-          <div className={`cat-item ${cat === '__all' ? 'active' : ''}`} onClick={() => onSetCat('__all')}>
-            <span>全部</span>
-            <span className="cat-count">{papers.length}</span>
-          </div>
-          {cats.map(([c, n]) => (
-            <div key={c} className={`cat-item ${cat === c ? 'active' : ''}`} onClick={() => onSetCat(c)} title={`${c} · ${n} 篇`}>
-              <span>{c}</span>
-              <span className="cat-count">{n}</span>
-            </div>
-          ))}
-        </div>
-        <div className="paper-list">
-          {filtered.map((p) => (
-            <div
-              key={p.id}
-              className={`paper-item ${p.id === activeId ? 'active' : ''}`}
-              onClick={() => onOpen(p)}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                window.api.paperMenu(p.id, e.clientX, e.clientY)
-              }}
-            >
-              <div className="t">{p.title}</div>
-              <div className="m">
-                <span
-                  className={`status-dot status-${p.status}`}
-                  title={`${p.status}（点击切换）`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onCycleStatus(p)
-                  }}
-                />
-                <span>{p.year ?? '—'}</span>
-                <span className="cat">{p.category}</span>
+        {searching
+          ? papers.filter(match).map(paperRow)
+          : cats.map(([c, list]) => (
+              <div key={c}>
+                <div className="cat-item" onClick={() => toggle(c)}>
+                  <svg
+                    className={`chev ${expanded.has(c) ? 'open' : ''}`}
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                  <span className="ellipsis" style={{ flex: 1 }}>
+                    {c}
+                  </span>
+                  <span className="cat-count">{list.length}</span>
+                </div>
+                {expanded.has(c) && <div className="tree-papers">{list.map(paperRow)}</div>}
               </div>
-            </div>
-          ))}
-          {filtered.length === 0 && <div style={{ padding: 20, color: 'var(--text-dim)', textAlign: 'center' }}>没有匹配的文献</div>}
-        </div>
+            ))}
       </div>
     </div>
   )

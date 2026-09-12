@@ -92,56 +92,16 @@ export interface TestResult {
   model?: string
   latencyMs?: number
   balance?: { amount: string; currency: string } | null
-  quota?: string | null
   error?: string
 }
 
-// 智谱 Coding Plan 额度：尝试已知候选端点（均为未公开承诺，失败即静默降级）
-async function zhipuQuota(apiBase: string, apiKey: string): Promise<string | null> {
-  const candidates = [
-    `${apiBase}/coding_plan/usage`,
-    'https://open.bigmodel.cn/api/biz/coding_plan/usage',
-    'https://open.bigmodel.cn/api/biz/codingplan/quota'
-  ]
-  for (const url of candidates) {
-    try {
-      const r = await fetch(url, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(5000)
-      })
-      if (!r.ok) continue
-      const j = (await r.json()) as Record<string, unknown>
-      const pick = (o: unknown, ...keys: string[]): unknown => {
-        if (!o || typeof o !== 'object') return undefined
-        for (const k of keys) if (k in (o as Record<string, unknown>)) return (o as Record<string, unknown>)[k]
-        return undefined
-      }
-      const remaining = pick(j, 'remaining', 'remain', 'left') ?? pick(j.data, 'remaining', 'remain', 'left')
-      const usage = pick(j, 'usage', 'used') ?? pick(j.data, 'usage', 'used')
-      const total = pick(j, 'total', 'limit') ?? pick(j.data, 'total', 'limit')
-      if (typeof remaining === 'number' || typeof usage === 'number' || typeof total === 'number') {
-        const parts: string[] = []
-        if (typeof usage === 'number' && typeof total === 'number') parts.push(`${usage}/${total}`)
-        else if (typeof remaining === 'number') parts.push(`剩余 ${remaining}`)
-        else if (typeof usage === 'number') parts.push(`已用 ${usage}`)
-        else if (typeof total === 'number') parts.push(`额度 ${total}`)
-        if (parts.length) return `Coding Plan ${parts.join(' · ')}`
-      }
-    } catch {
-      /* 下一个候选 */
-    }
-  }
-  return null
-}
-
-// 连接测试 + 余额查询（各服务商能力不同，查不到就返回 null）
+// 连接测试 + 余额查询（DeepSeek 有官方余额接口，其余查不到就返回 null）
 export async function testLLM(): Promise<TestResult> {
   const s = getSettings()
   if (!s.apiKey) return { ok: false, error: '未配置 API Key' }
   try {
     const { latencyMs } = await chatOnce([{ role: 'user', content: 'hi' }])
     let balance: { amount: string; currency: string } | null = null
-    let quota: string | null = null
     try {
       if (s.provider === 'deepseek') {
         const root = s.apiBase.replace(/\/v1\/?$/, '')
@@ -151,21 +111,11 @@ export async function testLLM(): Promise<TestResult> {
           const b = j.balance_infos?.[0]
           if (b) balance = { amount: b.total_balance, currency: b.currency }
         }
-      } else if (s.provider === 'zhipu') {
-        const r = await fetch(`${s.apiBase}/account/balance`, {
-          headers: { Authorization: `Bearer ${s.apiKey}` },
-          signal: AbortSignal.timeout(5000)
-        })
-        if (r.ok) {
-          const j = (await r.json()) as { data?: { total_balance?: string; currency?: string } }
-          if (j.data?.total_balance) balance = { amount: j.data.total_balance, currency: j.data.currency ?? 'CNY' }
-        }
-        quota = await zhipuQuota(s.apiBase, s.apiKey)
       }
     } catch {
       balance = null
     }
-    return { ok: true, model: s.model, latencyMs, balance, quota }
+    return { ok: true, model: s.model, latencyMs, balance }
   } catch (err) {
     return { ok: false, error: String(err).slice(0, 300) }
   }

@@ -1,4 +1,3 @@
-// 把 SVG 图标渲染成 1024px PNG（供 iconutil / electron-builder 使用）
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -6,21 +5,21 @@ const path = require('node:path')
 const svg = `<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#4E8BFF"/><stop offset="1" stop-color="#2352D8"/>
+      <stop offset="0" stop-color="#B5123F"/><stop offset="1" stop-color="#7E0630"/>
     </linearGradient>
     <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E9EEF7"/>
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F3E9EC"/>
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
   <rect x="312" y="216" width="400" height="592" rx="40" fill="url(#paper)"/>
-  <rect x="372" y="316" width="280" height="26" rx="13" fill="#8E99AC"/>
+  <rect x="372" y="316" width="280" height="26" rx="13" fill="#9AA0AC"/>
   <rect x="372" y="396" width="280" height="26" rx="13" fill="#FFD60A"/>
-  <rect x="372" y="400" width="196" height="18" rx="9" fill="#3B465C"/>
-  <rect x="372" y="476" width="280" height="26" rx="13" fill="#C4CCDA"/>
-  <rect x="372" y="556" width="240" height="26" rx="13" fill="#C4CCDA"/>
-  <rect x="372" y="636" width="180" height="26" rx="13" fill="#C4CCDA"/>
-  <circle cx="664" cy="672" r="96" fill="#2352D8" opacity="0.12"/>
+  <rect x="372" y="400" width="196" height="18" rx="9" fill="#7E0630"/>
+  <rect x="372" y="476" width="280" height="26" rx="13" fill="#D9C3CB"/>
+  <rect x="372" y="556" width="240" height="26" rx="13" fill="#D9C3CB"/>
+  <rect x="372" y="636" width="180" height="26" rx="13" fill="#D9C3CB"/>
+  <circle cx="664" cy="672" r="96" fill="#7E0630" opacity="0.10"/>
   <circle cx="664" cy="672" r="82" fill="none" stroke="#FFFFFF" stroke-width="34"/>
   <rect x="722" y="736" width="120" height="44" rx="22" transform="rotate(45 722 736)" fill="#FFFFFF"/>
 </svg>`

@@ -84,7 +84,7 @@ declare global {
       paperMenu: (id: number, x: number, y: number) => void
       reclassifyAll: () => void
       reclassifyOne: (id: number) => Promise<boolean>
-      testLLM: () => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; quota?: string | null; error?: string }>
+      testLLM: () => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; error?: string }>
       testEmbed: () => Promise<{ ok: boolean; dim?: number; error?: string }>
       onClassifyProgress: (cb: (p: { done: number; total: number; current: string; error?: string }) => void) => () => void
       stream: (

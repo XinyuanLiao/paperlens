@@ -9,11 +9,16 @@ export interface Tab {
   paper: Paper
 }
 
+const SidebarIcon = (): JSX.Element => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="M9 4v16" />
+  </svg>
+)
 const PanelIcon = (): JSX.Element => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
     <rect x="3" y="4" width="18" height="16" rx="2.5" />
     <path d="M15 4v16" />
-    <path d="M15 12h.01" stroke="none" />
   </svg>
 )
 const GearIcon = (): JSX.Element => (
@@ -36,8 +41,11 @@ export default function App(): JSX.Element {
   const [papers, setPapers] = useState<Paper[]>([])
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeId, setActiveId] = useState<number | null>(null)
+  const [hist, setHist] = useState<number[]>([])
+  const [hIdx, setHIdx] = useState(-1)
   const [settings, setSettings] = useState<Settings | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showLib, setShowLib] = useState(true)
   const [showSide, setShowSide] = useState(true)
   const [indexInfo, setIndexInfo] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [classifyInfo, setClassifyInfo] = useState('')
@@ -46,7 +54,6 @@ export default function App(): JSX.Element {
   const [pageCtx, setPageCtx] = useState('')
   const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string } | null>(null)
   const [q, setQ] = useState('')
-  const [cat, setCat] = useState('__all')
   const [llmChip, setLlmChip] = useState('')
 
   const viewerRef = useRef<ViewerHandle>(null)
@@ -55,7 +62,6 @@ export default function App(): JSX.Element {
 
   const activePaper = tabs.find((t) => t.paper.id === activeId)?.paper ?? null
 
-  // 主题：system / light / dark
   useEffect(() => {
     if (!settings) return
     if (/Mac/.test(navigator.platform)) document.documentElement.classList.add('mac')
@@ -81,8 +87,7 @@ export default function App(): JSX.Element {
     const r = await window.api.testLLM()
     if (r.ok) {
       const bal = r.balance ? ` · ${r.balance.currency === 'CNY' ? '¥' : r.balance.currency + ' '}${r.balance.amount}` : ''
-      const q = r.quota ? ` · ${r.quota}` : ''
-      setLlmChip(`${r.model} · ${r.latencyMs}ms${bal}${q}`)
+      setLlmChip(`${r.model} · ${r.latencyMs}ms${bal}`)
     } else {
       setLlmChip('连接失败')
     }
@@ -119,21 +124,42 @@ export default function App(): JSX.Element {
     void refreshLlmChip()
   }, [refreshLlmChip])
 
-  const openPaper = useCallback((p: Paper, jumpPage?: number) => {
-    setTabs((ts) => (ts.some((t) => t.paper.id === p.id) ? ts : [...ts, { paper: p }]))
-    setActiveId(p.id)
-    setPendingJump(jumpPage ? { slug: p.slug, page: jumpPage } : null)
-  }, [])
+  // 打开论文并记录历史（前进/后退切换）
+  const openPaper = useCallback(
+    (p: Paper, jumpPage?: number) => {
+      setTabs((ts) => (ts.some((t) => t.paper.id === p.id) ? ts : [...ts, { paper: p }]))
+      setActiveId(p.id)
+      setPendingJump(jumpPage ? { slug: p.slug, page: jumpPage } : null)
+      setHist((h) => {
+        const cut = h.slice(0, hIdx + 1)
+        if (cut[cut.length - 1] === p.id) return cut
+        cut.push(p.id)
+        setHIdx(cut.length - 1)
+        return cut
+      })
+    },
+    [hIdx]
+  )
+
+  const navBack = useCallback(() => {
+    if (hIdx > 0) {
+      setHIdx(hIdx - 1)
+      setActiveId(hist[hIdx - 1])
+    }
+  }, [hist, hIdx])
+  const navFwd = useCallback(() => {
+    if (hIdx < hist.length - 1) {
+      setHIdx(hIdx + 1)
+      setActiveId(hist[hIdx + 1])
+    }
+  }, [hist, hIdx])
 
   const closeTab = useCallback(
     (id: number) => {
       const idx = tabs.findIndex((t) => t.paper.id === id)
       const next = tabs.filter((t) => t.paper.id !== id)
       setTabs(next)
-      if (id === activeId) {
-        const fallback = next.length ? next[Math.min(idx, next.length - 1)].paper.id : null
-        setActiveId(fallback)
-      }
+      if (id === activeId) setActiveId(next.length ? next[Math.min(idx, next.length - 1)].paper.id : null)
     },
     [tabs, activeId]
   )
@@ -145,9 +171,12 @@ export default function App(): JSX.Element {
     setTabs((ts) => ts.map((t) => (t.paper.id === p.id ? { ...t, paper: { ...p, status: next } } : t)))
   }, [])
 
-  // 划词：悬浮条（点击触发翻译/解释等）
   const onSelect = useCallback((text: string, x: number, y: number) => {
     setFloatBar({ x, y, text })
+  }, [])
+  const doHighlight = useCallback(() => {
+    setFloatBar(null)
+    void viewerRef.current?.highlightSelection()
   }, [])
   const doTranslate = useCallback((text: string) => {
     setFloatBar(null)
@@ -160,10 +189,6 @@ export default function App(): JSX.Element {
   const doQuote = useCallback((text: string) => {
     setFloatBar(null)
     sideControl.current?.quote(text)
-  }, [])
-  const doHighlight = useCallback(() => {
-    setFloatBar(null)
-    void viewerRef.current?.highlightSelection()
   }, [])
   const onDeleteHighlight = useCallback((hid: number) => {
     void window.api.deleteHighlight(hid)
@@ -212,29 +237,32 @@ export default function App(): JSX.Element {
   const jumpTo = useCallback(
     (slug: string, page: number) => {
       const p = papers.find((x) => x.slug === slug)
-      if (!p) return
-      openPaper(p, page)
+      if (p) openPaper(p, page)
     },
     [papers, openPaper]
   )
 
-  const saveSettings = useCallback(
-    async (patch: Partial<Settings>) => {
-      const s = await window.api.saveSettings(patch)
-      setSettings(s)
-      return s
-    },
-    []
-  )
+  const saveSettings = useCallback(async (patch: Partial<Settings>) => {
+    const s = await window.api.saveSettings(patch)
+    setSettings(s)
+    return s
+  }, [])
 
   const statusLeft = classifyInfo || (indexInfo ? `正在索引 ${indexInfo.done}/${indexInfo.total}` : `已索引 ${indexedCount.indexed}/${indexedCount.papers} 篇 · ${indexedCount.chunks} 块`)
+  const canBack = hIdx > 0
+  const canFwd = hIdx < hist.length - 1
 
   return (
     <div className="shell" onMouseDown={() => setFloatBar(null)} onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       <div className="titlebar">
+        <div className="tb-side tb-left">
+          <button className={`icon-btn ${showLib ? 'on' : ''}`} title="显示/隐藏 侧栏" onClick={() => setShowLib((v) => !v)}>
+            <SidebarIcon />
+          </button>
+        </div>
         <div className="tb-drag" />
         <div className="tb-side tb-right">
-          <button className={`icon-btn ${showSide ? 'on' : ''}`} title="显示/隐藏 问答·翻译边栏" onClick={() => setShowSide((v) => !v)}>
+          <button className={`icon-btn ${showSide ? 'on' : ''}`} title="显示/隐藏 问答·翻译" onClick={() => setShowSide((v) => !v)}>
             <PanelIcon />
           </button>
           <button className="icon-btn" title="设置" onClick={() => setShowSettings(true)}>
@@ -243,44 +271,62 @@ export default function App(): JSX.Element {
         </div>
       </div>
 
-      <div className={`body3 ${showSide ? '' : 'no-side'}`}>
-        <LibraryPane
-          papers={papers}
-          activeId={activeId}
-          q={q}
-          onSetQ={setQ}
-          cat={cat}
-          onSetCat={setCat}
-          onOpen={openPaper}
-          onCycleStatus={cycleStatus}
-          onAddPapers={addPapers}
-          onReindex={() => {
-            void window.api.rebuildIndex()
-          }}
-          onReclassify={reclassifyAll}
-        />
-        <PdfViewer
-          ref={viewerRef}
-          tabs={tabs}
-          activeId={activeId}
-          onActivate={setActiveId}
-          onCloseTab={closeTab}
-          pendingJump={pendingJump}
-          onJumped={() => setPendingJump(null)}
-          onPageContext={(t) => {
-            pageCtxRef.current = t
-            setPageCtx(t)
-          }}
-          onSelect={onSelect}
-          onDeleteHighlight={onDeleteHighlight}
-        />
-        {showSide && <SidePanel ref={sideControl} paper={activePaper} pageContext={pageCtx} onJump={jumpTo} />}
+      <div className="body3">
+        {showLib && (
+          <LibraryPane
+            papers={papers}
+            activeId={activeId}
+            q={q}
+            onSetQ={setQ}
+            onOpen={openPaper}
+            onCycleStatus={cycleStatus}
+            onAddPapers={addPapers}
+            onReindex={() => {
+              void window.api.rebuildIndex()
+            }}
+            onReclassify={reclassifyAll}
+            onBack={navBack}
+            onFwd={navFwd}
+            canBack={canBack}
+            canFwd={canFwd}
+          />
+        )}
+        <div className="workspace">
+          {tabs.length === 0 ? (
+            <div className="workspace-empty">
+              <div className="big">📚</div>
+              <div className="headline">PaperLens</div>
+              <div className="tip">从左侧选择论文，或添加新的文献</div>
+            </div>
+          ) : (
+            <div className={`float-win ${showSide ? 'with-side' : ''}`}>
+              <PdfViewer
+                ref={viewerRef}
+                tabs={tabs}
+                activeId={activeId}
+                onActivate={setActiveId}
+                onCloseTab={closeTab}
+                pendingJump={pendingJump}
+                onJumped={() => setPendingJump(null)}
+                onPageContext={(t) => {
+                  pageCtxRef.current = t
+                  setPageCtx(t)
+                }}
+                onSelect={onSelect}
+                onDeleteHighlight={onDeleteHighlight}
+              />
+              {showSide && <SidePanel ref={sideControl} paper={activePaper} pageContext={pageCtx} onJump={jumpTo} />}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="statusbar">
         <span className="ellipsis">{statusLeft}</span>
         <span style={{ flex: 1 }} />
-        <span className="chip" title="向量嵌入">{settings?.embedProvider === 'ollama' ? `嵌入 ${settings.ollamaEmbedModel}` : settings?.embedProvider === 'zhipu' ? '嵌入 embedding-3' : '嵌入本地 e5'}</span>
+        <span className="chip" title="向量嵌入">
+          {settings?.embedProvider === 'ollama' ? `嵌入 ${settings.ollamaEmbedModel}` : settings?.embedProvider === 'zhipu' ? '嵌入 embedding-3' : '嵌入本地 e5'}
+        </span>
         <span className="chip" title={llmChip} onClick={() => void refreshLlmChip()}>
           {llmChip || `${settings?.model ?? ''}${settings ? ` · ${PROVIDER_LABEL[settings.provider] ?? ''}` : ''}`}
         </span>
@@ -299,14 +345,7 @@ export default function App(): JSX.Element {
         </div>
       )}
       {showSettings && settings && (
-        <SettingsDialog
-          settings={settings}
-          indexed={indexedCount}
-          indexInfo={indexInfo}
-          onSave={saveSettings}
-          onRescanned={refreshPapers}
-          onClose={() => setShowSettings(false)}
-        />
+        <SettingsDialog settings={settings} indexed={indexedCount} indexInfo={indexInfo} onSave={saveSettings} onRescanned={refreshPapers} onClose={() => setShowSettings(false)} />
       )}
     </div>
   )

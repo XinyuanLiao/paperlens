@@ -33,20 +33,21 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
 ): JSX.Element {
   const active = tabs.find((t) => t.paper.id === activeId) ?? null
   const [doc, setDoc] = useState<any>(null)
-  const [numPages, setNumPages] = useState(0)
-  const [zoom, setZoom] = useState(1)
-  const [baseScale, setBaseScale] = useState(1)
-  const [curPage, setCurPage] = useState(1)
   const [error, setError] = useState('')
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
   const pageRefs = useRef(new Map<number, HTMLDivElement>())
   const textCache = useRef<PageTextMap>({})
   const baseVwRef = useRef(0)
+  const curPageRef = useRef(1)
   const [hls, setHls] = useState<Highlight[]>([])
+  const [zoom, setZoom] = useState(1)
+  const [baseScale, setBaseScale] = useState(1)
+  const [curPage, setCurPage] = useState(1)
+  const [numPages, setNumPages] = useState(0)
 
-  // 容器宽度变化（窗口缩放、侧栏开合）→ 自动重新适配宽度并居中
-  useEffect(() => {
-    const el = scrollRef.current
+  // 滚动容器挂载后：容器尺寸变化 → 重新适配宽度并回到当前页
+  const attachScrollEl = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el
     if (!el) return
     let t: ReturnType<typeof setTimeout> | null = null
     const ro = new ResizeObserver(() => {
@@ -55,27 +56,17 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         if (baseVwRef.current > 0) {
           setBaseScale(Math.max(0.5, Math.min(2.2, (el.clientWidth - 56) / baseVwRef.current)))
           setZoom(1)
+          setTimeout(() => pageRefs.current.get(curPageRef.current)?.scrollIntoView({ block: 'start' }), 120)
         }
       }, 140)
     })
     ro.observe(el)
-    return () => {
-      ro.disconnect()
-      if (t) clearTimeout(t)
-    }
-  }, [])
-
-  // 触控板捏合 / Ctrl+滚轮 缩放
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
     const onWheel = (e: WheelEvent): void => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
       setZoom((z) => Math.max(0.4, Math.min(3, z - e.deltaY * 0.0018)))
     }
     el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
   }, [])
 
   // Cmd/Ctrl + -/=/0 缩放
@@ -136,6 +127,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         setNumPages(d.numPages)
         setCurPage(1)
         scrollRef.current?.scrollTo({ top: 0 })
+    curPageRef.current = 1
       } catch (e) {
         setError(String(e))
       }
@@ -212,6 +204,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
       const el = pageRefs.current.get(n)
       if (el && el.offsetTop + el.offsetHeight > sc.scrollTop + 80) {
         setCurPage(n)
+        curPageRef.current = n
         onPageContext(textCache.current[n] ?? '')
         return
       }
@@ -233,7 +226,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
 
   if (!active) {
     return (
-      <div className="viewer-pane">
+      <div className="pdf-pane">
         <div className="empty-viewer">
           <div className="big">📄</div>
           <div className="headline">从左侧选择一篇论文开始阅读</div>
@@ -246,7 +239,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   }
 
   return (
-    <div className={`viewer-pane ${tabs.length ? 'floating' : ''}`}>
+    <div className="pdf-pane">
       <div className="tabbar">
         {tabs.map((t) => (
           <div

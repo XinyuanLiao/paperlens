@@ -1,35 +1,35 @@
 /* ============ 主题变量 ============ */
 :root {
   --bg: #ffffff;
-  --bg2: #f5f5f7;
-  --bg3: #ebebf0;
-  --bg4: #e2e2e8;
-  --border: #e3e3e8;
-  --border-lit: #d2d2da;
-  --text: #1d1d1f;
-  --text-dim: #6e6e73;
-  --accent: #0a84ff;
-  --accent2: #0071e3;
-  --accent-soft: rgba(10, 132, 255, 0.1);
+  --bg2: #f6f4f2;
+  --bg3: #ece9e6;
+  --bg4: #e3dfdb;
+  --border: #e6e1dd;
+  --border-lit: #d4cdc8;
+  --text: #241f21;
+  --text-dim: #776e71;
+  --accent: #a6093d;
+  --accent2: #8e0734;
+  --accent-soft: rgba(166, 9, 61, 0.09);
   --ok: #28a745;
   --warn: #d99a06;
   --danger: #e2606c;
-  --shadow: 0 10px 40px rgba(0, 0, 0, 0.16);
+  --shadow: 0 10px 40px rgba(40, 10, 20, 0.16);
   --radius: 10px;
   --hl: rgba(255, 210, 0, 0.45);
 }
 html[data-theme='dark'] {
-  --bg: #16171a;
-  --bg2: #1d1e22;
-  --bg3: #26272c;
-  --bg4: #303138;
-  --border: #2a2b31;
-  --border-lit: #3a3b43;
-  --text: #e8e9ed;
-  --text-dim: #9a9ba3;
-  --accent: #4f8cff;
-  --accent2: #7aa8ff;
-  --accent-soft: rgba(79, 140, 255, 0.14);
+  --bg: #1a1718;
+  --bg2: #211d1e;
+  --bg3: #2b2628;
+  --bg4: #362f31;
+  --border: #302a2c;
+  --border-lit: #453c3f;
+  --text: #ece7e9;
+  --text-dim: #a39a9d;
+  --accent: #e04f78;
+  --accent2: #ef8ba6;
+  --accent-soft: rgba(224, 79, 120, 0.15);
   --ok: #3ecf8e;
   --warn: #e8b64c;
   --shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
@@ -64,10 +64,24 @@ html.mac .titlebar { padding-left: 78px; }
 .tb-side { display: flex; align-items: center; gap: 6px; -webkit-app-region: no-drag; }
 .tb-drag { flex: 1; height: 100%; }
 .icon-btn.on { color: var(--accent); background: var(--accent-soft); }
-.titlebar .searchbox { width: 210px; flex: none; }
-.body3 { flex: 1; min-height: 0; display: grid; grid-template-columns: 256px 1fr 384px; overflow: hidden; }
-.body3.no-side { grid-template-columns: 256px 1fr; }
-.library, .viewer-pane, .side { min-height: 0; min-width: 0; overflow: hidden; }
+
+.body3 { flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--bg2); }
+.library, .pdf-pane, .side { min-height: 0; min-width: 0; overflow: hidden; }
+
+/* 底层主界面 + PDF 悬浮窗 */
+.workspace { flex: 1; min-width: 0; position: relative; overflow: hidden; }
+.float-win {
+  position: absolute; inset: 12px 14px 14px 10px; display: flex;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(60, 10, 25, 0.16); overflow: hidden;
+}
+html[data-theme='dark'] .float-win { box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55); }
+.float-win .pdf-pane { flex: 1; min-width: 0; }
+.float-win .side { width: 380px; flex-shrink: 0; border-left: 1px solid var(--border); border-left: none; }
+.workspace-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-dim); }
+.workspace-empty .big { font-size: 44px; }
+.workspace-empty .headline { font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: 1px; }
+.workspace-empty .tip { font-size: 12.5px; }
 
 /* ============ 底部状态栏（VSCode 风） ============ */
 .statusbar {
@@ -81,9 +95,11 @@ html.mac .titlebar { padding-left: 78px; }
 button { font-family: inherit; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ============ 左栏：功能区(上) + 文件区(下) ============ */
-.library { background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+/* ============ 左栏：导航/功能区(上) + 文件树(下) ============ */
+.library { width: 264px; flex-shrink: 0; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
 .lib-func { padding: 12px 12px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; display: flex; flex-direction: column; gap: 9px; }
+.nav-row { display: flex; align-items: center; gap: 4px; }
+.nav-label { font-size: 12.5px; font-weight: 700; color: var(--text); margin-left: 6px; letter-spacing: 0.5px; }
 .add-btn {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   background: var(--accent); color: #fff; border: none; border-radius: 9px; padding: 9px 0;
@@ -98,8 +114,8 @@ button { font-family: inherit; }
   padding: 6px 0; cursor: pointer; font-size: 11.5px; transition: border-color 0.12s, background 0.12s;
 }
 .mini-btn:hover { border-color: var(--accent); background: var(--bg); }
-.lib-files { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.lib-files .paper-list { flex: 1; min-height: 0; border-top: none; }
+.lib-files { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px 14px; }
+.nav-row .icon-btn:disabled { opacity: 0.3; }
 .icon-btn {
   width: 30px; height: 30px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; border-radius: 8px; color: var(--text-dim); cursor: pointer;
@@ -115,7 +131,10 @@ button { font-family: inherit; }
 }
 .searchbox::placeholder { color: var(--text-dim); }
 .searchbox:focus { border-color: var(--accent); background: var(--bg); }
-.cat-list { padding: 10px 2px 4px; overflow-y: auto; max-height: 168px; }
+.cat-list { padding: 4px 2px; }
+.chev { flex-shrink: 0; opacity: 0.55; transition: transform 0.12s; }
+.chev.open { transform: rotate(90deg); }
+.tree-papers { padding: 2px 0 4px 20px; border-left: 1px solid var(--border); margin: 0 8px 2px 13px; }
 .cat-item {
   padding: 5px 9px; border-radius: 7px; cursor: pointer; color: var(--text-dim);
   display: flex; justify-content: space-between; align-items: center; font-size: 12.5px;
@@ -151,14 +170,7 @@ button { font-family: inherit; }
 .progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s ease; }
 
 /* ============ 中栏：PDF ============ */
-.viewer-pane { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
-.viewer-pane.floating {
-  margin: 10px 12px 14px 4px; border-radius: 12px; overflow: hidden;
-  border: 1px solid var(--border);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
-}
-html[data-theme='dark'] .viewer-pane.floating { box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5); }
-.body3 { background: var(--bg2); }
+
 .tabbar { display: flex; gap: 4px; padding: 8px 10px 0; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; flex-shrink: 0; }
 .tab {
   padding: 6px 9px; background: transparent; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 12px;
