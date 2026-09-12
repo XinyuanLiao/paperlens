@@ -634,3 +634,11 @@ html.mac { --tb-h: 44px; }
 .modal-head { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; margin: -22px -22px 0; padding: 16px 22px 10px; background: var(--bg); border-bottom: 1px solid var(--border); }
 .modal-head h2 { margin: 0; font-size: 16px; }
 .modal-head .modal-x { position: static; margin: 0; }
+
+/* ============ 胶囊恒定高度 / 设置头精修 / 引用面板 ============ */
+.ctl-pill { white-space: nowrap; flex-shrink: 0; }
+.ctl-label { overflow: hidden; text-overflow: ellipsis; }
+.modal-head h2 { font-size: 15px; font-weight: 650; letter-spacing: 0.2px; }
+.modal-head .modal-x { width: 26px; height: 26px; border-radius: 7px; font-size: 12px; }
+.ref-page-slot { display: flex; justify-content: center; margin-bottom: 14px; }
+.ref-loading { padding: 30px; text-align: center; color: var(--text-dim); font-size: 12.5px; }

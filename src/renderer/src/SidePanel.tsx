@@ -205,8 +205,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
                 {paper ? paper.slug : '未打开论文'}
               </span>
             </div>
-            <div className="input-row">
-              <textarea
+            <div className="input-row">              <textarea
                 className="chat-input"
                 placeholder={paper ? '问点什么…（Enter 发送，Shift+Enter 换行）' : '与全库文献对话…（Enter 发送，Shift+Enter 换行）'}
                 value={input}

@@ -15,14 +15,13 @@ const ChipCheck = (): JSX.Element => (
   </svg>
 )
 
-// Ollama 风格：底部输入区的模型 / 思考 / 检索范围 胶囊选择器
+// 胶囊基座：空间不足时自动退化为纯图标（带迟滞防抖动），高度恒定
 function Pill({
   icon,
   label,
   title,
   open,
   setOpen,
-  compact,
   children
 }: {
   icon: JSX.Element
@@ -30,23 +29,31 @@ function Pill({
   title?: string
   open: boolean
   setOpen: (v: boolean) => void
-  compact?: boolean
   children: React.ReactNode
 }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [iconOnly, setIconOnly] = useState(false)
+  const neededRef = useRef(0)
   useEffect(() => {
-    if (!open) return
-    const h = (e: MouseEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [open, setOpen])
+    const el = btnRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      if (iconOnly) {
+        if (el.clientWidth > neededRef.current + 12) setIconOnly(false)
+      } else if (el.scrollWidth > el.clientWidth + 1) {
+        neededRef.current = el.scrollWidth
+        setIconOnly(true)
+      }
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [iconOnly])
   return (
     <div className="pill-wrap" ref={ref}>
-      <button className={`ctl-pill ${open ? 'on' : ''}`} title={title} onClick={() => setOpen(!open)}>
+      <button ref={btnRef} className={`ctl-pill ${open ? 'on' : ''}`} title={`${label} · ${title ?? ''}`} onClick={() => setOpen(!open)}>
         {icon}
-        {!compact && <span className="ctl-label">{label}</span>}
+        {!iconOnly && <span className="ctl-label">{label}</span>}
         <Caret />
       </button>
       {open && <div className="pill-menu up">{children}</div>}
@@ -54,21 +61,10 @@ function Pill({
   )
 }
 
-export function ModelPill({
-  models,
-  model,
-  onChange,
-  compact
-}: {
-  models: string[]
-  model: string
-  onChange: (m: string) => void
-  compact?: boolean
-}): JSX.Element {
+export function ModelPill({ models, model, onChange }: { models: string[]; model: string; onChange: (m: string) => void }): JSX.Element {
   const [open, setOpen] = useState(false)
   return (
     <Pill
-      compact={compact}
       open={open}
       setOpen={setOpen}
       label={model || '选择模型'}
@@ -100,20 +96,11 @@ export function ModelPill({
   )
 }
 
-export function ThinkingPill({
-  level,
-  onChange,
-  compact
-}: {
-  level: string
-  onChange: (l: string) => void
-  compact?: boolean
-}): JSX.Element {
+export function ThinkingPill({ level, onChange }: { level: string; onChange: (l: string) => void }): JSX.Element {
   const [open, setOpen] = useState(false)
   const cur = THINK_LABEL[level] ?? '默认'
   return (
     <Pill
-      compact={compact}
       open={open}
       setOpen={setOpen}
       label={`思考·${cur}`}

@@ -328,6 +328,7 @@ export default function App(): JSX.Element {
   // 对话模式：检索范围与引用面板
   const [chatScope, setChatScope] = useState<ChatScope>({ type: 'all', cat: '' })
   const [refView, setRefView] = useState<{ paper: Paper; page: number } | null>(null)
+  const [refWidth, setRefWidth] = useState(() => Number(localStorage.getItem('pl.refW')) || 460)
   const cats = useMemo(() => [...new Set(papers.map((p) => p.category))].sort((a, b) => a.localeCompare(b)), [papers])
   const catCounts = useMemo(() => {
     const m = new Map<string, number>()
@@ -361,17 +362,21 @@ export default function App(): JSX.Element {
   // 侧栏无级拖宽（宽度记忆在 localStorage）
   const [libWidth, setLibWidth] = useState(() => Number(localStorage.getItem('pl.libW')) || 264)
   const [sideWidth, setSideWidth] = useState(() => Number(localStorage.getItem('pl.sideW')) || 380)
-  const startDrag = useCallback((which: 'lib' | 'side') => (e: React.MouseEvent) => {
+  const startDrag = useCallback((which: 'lib' | 'side' | 'ref') => (e: React.MouseEvent) => {
     e.preventDefault()
+    const key = which === 'lib' ? 'pl.libW' : which === 'side' ? 'pl.sideW' : 'pl.refW'
     const startX = e.clientX
-    const startW = which === 'lib' ? Number(localStorage.getItem('pl.libW')) || 264 : Number(localStorage.getItem('pl.sideW')) || 380
+    const startW = Number(localStorage.getItem(key)) || (which === 'lib' ? 264 : which === 'side' ? 380 : 460)
     const move = (ev: MouseEvent): void => {
       const dx = ev.clientX - startX
-      const w = which === 'lib' ? startW + dx : startW - dx
-      const clamped = Math.max(which === 'lib' ? 200 : 300, Math.min(which === 'lib' ? 480 : 680, w))
+      const w = which === 'ref' ? startW - dx : startW + dx
+      const min = which === 'lib' ? 200 : 300
+      const max = which === 'lib' ? 480 : which === 'side' ? 680 : 900
+      const clamped = Math.max(min, Math.min(max, w))
       if (which === 'lib') setLibWidth(clamped)
-      else setSideWidth(clamped)
-      localStorage.setItem(which === 'lib' ? 'pl.libW' : 'pl.sideW', String(clamped))
+      else if (which === 'side') setSideWidth(clamped)
+      else setRefWidth(clamped)
+      localStorage.setItem(key, String(clamped))
     }
     const up = (): void => {
       window.removeEventListener('mousemove', move)
@@ -588,7 +593,20 @@ export default function App(): JSX.Element {
               onChangeThinking={changeThinking}
               onJump={openCite}
             />
-            {refView && <RefViewer paper={refView.paper} page={refView.page} onClose={() => setRefView(null)} />}
+            {refView && (
+              <>
+                <div
+                  className="col-resizer"
+                  onMouseDown={startDrag('ref')}
+                  title="拖动调节宽度，双击复位"
+                  onDoubleClick={() => {
+                    setRefWidth(460)
+                    localStorage.setItem('pl.refW', '460')
+                  }}
+                />
+                <RefViewer paper={refView.paper} page={refView.page} width={refWidth} onClose={() => setRefView(null)} />
+              </>
+            )}
           </div>
         </div>
       </div>
