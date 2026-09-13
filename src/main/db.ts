@@ -16,6 +16,7 @@ export interface Paper {
   n_pages: number
   indexed: number
   added_at: string
+  opened_at?: string | null
 }
 
 export type Theme = 'system' | 'light' | 'dark'
@@ -103,9 +104,18 @@ export function initDb(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_hl_paper ON highlights(paper_id);
   `)
+  // 迁移：papers 增加 pvec（整篇级向量：标题+作者+首页）与 opened_at（最近打开时间）
+  const cols = (db.prepare('PRAGMA table_info(papers)').all() as Array<{ name: string }>).map((c) => c.name)
+  if (!cols.includes('pvec')) db.exec('ALTER TABLE papers ADD COLUMN pvec BLOB')
+  if (!cols.includes('opened_at')) db.exec('ALTER TABLE papers ADD COLUMN opened_at TEXT')
+  // 整篇级全文索引：标题/作者/出处可被 BM25 直接命中（块索引只含正文，标题查不到）
+  db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(
+    title, authors, venue, slug, tokenize='trigram'
+  );`)
   // 清理孤儿块（外键级联默认关闭，删除论文行后块会残留）
   db.exec('DELETE FROM chunks WHERE paper_id NOT IN (SELECT id FROM papers)')
   db.exec('DELETE FROM chunks_fts WHERE paper_id NOT IN (SELECT id FROM papers)')
+  db.exec('DELETE FROM papers_fts WHERE rowid NOT IN (SELECT id FROM papers)')
 
   const st = db.prepare("SELECT value FROM meta WHERE key='settings'")
   if (!st.get()) {
@@ -312,4 +322,34 @@ export function listPapers(): Paper[] {
 
 export function setStatus(id: number, status: string): void {
   db.prepare('UPDATE papers SET status=? WHERE id=?').run(status, id)
+}
+
+export function markOpened(id: number): void {
+  db.prepare("UPDATE papers SET opened_at=datetime('now') WHERE id=?").run(id)
+}
+
+// ---------- 分类（目录）名集合：论文行已有的 + 手动新建的空分类 ----------
+// 空分类目录里没有论文，扫描发现不了，单独存在 meta 里让侧栏/移动菜单可见
+export function getExtraCats(): string[] {
+  const r = db.prepare("SELECT value FROM meta WHERE key='extra_cats'").get() as { value: string } | undefined
+  if (!r) return []
+  try {
+    const v = JSON.parse(r.value)
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function setExtraCats(cats: string[]): void {
+  db.prepare("INSERT INTO meta(key,value) VALUES('extra_cats',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
+    JSON.stringify([...new Set(cats)])
+  )
+}
+
+export function listCategoryNames(): string[] {
+  const fromPapers = (db.prepare("SELECT DISTINCT category FROM papers WHERE category<>''").all() as Array<{ category: string }>).map(
+    (r) => r.category
+  )
+  return [...new Set([...fromPapers, ...getExtraCats()])].sort((a, b) => a.localeCompare(b))
 }

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { renderRich } from './rich'
 import { ModelPill, ThinkingPill, ScopePill, type ChatScope } from './ChatControls'
 import type { ChatMsg, SourceRef } from './types'
@@ -15,6 +15,7 @@ interface Props {
   onChangeModel: (m: string) => void
   onChangeThinking: (l: string) => void
   onJump: (slug: string, page: number, snippet?: string) => void
+  resetKey: number
 }
 
 const SUGGESTIONS = [
@@ -24,12 +25,17 @@ const SUGGESTIONS = [
 ]
 
 // 全库对话主界面（Chat 模式）：hero 欢迎态 + 全屏 RAG 问答
-export default function ChatView({ paperCount, cats, catCounts, scope, onScopeChange, models, model, thinking, onChangeModel, onChangeThinking, onJump }: Props): JSX.Element {
+export default function ChatView({ paperCount, cats, catCounts, scope, onScopeChange, models, model, thinking, onChangeModel, onChangeThinking, onJump, resetKey }: Props): JSX.Element {
   const [msgs, setMsgs] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollBottom = () => setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' }), 50)
+
+  // 侧栏「新建对话」：清空当前会话回到欢迎页
+  useEffect(() => {
+    if (resetKey > 0) setMsgs([])
+  }, [resetKey])
 
   const send = (raw?: string): void => {
     const q = (raw ?? input).trim()

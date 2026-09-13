@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import * as dbmod from './db'
 import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPagesCached } from './ingest'
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
-import { importPapers, reclassifyOne } from './import'
+import { importPapers, movePaperToCategory, createCategory, deleteCategory } from './import'
 import { embed } from './embed'
 
 let win: BrowserWindow | null = null
@@ -114,6 +114,7 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('papers:list', () => dbmod.listPapers())
+  ipcMain.handle('categories:list', () => dbmod.listCategoryNames())
   ipcMain.handle('papers:status', (_e, id: number, status: string) => dbmod.setStatus(id, status))
 
   // 添加文献（AI 自动归类）
@@ -125,25 +126,49 @@ function registerIpc(): void {
     })
     return r.canceled ? [] : r.filePaths
   })
+  ipcMain.handle('papers:pick-import-folder', async () => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: '选择文件夹（导入其中所有 PDF）',
+      properties: ['openDirectory']
+    })
+    return r.canceled ? null : r.filePaths[0]
+  })
   ipcMain.handle('papers:import', async (_e, paths: string[]) => {
     const outcomes = await importPapers(paths, send)
     const r = dbmod.scanLibrary(dbmod.getSettings().libraryPath)
     if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch(() => {})
+    send('papers:changed', { ids: outcomes.filter((o) => o.ok).map((o) => o.slug) }) // 兜底同步界面（弹窗收尾之外的路径）
     return { outcomes, scan: r }
   })
 
-  // AI 重新归类（单篇，右键菜单；批量入口已移除——导入时已自动归类）
-  ipcMain.handle('papers:reclassify-one', async (_e, id: number) => {
-    if (!dbmod.getSettings().apiKey) return false
-    return reclassifyOne(id, send)
+  // 手动归类：右键菜单 / 拖拽都走这里（移动文件夹 + 原地改写 DB，保留行身份）
+  ipcMain.handle('papers:move', (_e, id: number, category: string) => {
+    const libPapers = path.join(dbmod.getSettings().libraryPath, 'papers')
+    const r = movePaperToCategory(id, String(category), libPapers)
+    send('papers:changed', { ids: [id] })
+    return r ? { ok: true, ...r } : { ok: false }
   })
 
-  // 右键菜单：导出 / 分享 / 归类
+  ipcMain.handle('category:create', (_e, name: string) => {
+    const libPapers = path.join(dbmod.getSettings().libraryPath, 'papers')
+    return createCategory(String(name), libPapers)
+  })
+  ipcMain.handle('category:delete', (_e, name: string) => {
+    const libPapers = path.join(dbmod.getSettings().libraryPath, 'papers')
+    return deleteCategory(String(name), libPapers)
+  })
+
+  // 最近打开时间（「最近」视图排序用）
+  ipcMain.on('papers:opened', (_e, id: number) => dbmod.markOpened(id))
+
+  // 右键菜单：导出 / 分享 / 移动归类
   ipcMain.on('papers:menu', (_e, id: number, x: number, y: number) => {
-    const p = dbmod.getDb().prepare('SELECT id, slug, title, year, path FROM papers WHERE id=?').get(id) as
-      | { id: number; slug: string; title: string; year: number | null; path: string }
+    const p = dbmod.getDb().prepare('SELECT id, slug, title, year, path, category FROM papers WHERE id=?').get(id) as
+      | { id: number; slug: string; title: string; year: number | null; path: string; category: string }
       | undefined
     if (!p || !win) return
+    const libPapers = path.join(dbmod.getSettings().libraryPath, 'papers')
+    const cats = dbmod.listCategoryNames().filter((c) => c !== p.category)
     const menu = Menu.buildFromTemplate([
       {
         label: '导出 PDF…',
@@ -168,15 +193,36 @@ function registerIpc(): void {
       },
       { type: 'separator' },
       {
-        label: 'AI 重新归类这篇',
-        click: () => {
-          if (!dbmod.getSettings().apiKey) {
-            dialog.showMessageBox(win!, { message: '未配置 API Key，无法 AI 归类' })
-            return
+        label: '移动到分类',
+        submenu: [
+          ...cats.map((c) => ({
+            label: c,
+            click: () => {
+              try {
+                movePaperToCategory(id, c, libPapers)
+                send('papers:changed', { ids: [id] })
+              } catch (err) {
+                dialog.showMessageBox(win!, { message: `移动失败：${String(err)}` })
+              }
+            }
+          })),
+          ...(cats.length ? [{ type: 'separator' as const }] : []),
+          {
+            label: '新建分类并移入…',
+            click: () => win!.webContents.send('papers:move-new-request', { id, title: p.title })
           }
-          void reclassifyOne(id, send)
-        }
+        ]
       }
+    ])
+    menu.popup({ window: win, x: Math.round(x), y: Math.round(y) })
+  })
+
+  // 文件区空白处右键：导入 / 新建分类
+  ipcMain.on('library:blank-menu', (_e, x: number, y: number) => {
+    if (!win) return
+    const menu = Menu.buildFromTemplate([
+      { label: '导入 PDF 文献…', click: () => win!.webContents.send('app:import-request', null) },
+      { label: '新建分类…', click: () => win!.webContents.send('category:create-request', null) }
     ])
     menu.popup({ window: win, x: Math.round(x), y: Math.round(y) })
   })
@@ -236,9 +282,10 @@ function registerIpc(): void {
     }
   })
 
-  // 分类右键菜单：重命名 / 批量导出
+  // 分类右键菜单：重命名 / 导出 / 删除（仅空分类）
   ipcMain.on('category:menu', (_e, cat: string, x: number, y: number) => {
     if (!win) return
+    const cnt = (dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers WHERE category=?').get(cat) as { n: number }).n
     const menu = Menu.buildFromTemplate([
       {
         label: '重命名…',
@@ -247,7 +294,23 @@ function registerIpc(): void {
       {
         label: '导出该分类…',
         click: () => void exportCategory(cat)
-      }
+      },
+      ...(cnt === 0
+        ? [
+            {
+              label: '删除该空分类',
+              click: () => {
+                const libPapers = path.join(dbmod.getSettings().libraryPath, 'papers')
+                try {
+                  deleteCategory(cat, libPapers)
+                  send('papers:changed', { ids: [] })
+                } catch (err) {
+                  dialog.showMessageBox(win!, { message: String(err) })
+                }
+              }
+            } as Electron.MenuItemConstructorOptions
+          ]
+        : [])
     ])
     menu.popup({ window: win, x: Math.round(x), y: Math.round(y) })
   })
@@ -328,7 +391,7 @@ function registerIpc(): void {
     return { papers: total.n, indexed: done.n, chunks: nChunks.n, running: isIndexRunning() }
   })
   ipcMain.handle('index:rebuild', async () => {
-    dbmod.getDb().exec('DELETE FROM chunks; DELETE FROM chunks_fts; UPDATE papers SET indexed=0')
+    dbmod.getDb().exec('DELETE FROM chunks; DELETE FROM chunks_fts; DELETE FROM papers_fts; UPDATE papers SET indexed=0, pvec=NULL')
     if (!isIndexRunning()) void buildIndex(send).catch((e) => send('index:error', String(e)))
     return true
   })

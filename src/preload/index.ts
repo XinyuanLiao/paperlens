@@ -6,6 +6,7 @@ const api = {
   pickLibrary: () => ipcRenderer.invoke('library:pick'),
   scanLibrary: (libPath?: string) => ipcRenderer.invoke('library:scan', libPath),
   listPapers: () => ipcRenderer.invoke('papers:list'),
+  listCategories: () => ipcRenderer.invoke('categories:list'),
   setStatus: (id: number, status: string) => ipcRenderer.invoke('papers:status', id, status),
   readPdf: (p: string) => ipcRenderer.invoke('pdf:read', p),
   indexStatus: () => ipcRenderer.invoke('index:status'),
@@ -20,20 +21,45 @@ const api = {
   deleteHighlight: (id: number) => ipcRenderer.invoke('highlights:delete', id),
   paperMenu: (id: number, x: number, y: number) => ipcRenderer.send('papers:menu', id, x, y),
   categoryMenu: (cat: string, x: number, y: number) => ipcRenderer.send('category:menu', cat, x, y),
+  blankMenu: (x: number, y: number) => ipcRenderer.send('library:blank-menu', x, y),
   renameCategory: (from: string, to: string) => ipcRenderer.invoke('category:rename', from, to),
+  movePaper: (id: number, category: string) => ipcRenderer.invoke('papers:move', id, category),
+  createCategory: (name: string) => ipcRenderer.invoke('category:create', name),
+  deleteCategory: (name: string) => ipcRenderer.invoke('category:delete', name),
+  markOpened: (id: number) => ipcRenderer.send('papers:opened', id),
+  pickImportFolder: () => ipcRenderer.invoke('papers:pick-import-folder'),
   onCategoryRenameRequest: (cb: (cat: string) => void) => {
     const h = (_e: unknown, cat: string) => cb(cat)
     ipcRenderer.on('category:rename-request', h)
     return () => ipcRenderer.removeListener('category:rename-request', h)
   },
-  reclassifyOne: (id: number) => ipcRenderer.invoke('papers:reclassify-one', id),
+  onCategoryCreateRequest: (cb: () => void) => {
+    const h = (): void => cb()
+    ipcRenderer.on('category:create-request', h)
+    return () => ipcRenderer.removeListener('category:create-request', h)
+  },
+  onMoveNewRequest: (cb: (p: { id: number; title: string }) => void) => {
+    const h = (_e: unknown, p: { id: number; title: string }) => cb(p)
+    ipcRenderer.on('papers:move-new-request', h)
+    return () => ipcRenderer.removeListener('papers:move-new-request', h)
+  },
+  onPapersChanged: (cb: () => void) => {
+    const h = (): void => cb()
+    ipcRenderer.on('papers:changed', h)
+    return () => ipcRenderer.removeListener('papers:changed', h)
+  },
+  onImportRequest: (cb: () => void) => {
+    const h = (): void => cb()
+    ipcRenderer.on('app:import-request', h)
+    return () => ipcRenderer.removeListener('app:import-request', h)
+  },
+  onImportFile: (cb: (o: unknown) => void) => {
+    const h = (_e: unknown, o: unknown) => cb(o)
+    ipcRenderer.on('import:file', h)
+    return () => ipcRenderer.removeListener('import:file', h)
+  },
   testLLM: () => ipcRenderer.invoke('llm:test'),
   testEmbed: () => ipcRenderer.invoke('embed:test'),
-  onClassifyProgress: (cb: (p: unknown) => void) => {
-    const h = (_e: unknown, p: unknown) => cb(p)
-    ipcRenderer.on('classify:progress', h)
-    return () => ipcRenderer.removeListener('classify:progress', h)
-  },
 
   // 流式对话：返回 stop 不需要（请求即发即忘，以 reqId 收尾）
   stream: (args: Record<string, unknown>, handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: unknown[]) => void }) => {

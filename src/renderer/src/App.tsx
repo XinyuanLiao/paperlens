@@ -7,6 +7,7 @@ import SetupWizard from './SetupWizard'
 import CommandPalette from './CommandPalette'
 import ChatView from './ChatView'
 import RefViewer from './RefViewer'
+import ImportDialog from './ImportDialog'
 import type { ChatScope } from './ChatControls'
 import type { Paper, Settings } from './types'
 
@@ -93,7 +94,12 @@ export default function App(): JSX.Element {
   const [showLib, setShowLib] = useState(true)
   const [showSide, setShowSide] = useState(true)
   const [indexInfo, setIndexInfo] = useState<{ done: number; total: number; phase: string } | null>(null)
-  const [classifyInfo, setClassifyInfo] = useState('')
+  const [importInfo, setImportInfo] = useState('')
+  const [cats, setCats] = useState<string[]>([])
+  const [importFiles, setImportFiles] = useState<string[] | null>(null)
+  const [importSeq, setImportSeq] = useState(0)
+  const [importBusy, setImportBusy] = useState(false)
+  const [chatReset, setChatReset] = useState(0)
   const [indexedCount, setIndexedCount] = useState({ papers: 0, indexed: 0, chunks: 0 })
   const [pendingJump, setPendingJump] = useState<{ slug: string; page: number; snippet?: string } | null>(null)
   const [pageCtx, setPageCtx] = useState('')
@@ -137,8 +143,22 @@ export default function App(): JSX.Element {
     return () => mq.removeEventListener('change', apply)
   }, [settings?.theme])
 
-  const refreshPapers = useCallback(async () => {
-    setPapers(await window.api.listPapers())
+  // 刷新文献与分类列表；同时把打开的标签页/引用面板里的旧 paper 对象换成最新数据
+  //（手动移动/重命名后 path 变了，不同步的话下次打开会读到失效路径）
+  const refreshPapers = useCallback(async (): Promise<Paper[]> => {
+    const [ps, cs] = await Promise.all([window.api.listPapers(), window.api.listCategories()])
+    setPapers(ps)
+    setCats(cs)
+    setTabs((ts) => ts.map((t) => {
+      const fresh = ps.find((p) => p.id === t.paper.id)
+      return fresh ? { paper: fresh } : t
+    }))
+    setRefView((rv) => {
+      if (!rv) return rv
+      const fresh = ps.find((p) => p.id === rv.paper.id)
+      return fresh ? { ...rv, paper: fresh } : rv
+    })
+    return ps
   }, [])
 
   const refreshLlmChip = useCallback(async () => {
@@ -168,18 +188,25 @@ export default function App(): JSX.Element {
         void window.api.indexStatus().then(setIndexedCount)
       }
     })
-    const offCls = window.api.onClassifyProgress((p) => {
-      if (p.error) setClassifyInfo(p.error)
-      else if (p.total > 0 && p.done >= p.total) {
-        setClassifyInfo('')
-        void refreshPapers() // 单篇重新归类完成：同步左侧树
-      } else if (p.total > 0) setClassifyInfo(`AI 归类中 ${p.done}/${p.total}`)
-      else setClassifyInfo('')
+    // 导入进度（状态栏）：弹窗关闭时也能看到后台导入到哪了
+    const offImp = window.api.onImportProgress((p) => {
+      if (p.total > 0 && p.done < p.total) setImportInfo(`导入中 ${p.done}/${p.total}`)
+      else setImportInfo('')
+    })
+    // 主进程菜单触发的变更（右键移动/删除空分类）与导入入口
+    const offChg = window.api.onPapersChanged(() => void refreshPapers())
+    const offReq = window.api.onImportRequest(() => {
+      if (!importBusy) {
+        setImportFiles([])
+        setImportSeq((s) => s + 1)
+      }
     })
     const timer = setInterval(() => void window.api.indexStatus().then(setIndexedCount), 8000)
     return () => {
       off()
-      offCls()
+      offImp()
+      offChg()
+      offReq()
       clearInterval(timer)
     }
   }, [refreshPapers])
@@ -194,6 +221,10 @@ export default function App(): JSX.Element {
       setTabs((ts) => (ts.some((t) => t.paper.id === p.id) ? ts : [...ts, { paper: p }]))
       setActiveId(p.id)
       setPendingJump(jumpPage ? { slug: p.slug, page: jumpPage, snippet } : null)
+      // 「最近」视图排序依据：与 sqlite datetime('now') 同格式（UTC）
+      void window.api.markOpened(p.id)
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
+      setPapers((ps) => ps.map((x) => (x.id === p.id ? { ...x, opened_at: now } : x)))
       setHist((h) => {
         const cut = h.slice(0, hIdx + 1)
         if (cut[cut.length - 1] === p.id) return cut
@@ -245,38 +276,27 @@ export default function App(): JSX.Element {
     viewerRef.current?.removeHighlightLocal(hid)
   }, [])
 
-  const importFiles = useCallback(
-    async (paths: string[]) => {
-      if (paths.length === 0) return
-      setClassifyInfo(`导入中 ${paths.length} 篇…`)
-      try {
-        const { outcomes, scan } = await window.api.importPapers(paths)
-        const ok = outcomes.filter((o) => o.ok)
-        const ai = ok.filter((o) => o.classified).length
-        setClassifyInfo(`导入 ${ok.length}/${paths.length}（AI 归类 ${ai}）`)
-        await refreshPapers()
-        void refreshLlmChip()
-      } catch (e) {
-        setClassifyInfo(`导入失败：${String(e)}`)
-      }
-      setTimeout(() => setClassifyInfo(''), 6000)
-    },
-    [refreshPapers, refreshLlmChip]
-  )
-
-  const addPapers = useCallback(async () => {
-    const paths = await window.api.pickImport()
-    await importFiles(paths)
-  }, [importFiles])
+  // 导入走弹窗（拖入窗口 = 直接带着文件打开并自动开始；导入进行中忽略新的窗口拖入）
+  const addPapers = useCallback(() => {
+    setImportFiles([])
+    setImportSeq((s) => s + 1)
+  }, [])
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
       setFloatBar(null)
-      const paths = [...e.dataTransfer.files].map((f) => window.api.pathForFile(f)).filter(Boolean)
-      void importFiles(paths)
+      if (importBusy) return
+      const paths = [...e.dataTransfer.files]
+        .map((f) => window.api.pathForFile(f))
+        .filter(Boolean)
+        .filter((p) => p.toLowerCase().endsWith('.pdf'))
+      if (paths.length > 0) {
+        setImportFiles(paths)
+        setImportSeq((s) => s + 1)
+      }
     },
-    [importFiles]
+    [importBusy]
   )
 
   // 引用跳转 / 侧栏点开论文：都回到阅读模式
@@ -297,6 +317,39 @@ export default function App(): JSX.Element {
       openPaper(p)
     },
     [openPaper]
+  )
+
+  // 导入完成后刷新并自动在阅读区打开第一篇成功导入的论文
+  const importDone = useCallback(
+    async (outcomes: { ok: boolean; slug?: string }[]) => {
+      const ps = await refreshPapers()
+      const first = outcomes.find((o) => o.ok && o.slug)
+      if (first?.slug) {
+        const p = ps.find((x) => x.slug === first.slug)
+        if (p) openPaperFromTree(p)
+      }
+      setImportBusy(false)
+    },
+    [refreshPapers, openPaperFromTree]
+  )
+
+  // 新建对话：切到对话模式并清空当前会话
+  const newChat = useCallback(() => {
+    setMode('chat')
+    setChatReset((k) => k + 1)
+  }, [])
+
+  // 手动归类（拖拽 / 弹窗）：移动文件夹 + 刷新
+  const movePaper = useCallback(
+    async (id: number, cat: string) => {
+      try {
+        await window.api.movePaper(id, cat)
+        await refreshPapers()
+      } catch (e) {
+        alert(String(e))
+      }
+    },
+    [refreshPapers]
   )
 
 // 相对当前论文在排序列表中前后移动（而非浏览历史）
@@ -324,7 +377,6 @@ export default function App(): JSX.Element {
   const [chatScope, setChatScope] = useState<ChatScope>({ type: 'all', cat: '' })
   const [refView, setRefView] = useState<{ paper: Paper; page: number; snippet?: string } | null>(null)
   const [refWidth, setRefWidth] = useState(() => Number(localStorage.getItem('pl.refW')) || 460)
-  const cats = useMemo(() => [...new Set(papers.map((p) => p.category))].sort((a, b) => a.localeCompare(b)), [papers])
   const catCounts = useMemo(() => {
     const m = new Map<string, number>()
     for (const p of papers) m.set(p.category, (m.get(p.category) ?? 0) + 1)
@@ -391,7 +443,7 @@ export default function App(): JSX.Element {
     await refreshPapers()
   }, [saveSettings, refreshPapers])
 
-  const statusLeft = classifyInfo || (indexInfo ? `正在索引 ${indexInfo.done}/${indexInfo.total}` : `已索引 ${indexedCount.indexed}/${indexedCount.papers} 篇 · ${indexedCount.chunks} 块`)
+  const statusLeft = importInfo || (indexInfo ? `正在索引 ${indexInfo.done}/${indexInfo.total}` : `已索引 ${indexedCount.indexed}/${indexedCount.papers} 篇 · ${indexedCount.chunks} 块`)
   const curIdx = papers.findIndex((p) => p.id === activeId)
   const canBack = curIdx > 0
   const canFwd = curIdx >= 0 && curIdx < papers.length - 1
@@ -488,12 +540,15 @@ export default function App(): JSX.Element {
             <LibraryPane
               width={libWidth}
               papers={papers}
+              cats={cats}
               activeId={activeId}
               q={q}
               onSetQ={setQ}
               onOpen={openPaperFromTree}
               onCycleStatus={cycleStatus}
               onAddPapers={addPapers}
+              onNewChat={newChat}
+              onMovePaper={(id, cat) => void movePaper(id, cat)}
               onReindex={() => {
                 void window.api.rebuildIndex()
               }}
@@ -588,6 +643,7 @@ export default function App(): JSX.Element {
               onChangeModel={changeModel}
               onChangeThinking={changeThinking}
               onJump={openCite}
+              resetKey={chatReset}
             />
             {refView && (
               <>
@@ -628,6 +684,16 @@ export default function App(): JSX.Element {
       )}
       {showSettings && settings && (
         <SettingsDialog settings={settings} indexed={indexedCount} indexInfo={indexInfo} onSave={saveSettings} onRescanned={refreshPapers} onClose={() => setShowSettings(false)} />
+      )}
+      {importFiles !== null && settings && (
+        <ImportDialog
+          key={importSeq}
+          initialFiles={importFiles}
+          hasApiKey={!!settings.apiKey}
+          onBusyChange={setImportBusy}
+          onClose={() => setImportFiles(null)}
+          onFinished={(outcomes) => void importDone(outcomes)}
+        />
       )}
       {paletteOpen && (
         <CommandPalette
