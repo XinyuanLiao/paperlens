@@ -55,9 +55,11 @@ function createWindow(): void {
 
 app.setName('PaperLens')
 
-// 便携/测试：允许用环境变量指定数据目录（默认在 %APPDATA%/PaperLens）
+// 数据目录固定为小写 paperlens：开发与打包版本共用同一份数据库/设置（可用环境变量覆盖）
 if (process.env.PAPERLENS_DATA_DIR) {
   app.setPath('userData', path.resolve(process.env.PAPERLENS_DATA_DIR))
+} else {
+  app.setPath('userData', path.join(app.getPath('appData'), 'paperlens'))
 }
 
 app.whenReady().then(() => {
