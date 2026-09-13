@@ -10,7 +10,6 @@ interface Props {
   onCycleStatus: (p: Paper) => void
   onAddPapers: () => void
   onReindex: () => void
-  onReclassify: () => void
   onBack: () => void
   onFwd: () => void
   canBack: boolean
@@ -31,7 +30,6 @@ export default function LibraryPane({
   onCycleStatus,
   onAddPapers,
   onReindex,
-  onReclassify,
   onBack,
   onFwd,
   canBack,
@@ -168,9 +166,6 @@ export default function LibraryPane({
           <button className="mini-btn" onClick={onReindex} title="清空并重建全库索引">
             重建索引
           </button>
-          <button className="mini-btn" onClick={onReclassify} title="AI 重新归类全部文献">
-            AI 归类
-          </button>
         </div>
       </div>
       <div className="lib-files">
@@ -211,8 +206,13 @@ export default function LibraryPane({
       </div>
       {renameCat && (
         <div className="modal-mask" onMouseDown={() => setRenameCat(null)}>
-          <div className="modal" style={{ width: 380 }} onMouseDown={(e) => e.stopPropagation()}>
-            <h2>重命名分类</h2>
+          <div className="modal modal-pad" style={{ width: 440 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>重命名分类</h2>
+              <button className="modal-x" title="取消" onClick={() => setRenameCat(null)}>
+                ✕
+              </button>
+            </div>
             <div className="field">
               <label>新名称（小写字母 / 数字 / 连字符）</label>
               <input
@@ -223,13 +223,15 @@ export default function LibraryPane({
                   if (e.key === 'Enter') void doRename()
                 }}
               />
+              <div className="hint">分类文件夹将改名并入，论文的阅读状态与高亮保持不变。</div>
             </div>
             <div className="modal-actions">
-              <button className="btn" onClick={() => void doRename()} disabled={renaming}>
-                确认重命名
-              </button>
+              <span style={{ flex: 1 }} />
               <button className="btn ghost" onClick={() => setRenameCat(null)}>
                 取消
+              </button>
+              <button className="btn" onClick={() => void doRename()} disabled={renaming}>
+                确认重命名
               </button>
             </div>
           </div>

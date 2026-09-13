@@ -133,8 +133,12 @@ export async function importPapers(filePaths: string[], send: (ev: string, p: un
   return outcomes
 }
 
-// ---------- AI 重新归类 ----------
-function movePaperToCategory(paperId: number, newCategorySlug: string, libPapers: string): { category: string; path: string } | null {
+// ---------- AI 重新归类（单篇） ----------
+function movePaperToCategory(
+  paperId: number,
+  newCategorySlug: string,
+  libPapers: string
+): { category: string; path: string; moved: boolean } | null {
   const db = getDb()
   const p = db.prepare('SELECT id, slug, path, category FROM papers WHERE id=?').get(paperId) as
     | { id: number; slug: string; path: string; category: string }
@@ -144,13 +148,13 @@ function movePaperToCategory(paperId: number, newCategorySlug: string, libPapers
   if (!destDir) destDir = nextCategoryDir(libPapers, newCategorySlug)
   const dest = path.join(destDir, p.slug)
   if (path.resolve(dest) === path.resolve(path.dirname(p.path))) {
-    return { category: path.basename(destDir), path: p.path }
+    return { category: path.basename(destDir), path: p.path, moved: false }
   }
   fs.mkdirSync(destDir, { recursive: true })
   fs.renameSync(path.dirname(p.path), dest) // 整个论文文件夹搬过去
   const newPath = path.join(dest, 'paper.pdf')
   db.prepare('UPDATE papers SET path=?, category=? WHERE id=?').run(newPath, path.basename(destDir), paperId)
-  return { category: path.basename(destDir), path: newPath }
+  return { category: path.basename(destDir), path: newPath, moved: true }
 }
 
 async function reclassifyOneInternal(
@@ -162,33 +166,10 @@ async function reclassifyOneInternal(
     const info = await classify(pages.slice(0, 2).join('\n'))
     if (!info) return { ok: false, moved: false, error: 'AI 未返回有效归类' }
     const r = movePaperToCategory(paper.id, info.categorySlug, libPapers)
-    return { ok: true, moved: !!r, category: r?.category }
+    return { ok: true, moved: !!r?.moved, category: r?.category }
   } catch (err) {
     return { ok: false, moved: false, error: String(err) }
   }
-}
-
-export async function reclassifyAll(send: (ev: string, p: unknown) => void): Promise<void> {
-  const s = getSettings()
-  const libPapers = path.join(s.libraryPath, 'papers')
-  const db = getDb()
-  const all = db.prepare('SELECT id, slug, title, path FROM papers ORDER BY id').all() as Array<{
-    id: number
-    slug: string
-    title: string
-    path: string
-  }>
-  let done = 0
-  let moved = 0
-  for (const p of all) {
-    send('classify:progress', { done, total: all.length, current: p.slug })
-    const r = await reclassifyOneInternal(p, libPapers)
-    if (r.moved) moved++
-    done++
-    send('classify:progress', { done, total: all.length, current: p.slug })
-  }
-  send('classify:progress', { done: all.length, total: all.length, current: '' })
-  console.log(`[reclassify] 完成：${moved}/${all.length} 篇被移动`)
 }
 
 export async function reclassifyOne(paperId: number, send: (ev: string, p: unknown) => void): Promise<boolean> {
@@ -200,5 +181,5 @@ export async function reclassifyOne(paperId: number, send: (ev: string, p: unkno
   if (!p) return false
   const r = await reclassifyOneInternal(p, libPapers)
   send('classify:progress', { done: 1, total: 1, current: '' })
-  return r.ok && !!r.moved
+  return r.ok
 }

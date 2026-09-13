@@ -201,15 +201,40 @@ export function scanLibrary(libPath: string): ScanResult {
       year=excluded.year, venue=excluded.venue, category=excluded.category
   `)
   const exists = db.prepare('SELECT id FROM papers WHERE path=?')
-  const slugOwner = db.prepare('SELECT path FROM papers WHERE slug=?')
+  const slugOwner = db.prepare('SELECT id, path FROM papers WHERE slug=?')
+  const alignPath = db.prepare('UPDATE papers SET path=? WHERE id=?')
+  // 同一文件判定：resolve 归一化分隔符；Windows 再忽略大小写（iCloud 同步可能改写盘符/大小写）
+  const samePath = (a: string, b: string): boolean =>
+    process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b)
   // slug 全库唯一：同一 slug 出现在不同路径（重复导入/移动残留）时自动加后缀，避免整个扫描崩溃
   const uniqueSlug = (slug: string, pdf: string): string => {
-    const row = slugOwner.get(slug) as { path: string } | undefined
-    if (!row || path.resolve(row.path) === path.resolve(pdf)) return slug
+    const row = slugOwner.get(slug) as { id: number; path: string } | undefined
+    if (!row) return slug
+    if (samePath(row.path, pdf)) {
+      // 指向同一文件但字符串不一致（分隔符/大小写差异）：先把行路径对齐成扫描值，
+      // 让 upsert 走 ON CONFLICT(path) 更新，而不是 INSERT 撞 slug 唯一约束
+      if (row.path !== pdf) alignPath.run(pdf, row.id)
+      return slug
+    }
     for (let n = 2; ; n++) {
       const cand = `${slug}-${n}`
-      const r2 = slugOwner.get(cand) as { path: string } | undefined
-      if (!r2 || path.resolve(r2.path) === path.resolve(pdf)) return cand
+      const r2 = slugOwner.get(cand) as { id: number; path: string } | undefined
+      if (!r2) return cand
+      if (samePath(r2.path, pdf)) {
+        if (r2.path !== pdf) alignPath.run(pdf, r2.id)
+        return cand
+      }
+    }
+  }
+  const upsertOne = (params: Record<string, unknown>, pdf: string): void => {
+    try {
+      upsert.run(params)
+      if (exists.get(pdf)) res.updated++
+      else res.added++
+      res.total++
+    } catch (err) {
+      // 单条失败（如并发改写导致约束冲突）不拖垮整个扫描与后续清理
+      console.error(`[scan] ${String(params.slug)} 入库失败:`, err)
     }
   }
   for (const root of roots) {
@@ -222,18 +247,18 @@ export function scanLibrary(libPath: string): ScanResult {
       const note = parseNote(path.join(root, `${slug}.md`))
       const year = parseInt(note.year || slug.slice(0, 4), 10) || null
       const dtitle = note.title || slug.replace(/^\d{4}-/, '').replace(/-\d+$/, '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-      upsert.run({
-        slug: uniqueSlug(slug, pdf),
-        title: dtitle,
-        authors: note.authors || '',
-        year,
-        venue: note.venue || '',
-        category: path.basename(root) || 'inbox',
-        path: pdf
-      })
-      if (exists.get(pdf)) res.updated++
-      else res.added++
-      res.total++
+      upsertOne(
+        {
+          slug: uniqueSlug(slug, pdf),
+          title: dtitle,
+          authors: note.authors || '',
+          year,
+          venue: note.venue || '',
+          category: path.basename(root) || 'inbox',
+          path: pdf
+        },
+        pdf
+      )
     }
     for (const cat of fs.readdirSync(root)) {
       const catDir = path.join(root, cat)
@@ -250,19 +275,32 @@ export function scanLibrary(libPath: string): ScanResult {
         const note = parseNote(path.join(d, `${slug}.md`))
         const year = parseInt(note.year || slug.slice(0, 4), 10) || null
         const dtitle = note.title || slug.replace(/^\d{4}-/, '').replace(/-\d+$/, '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-        upsert.run({
-          slug: uniqueSlug(slug, pdf),
-          title: dtitle,
-          authors: note.authors || '',
-          year,
-          venue: note.venue || '',
-          category: cat.replace(/^\d+-/, ''),
-          path: pdf
-        })
-        if (exists.get(pdf)) res.updated++
-        else res.added++
-        res.total++
+        upsertOne(
+          {
+            slug: uniqueSlug(slug, pdf),
+            title: dtitle,
+            authors: note.authors || '',
+            year,
+            venue: note.venue || '',
+            category: cat.replace(/^\d+-/, ''),
+            path: pdf
+          },
+          pdf
+        )
       }
+    }
+  }
+  // 清掉磁盘上已不存在的论文行：目录改名/手动移动后，旧路径行不清理的话
+  // 列表会新旧并存“翻倍”，且新行 indexed=0 会触发整批重新嵌入。
+  // 按论文文件夹（slug 目录）判断存在性——iCloud/网盘占位文件只占文件本身，
+  // 目录结构始终物化，不会误删未同步条目
+  const stale = db.prepare('SELECT id, path FROM papers').all() as Array<{ id: number; path: string }>
+  const delRow = db.prepare('DELETE FROM papers WHERE id=?')
+  for (const row of stale) {
+    try {
+      if (!fs.existsSync(path.dirname(row.path))) delRow.run(row.id)
+    } catch {
+      /* 单行 stat 失败保守跳过 */
     }
   }
   return res

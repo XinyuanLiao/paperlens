@@ -99,7 +99,6 @@ declare global {
       categoryMenu: (cat: string, x: number, y: number) => void
       renameCategory: (from: string, to: string) => Promise<{ renamed: string; scan: { added: number; updated: number; total: number } }>
       onCategoryRenameRequest: (cb: (cat: string) => void) => () => void
-      reclassifyAll: () => void
       reclassifyOne: (id: number) => Promise<boolean>
       testLLM: () => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; quota?: string; error?: string }>
       testEmbed: () => Promise<{ ok: boolean; dim?: number; error?: string }>

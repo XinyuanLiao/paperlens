@@ -7,6 +7,7 @@ export interface SideControl {
   translate: (text: string, context: string) => void
   explain: (text: string, context: string) => void
   quote: (text: string) => void
+  reset: () => void
 }
 
 interface Props {
@@ -90,10 +91,20 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
     quote(text: string) {
       setTab('chat')
       setInput((v) => (v ? v + '\n' : '') + `关于这段内容：「${text.slice(0, 300)}」\n`)
-    }
+    },
+    reset
   }))
 
   const ctxTranslation = ctxOn && current?.out ? current : null
+
+  // 新对话：清空问答记录、翻译卡片与问答上下文
+  const reset = (): void => {
+    setMsgs([])
+    setCurrent(null)
+    setCtxOn(false)
+    ctxRef.current = ''
+    curRef.current = null
+  }
 
   const send = () => {
     const q = input.trim()
@@ -141,6 +152,17 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
         <div className={`side-tab ${tab === 'translate' ? 'active' : ''}`} onClick={() => setTab('translate')}>
           翻译
         </div>
+        <button
+          className="icon-btn side-new-chat"
+          title="新对话：清空问答记录与上下文"
+          disabled={msgs.length === 0 && !current}
+          onClick={reset}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3c-4.4 0-8 3.1-8 7 0 2.2 1.2 4.2 3 5.5V19l3.2-1.8c.6.1 1.2.2 1.8.2 4.4 0 8-3.1 8-7s-3.6-7-8-7z" />
+            <path d="M12 7.5v5M9.5 10h5" />
+          </svg>
+        </button>
       </div>
       {tab === 'chat' ? (
         <>

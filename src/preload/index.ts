@@ -26,7 +26,6 @@ const api = {
     ipcRenderer.on('category:rename-request', h)
     return () => ipcRenderer.removeListener('category:rename-request', h)
   },
-  reclassifyAll: () => ipcRenderer.send('papers:reclassify-all'),
   reclassifyOne: (id: number) => ipcRenderer.invoke('papers:reclassify-one', id),
   testLLM: () => ipcRenderer.invoke('llm:test'),
   testEmbed: () => ipcRenderer.invoke('embed:test'),

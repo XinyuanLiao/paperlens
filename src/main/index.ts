@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import * as dbmod from './db'
 import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPagesCached } from './ingest'
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
-import { importPapers, reclassifyAll, reclassifyOne } from './import'
+import { importPapers, reclassifyOne } from './import'
 import { embed } from './embed'
 
 let win: BrowserWindow | null = null
@@ -132,14 +132,7 @@ function registerIpc(): void {
     return { outcomes, scan: r }
   })
 
-  // AI 重新归类
-  ipcMain.on('papers:reclassify-all', () => {
-    if (!dbmod.getSettings().apiKey) {
-      send('classify:progress', { done: 0, total: 0, current: '', error: '未配置 API Key，无法 AI 归类' })
-      return
-    }
-    void reclassifyAll(send).catch((e) => send('classify:progress', { done: 0, total: 0, current: '', error: String(e) }))
-  })
+  // AI 重新归类（单篇，右键菜单；批量入口已移除——导入时已自动归类）
   ipcMain.handle('papers:reclassify-one', async (_e, id: number) => {
     if (!dbmod.getSettings().apiKey) return false
     return reclassifyOne(id, send)
@@ -266,15 +259,43 @@ function registerIpc(): void {
       .replace(/[^a-z0-9-]+/g, '-')
       .replace(/^-+|-+$/g, '')
     if (!toSlug) throw new Error('名称无效（仅限小写字母/数字/连字符）')
+    const lib = dbmod.getSettings().libraryPath
+    const papersDir = path.join(lib, 'papers')
+    const base = fs.existsSync(papersDir) ? papersDir : lib
+    const eq = (a: string, b: string): boolean => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b)
+    // 磁盘上属于该分类的所有目录（分类名 = 目录名去掉 NN- 编号前缀；历史操作可能分裂成多个）
+    const catDirs = fs
+      .readdirSync(base)
+      .filter((d) => !d.startsWith('.') && fs.statSync(path.join(base, d)).isDirectory() && eq(d.replace(/^\d+-/, ''), from))
+    if (catDirs.length === 0) throw new Error(`未找到分类「${from}」的文件夹（可能已被移动）`)
+    const prefix = catDirs[0].match(/^(\d+-)/)?.[1] ?? ''
+    const target = path.join(base, `${prefix}${toSlug}`)
     const db = dbmod.getDb()
+    const updPath = db.prepare('UPDATE papers SET path=? WHERE id=?')
     const rows = db.prepare('SELECT id, path FROM papers WHERE category=?').all(from) as Array<{ id: number; path: string }>
-    const libPapers = path.join(dbmod.getSettings().libraryPath, 'papers')
-    const dirs = [...new Set(rows.map((r) => path.dirname(path.dirname(r.path))))]
-    for (const dir of dirs) {
-      const target = path.join(path.dirname(dir), `${dir.split(/[/\\]/).pop()!.match(/^(\d+-)/)?.[1] ?? ''}${toSlug}`)
-      if (!fs.existsSync(target)) fs.renameSync(dir, target)
+    for (const dir of catDirs) {
+      const src = path.join(base, dir)
+      if (eq(dir, path.basename(target))) continue
+      fs.mkdirSync(target, { recursive: true })
+      // 逐个论文目录并入目标（重名自动加 -N 后缀）；同步改写 DB 行的 path，
+      // 保留行身份——阅读状态/高亮不丢，也不会触发整批重新嵌入
+      for (const entry of fs.readdirSync(src)) {
+        let dest = path.join(target, entry)
+        let k = 2
+        while (fs.existsSync(dest)) dest = path.join(target, `${entry}-${k++}`)
+        fs.renameSync(path.join(src, entry), dest)
+        for (const row of rows) {
+          if (eq(path.dirname(path.dirname(row.path)), src)) updPath.run(path.join(dest, path.basename(row.path)), row.id)
+        }
+      }
+      try {
+        fs.rmdirSync(src) // 内容已全部并入，删掉空壳；有残留就留给扫描
+      } catch {
+        /* 目录非空 */
+      }
     }
-    const r = dbmod.scanLibrary(dbmod.getSettings().libraryPath)
+    db.prepare('UPDATE papers SET category=? WHERE category=?').run(toSlug, from)
+    const r = dbmod.scanLibrary(lib)
     return { renamed: toSlug, scan: r }
   })
 

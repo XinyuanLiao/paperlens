@@ -170,8 +170,10 @@ export default function App(): JSX.Element {
     })
     const offCls = window.api.onClassifyProgress((p) => {
       if (p.error) setClassifyInfo(p.error)
-      else if (p.total > 0 && p.done >= p.total) setClassifyInfo('')
-      else if (p.total > 0) setClassifyInfo(`AI 归类中 ${p.done}/${p.total}`)
+      else if (p.total > 0 && p.done >= p.total) {
+        setClassifyInfo('')
+        void refreshPapers() // 单篇重新归类完成：同步左侧树
+      } else if (p.total > 0) setClassifyInfo(`AI 归类中 ${p.done}/${p.total}`)
       else setClassifyInfo('')
     })
     const timer = setInterval(() => void window.api.indexStatus().then(setIndexedCount), 8000)
@@ -266,11 +268,6 @@ export default function App(): JSX.Element {
     const paths = await window.api.pickImport()
     await importFiles(paths)
   }, [importFiles])
-
-  const reclassifyAll = useCallback(() => {
-    setClassifyInfo('AI 归类中…')
-    window.api.reclassifyAll()
-  }, [])
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -500,7 +497,6 @@ export default function App(): JSX.Element {
               onReindex={() => {
                 void window.api.rebuildIndex()
               }}
-              onReclassify={reclassifyAll}
               onBack={navBack}
               onFwd={navFwd}
               canBack={canBack}
@@ -642,7 +638,6 @@ export default function App(): JSX.Element {
             { id: 'add', label: '导入 PDF 文献…', hint: '文件', run: addPapers },
             { id: 'picklib', label: '选择文献库文件夹…', hint: '文件', run: () => void pickLibraryNow() },
             { id: 'reindex', label: '重建全库索引', hint: '文件', run: () => void window.api.rebuildIndex() },
-            { id: 'reclassify', label: 'AI 重新归类全部文献', hint: '文件', run: reclassifyAll },
             { id: 'settings', label: '打开设置…', hint: '界面', run: () => setShowSettings(true) },
             { id: 'theme', label: '切换 深色/浅色 主题', hint: '界面', run: () => void saveSettings({ theme: document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark' }) },
             { id: 'sidebar', label: showLib ? '隐藏文献侧栏' : '显示文献侧栏', hint: '视图', run: () => setShowLib((v) => !v) },
