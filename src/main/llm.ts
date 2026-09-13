@@ -146,7 +146,13 @@ export async function testLLM(): Promise<TestResult> {
 }
 
 // 整篇模式：全文按页标记进提示词，引用格式为 [页码]
-export function paperFullMessages(question: string, pages: string[], title: string, budget = 120000): ChatMessage[] {
+export function paperFullMessages(
+  question: string,
+  pages: string[],
+  title: string,
+  budget = 120000,
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>
+): ChatMessage[] {
   const parts: string[] = []
   let used = 0
   let truncated = false
@@ -160,30 +166,49 @@ ${pages[i]}`
     parts.push(block)
     used += block.length
   }
+  const hist: ChatMessage[] = (history ?? [])
+    .slice(-4)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 1200) }))
   return [
     {
       role: 'system',
       content:
         `你是严谨的学术问答助手。以下是论文《${title}》的完整正文（按页标记）。规则：` +
-        '1）仅依据该论文内容回答；2）每个关键论断后标注页码引用，格式为 [页码]，如 [5] 表示第 5 页；' +
-        '3）论文未覆盖的问题明确说明，不要编造；4）中文回答，专业术语首次出现给英文原文。' +
+        '1）仅依据该论文内容回答；2）回答详尽具体，提取方法、实验设置、数值结论等细节，按主题分点组织；' +
+        '3）每个关键论断后标注页码引用，格式为 [页码]，如 [5] 表示第 5 页；' +
+        '4）论文未覆盖的问题明确说明，不要编造；5）中文回答，专业术语首次出现给英文原文。' +
         (truncated ? '注意：论文过长，仅提供了前部分页面。' : '')
     },
+    ...hist,
     { role: 'user', content: `【论文全文】\n${parts.join('\n\n')}\n\n【问题】\n${question}` }
   ]
 }
 
-export function ragMessages(question: string, sources: Array<{ label: string; text: string }>, paperTitle?: string): ChatMessage[] {
+export function ragMessages(
+  question: string,
+  sources: Array<{ label: string; text: string }>,
+  paperTitle?: string,
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>
+): ChatMessage[] {
   const ctx = sources.map((s, i) => `[${i + 1}] ${s.label}\n${s.text}`).join('\n\n')
+  // 多轮：带最近两轮问答（ assistant 内容截断，避免上下文膨胀）
+  const hist: ChatMessage[] = (history ?? [])
+    .slice(-4)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 1200) }))
   return [
     {
       role: 'system',
       content:
         '你是严谨的学术问答助手。仅依据提供的文献片段回答问题：' +
-        '1）每个关键论断后标注来源编号，如 [1][3]，编号必须与片段标号一一对应，严禁张冠李戴；2）不得引入片段之外的论文名称；3）片段不足以回答时明确说"库内文献未覆盖该问题"，不要编造；' +
-        '4）回答用中文，专业术语首次出现给英文原文。' +
+        '1）回答要详尽具体：提取片段中的方法名、模型/数据集、实验条件、数值结论等细节，不要只给笼统概括；' +
+        '2）结构化输出：按主题分点或使用小标题，适合对比的问题用 markdown 表格呈现；' +
+        '3）每个关键论断后紧跟来源编号，如 [1][3]，编号必须与片段标号一一对应，严禁张冠李戴，也不要把引用集中堆在段末；' +
+        '4）不得引入片段之外的论文名称；不同文献观点有差异时明确指出并分别标注来源；' +
+        '5）片段不足以回答时明确说"库内文献未覆盖该问题"，不要编造；' +
+        '6）回答用中文，专业术语首次出现给英文原文。' +
         (paperTitle ? `当前讨论的论文是《${paperTitle}》，优先使用与其相关的片段。` : '当前是跨全库检索模式。')
     },
+    ...hist,
     { role: 'user', content: `【检索到的文献片段】\n${ctx}\n\n【问题】\n${question}` }
   ]
 }

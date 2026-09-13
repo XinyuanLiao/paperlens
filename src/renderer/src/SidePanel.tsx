@@ -1,7 +1,7 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { renderRich } from './rich'
 import { ModelPill, ThinkingPill } from './ChatControls'
-import type { ChatMsg, Paper } from './types'
+import type { ChatMsg, Paper, SourceRef } from './types'
 
 export interface SideControl {
   translate: (text: string, context: string) => void
@@ -12,7 +12,7 @@ export interface SideControl {
 interface Props {
   paper: Paper | null
   pageContext: string
-  onJump: (slug: string, page: number) => void
+  onJump: (slug: string, page: number, snippet?: string) => void
   models: string[]
   model: string
   thinking: string
@@ -98,6 +98,8 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
   const send = () => {
     const q = input.trim()
     if (!q || busy) return
+    // 带最近两轮问答做多轮追问（在追加本轮消息之前取历史）
+    const history = msgs.slice(-4).map((m) => ({ role: m.role, content: m.content }))
     setInput('')
     setTab('chat')
     setMsgs((ms) => [...ms, { role: 'user', content: q }, { role: 'assistant', content: '' }])
@@ -105,7 +107,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
     scrollBottom()
     const ctxNote = ctxTranslation ? `\n\n（参考：我刚翻译了「${ctxTranslation.src.slice(0, 120)}」→「${ctxTranslation.out.slice(0, 300)}」）` : ''
     window.api.stream(
-      { mode: 'rag', question: q + ctxNote, scopePaperId: scope === 'paper' && paper ? paper.id : undefined, paperTitle: paper?.title },
+      { mode: 'rag', question: q + ctxNote, scopePaperId: scope === 'paper' && paper ? paper.id : undefined, paperTitle: paper?.title, history },
       {
         onDelta: (d) =>
           setMsgs((ms) => {

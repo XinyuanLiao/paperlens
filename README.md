@@ -19,6 +19,8 @@ npm run rebuild   # 重建 better-sqlite3 的 Electron 绑定
 npm run dev
 ```
 
+前置要求：Node 20+；macOS 另需 Xcode Command Line Tools（`xcode-select --install`，编译 better-sqlite3 用），Windows 需 VS Build Tools + Python 3。首次建索引时本地嵌入模型（multilingual-e5-small，约 130 MB）会自动下载到 userData 目录。
+
 ## 打包安装包
 
 ```bash

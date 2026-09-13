@@ -626,6 +626,16 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .md-link { color: var(--accent2); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; word-break: break-all; }
 .md-link:hover { color: var(--accent); }
 
+/* 引用跳转命中的页内高亮带（2.6s 渐隐） */
+.jump-hit {
+  position: absolute; left: 0; right: 0; z-index: 4; pointer-events: none;
+  background: rgba(224, 85, 124, 0.22);
+  border-top: 1.5px solid var(--accent); border-bottom: 1.5px solid var(--accent);
+  animation: hitfade 2.6s ease forwards;
+}
+html[data-theme='light'] .jump-hit { background: rgba(166, 9, 61, 0.14); }
+@keyframes hitfade { 0% { opacity: 0; } 8% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+
 /* 设置弹窗：不遮标题栏，抬头与关闭键固定 */
 :root { --tb-h: 40px; }
 html.mac { --tb-h: 44px; }

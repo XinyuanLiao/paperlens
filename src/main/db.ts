@@ -20,6 +20,14 @@ export interface Paper {
 
 export type Theme = 'system' | 'light' | 'dark'
 
+// 多服务商配置（与渲染端 types.ts 的 ProviderProfile 保持一致）
+export interface ProviderProfile {
+  provider: string
+  apiBase: string
+  apiKey: string
+  models: string[]
+}
+
 export interface Settings {
   libraryPath: string
   apiBase: string
@@ -34,6 +42,7 @@ export interface Settings {
   setupDone: boolean
   models: string[]
   thinkingLevel: 'default' | 'off' | 'low' | 'medium' | 'high'
+  profiles?: ProviderProfile[]
 }
 
 // 默认文献库：跟随平台放到「文档」目录（开发态 app 未 ready 前不能调 getPath，惰性求值）

@@ -121,7 +121,7 @@ export async function importPapers(filePaths: string[], send: (ev: string, p: un
       while (fs.existsSync(dest)) slug = `${paperSlug}-${k++}`, dest = path.join(dir, slug)
       fs.mkdirSync(dest, { recursive: true })
       fs.copyFileSync(src, path.join(dest, 'paper.pdf'))
-      const note = `---\ntitle: "${title.replace(/"/g, "'")}"\nauthors: "${authors.replace(/"/g, "'")}"\nyear: ${year ?? 'null'}\nvenue: "${venue.replace(/"/g, "'")}"\ntags: [status/unread]\nstatus: unread\n---\n\n# ${title}\n\n- **作者:** ${authors || '（作者见原文）'}\n- **发表:** ${venue || `${year ?? ''}（待核实）`}\n- **来源:** 本地导入（${path.basename(src)}）${classified ? '，AI 自动归类' : ''}\n\n## 速览\n\n（导入时未生成摘要。）\n\n## 阅读状态\n\n- 2026 通过应用内导入入库，未精读。\n`
+      const note = `---\ntitle: "${title.replace(/"/g, "'")}"\nauthors: "${authors.replace(/"/g, "'")}"\nyear: ${year ?? 'null'}\nvenue: "${venue.replace(/"/g, "'")}"\ntags: [status/unread]\nstatus: unread\n---\n\n# ${title}\n\n- **作者:** ${authors || '（作者见原文）'}\n- **发表:** ${venue || `${year ?? ''}（待核实）`}\n- **来源:** 本地导入（${path.basename(src)}）${classified ? '，AI 自动归类' : ''}\n\n## 速览\n\n（导入时未生成摘要。）\n\n## 阅读状态\n\n- ${new Date().getFullYear()} 通过应用内导入入库，未精读。\n`
       fs.writeFileSync(path.join(dest, `${slug}.md`), note)
       outcomes.push({ file: path.basename(src), ok: true, slug, category: path.basename(dir), classified })
     } catch (err) {

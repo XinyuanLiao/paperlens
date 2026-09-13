@@ -13,6 +13,14 @@ export interface Paper {
   added_at: string
 }
 
+// 多服务商配置（设置页可维护多套，对话界面切换模型时自动激活所属配置）
+export interface ProviderProfile {
+  provider: string
+  apiBase: string
+  apiKey: string
+  models: string[]
+}
+
 export interface Settings {
   libraryPath: string
   apiBase: string
@@ -27,6 +35,7 @@ export interface Settings {
   translateTarget: string
   theme: 'system' | 'light' | 'dark'
   setupDone?: boolean
+  profiles?: ProviderProfile[]
 }
 
 export interface HighlightRect {
@@ -57,6 +66,8 @@ export interface SourceRef {
   slug: string
   title: string
   page: number
+  // 命中块原文（截断），引用跳转用它定位到页内真实段落
+  snippet?: string
 }
 
 export interface ChatMsg {
@@ -90,7 +101,7 @@ declare global {
       onCategoryRenameRequest: (cb: (cat: string) => void) => () => void
       reclassifyAll: () => void
       reclassifyOne: (id: number) => Promise<boolean>
-      testLLM: () => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; error?: string }>
+      testLLM: () => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; quota?: string; error?: string }>
       testEmbed: () => Promise<{ ok: boolean; dim?: number; error?: string }>
       onClassifyProgress: (cb: (p: { done: number; total: number; current: string; error?: string }) => void) => () => void
       stream: (
@@ -100,13 +111,9 @@ declare global {
       onIndexProgress: (cb: (p: { done: number; total: number; phase: string; current?: string }) => void) => () => void
       onImportProgress: (cb: (p: { done: number; total: number; current: string }) => void) => () => void
       openExternal: (url: string) => void
+      syncTheme: (theme: string) => void
     }
   }
-}
-
-declare module '*?url' {
-  const src: string
-  export default src
 }
 
 export {}

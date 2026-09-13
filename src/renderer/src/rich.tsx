@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { SourceRef } from './types'
 
-type Jump = (slug: string, page: number) => void
+type Jump = (slug: string, page: number, snippet?: string) => void
 
 // 行内：markdown 链接 / 引用 [n] 芯片 / **bold** / `code`
 function inline(text: string, keyBase: string, sources: SourceRef[] | undefined, onJump: Jump): ReactNode[] {
@@ -14,10 +14,11 @@ function inline(text: string, keyBase: string, sources: SourceRef[] | undefined,
     if (m.index > last) out.push(text.slice(last, m.index))
     const tok = m[0]
     if (m[2]) {
-      const src = sources?.find((s) => s.n === parseInt(m[2]))
+      const citeN = parseInt(m[2])
+      const src = sources?.find((s) => s.n === citeN)
       if (src) {
         out.push(
-          <span key={`${keyBase}-${k++}`} className="cite-chip" title={`${src.title} · 第 ${src.page} 页`} onClick={() => onJump(src.slug, src.page)}>
+          <span key={`${keyBase}-${k++}`} className="cite-chip" title={`${src.title} · 第 ${src.page} 页（跳到原文）`} onClick={() => onJump(src.slug, src.page, src.snippet)}>
             [{src.n}] p.{src.page}
           </span>
         )

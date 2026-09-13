@@ -4,7 +4,7 @@ import type { Settings } from './types'
 interface Props {
   settings: Settings
   indexed: { papers: number; indexed: number; chunks: number }
-  indexInfo: { done: number; total: number; phase: string } | null
+  indexInfo: { done: number; total: number; phase: string; current?: string } | null
   onSave: (patch: Partial<Settings>) => Promise<Settings>
   onRescanned: () => void
   onClose: () => void
@@ -56,13 +56,14 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
     }, 300)
   }
 
+  // Esc 监听只注册一次，但必须拿到最新表单：用 ref 中转，避免 stale closure 把旧值写回去
+  const saveRef = useRef<() => Promise<void>>(async () => {})
   useEffect(() => {
     const h = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') void save()
+      if (e.key === 'Escape') void saveRef.current()
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const set = (patch: Partial<Settings>): void => setForm((f) => ({ ...f, ...patch }))
@@ -124,6 +125,7 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
     })
     onClose()
   }
+  saveRef.current = save
 
   // ✕ / 点击遮罩 / Esc：一律保存后关闭
   const closeAndSave = (): void => {

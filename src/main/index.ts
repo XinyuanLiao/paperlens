@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, nativeImag
 import path from 'node:path'
 import fs from 'node:fs'
 import * as dbmod from './db'
-import { buildIndex, isIndexRunning, hybridSearch, extractPagesCached } from './ingest'
+import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPagesCached } from './ingest'
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
 import { importPapers, reclassifyAll, reclassifyOne } from './import'
 import { embed } from './embed'
@@ -68,9 +68,12 @@ app.whenReady().then(() => {
   createWindow()
   // macOS：Dock 图标与名字（打包后由 app bundle 提供，开发态手动设）
   if (process.platform === 'darwin') {
-    const iconPng = path.join(app.getAppPath(), 'build/icon.png')
-    if (fs.existsSync(iconPng)) {
-      app.dock.setIcon(nativeImage.createFromPath(iconPng))
+    try {
+      const iconPng = path.join(app.getAppPath(), 'build/icon.png')
+      const img = fs.existsSync(iconPng) ? nativeImage.createFromPath(iconPng) : null
+      if (img && !img.isEmpty()) app.dock?.setIcon(img)
+    } catch {
+      /* Dock 图标设置失败不影响使用 */
     }
   }
   const s = dbmod.getSettings()
@@ -78,8 +81,7 @@ app.whenReady().then(() => {
     try {
       const r = dbmod.scanLibrary(s.libraryPath)
       console.log(`[scan] 新增 ${r.added} 更新 ${r.updated} 共 ${r.total}`)
-      const pending = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers WHERE indexed=0').get() as { n: number }
-      if (pending.n > 0 && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
+      if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
     } catch (e) {
       console.error('[scan]', e)
     }
@@ -106,9 +108,9 @@ function registerIpc(): void {
     const p = libPath ?? dbmod.getSettings().libraryPath
     const r = dbmod.scanLibrary(p)
     if (libPath) dbmod.saveSettings({ libraryPath: libPath })
-    const pending = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers WHERE indexed=0').get() as { n: number }
-    if (pending.n > 0 && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
-    return { ...r, indexing: pending.n > 0 }
+    const pending = indexNeedsRebuild()
+    if (pending && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
+    return { ...r, indexing: pending }
   })
 
   ipcMain.handle('papers:list', () => dbmod.listPapers())
@@ -126,8 +128,7 @@ function registerIpc(): void {
   ipcMain.handle('papers:import', async (_e, paths: string[]) => {
     const outcomes = await importPapers(paths, send)
     const r = dbmod.scanLibrary(dbmod.getSettings().libraryPath)
-    const pending = dbmod.getDb().prepare('SELECT COUNT(*) AS n FROM papers WHERE indexed=0').get() as { n: number }
-    if (pending.n > 0 && !isIndexRunning()) void buildIndex(send).catch(() => {})
+    if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch(() => {})
     return { outcomes, scan: r }
   })
 
@@ -157,11 +158,16 @@ function registerIpc(): void {
           void dialog
             .showSaveDialog(win!, { defaultPath: `${p.title.slice(0, 60) || p.slug}.pdf`, filters: [{ name: 'PDF', extensions: ['pdf'] }] })
             .then((r) => {
-              if (!r.canceled && r.filePath) fs.copyFileSync(p.path, r.filePath)
+              if (r.canceled || !r.filePath) return
+              try {
+                fs.copyFileSync(p.path, r.filePath)
+              } catch (err) {
+                dialog.showMessageBox(win!, { message: `导出失败：${String(err)}` })
+              }
             })
         }
       },
-      { label: '在访达中显示', click: () => shell.showItemInFolder(p.path) },
+      { label: process.platform === 'win32' ? '在文件资源管理器中显示' : '在访达中显示', click: () => shell.showItemInFolder(p.path) },
       { label: '复制标题', click: () => clipboard.writeText(p.title) },
       {
         label: '复制引用',
@@ -325,7 +331,18 @@ function registerIpc(): void {
     'llm:stream',
     async (
       _e,
-      args: { reqId: number; mode: 'chat' | 'translate' | 'explain' | 'rag'; messages?: ChatMessage[]; text?: string; context?: string; question?: string; scopePaperId?: number; category?: string; paperTitle?: string }
+      args: {
+        reqId: number
+        mode: 'chat' | 'translate' | 'explain' | 'rag'
+        messages?: ChatMessage[]
+        text?: string
+        context?: string
+        question?: string
+        scopePaperId?: number
+        category?: string
+        paperTitle?: string
+        history?: Array<{ role: 'user' | 'assistant'; content: string }>
+      }
     ) => {
       try {
         let msgs: ChatMessage[]
@@ -347,14 +364,14 @@ function registerIpc(): void {
               pages = []
             }
             if (pages.length > 0) {
-              sources = pages.map((t, i) => ({ paperId: paper.id, slug: paper.slug, title: paper.title, page: i + 1, text: t, score: 1 }))
-              msgs = paperFullMessages(args.question!, pages, paper.title)
+              sources = pages.map((t, i) => ({ paperId: paper.id, slug: paper.slug, title: paper.title, page: i + 1, text: t, score: 1, snippet: '' }))
+              msgs = paperFullMessages(args.question!, pages, paper.title, undefined, args.history)
             } else {
-              sources = await hybridSearch(args.question!, args.scopePaperId, 8, args.category)
-              msgs = ragMessages(args.question!, sources.map((s, i) => ({ label: `${s.title} (p.${s.page})`, text: s.text })), paper.title)
+              sources = await hybridSearch(args.question!, args.scopePaperId, 10, args.category)
+              msgs = ragMessages(args.question!, sources.map((s, i) => ({ label: `${s.title} (p.${s.page})`, text: s.text })), paper.title, args.history)
             }
           } else {
-            sources = await hybridSearch(args.question!, undefined, 12, args.category)
+            sources = await hybridSearch(args.question!, undefined, 16, args.category)
             if (sources.length === 0) {
               send(`llm:delta:${args.reqId}`, '⚠️ 检索不到相关片段（可能索引尚未建好），请先重建索引。')
               send(`llm:end:${args.reqId}`, null)
@@ -363,13 +380,18 @@ function registerIpc(): void {
             msgs = ragMessages(
               args.question!,
               sources.map((s, i) => ({ label: `${s.title} (p.${s.page})`, text: s.text })),
-              args.paperTitle
+              args.paperTitle,
+              args.history
             )
           }
         } else msgs = args.messages ?? []
 
         for await (const delta of chatStream(msgs)) send(`llm:delta:${args.reqId}`, delta)
-        if (args.mode === 'rag') send(`llm:sources:${args.reqId}`, sources.map((s, i) => ({ n: i + 1, slug: s.slug, title: s.title, page: s.page })))
+        if (args.mode === 'rag')
+          send(
+            `llm:sources:${args.reqId}`,
+            sources.map((s, i) => ({ n: i + 1, slug: s.slug, title: s.title, page: s.page, snippet: s.snippet || undefined }))
+          )
         send(`llm:end:${args.reqId}`, null)
       } catch (err) {
         send(`llm:delta:${args.reqId}`, `\n\n❌ ${String(err)}`)

@@ -95,7 +95,7 @@ export default function App(): JSX.Element {
   const [indexInfo, setIndexInfo] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [classifyInfo, setClassifyInfo] = useState('')
   const [indexedCount, setIndexedCount] = useState({ papers: 0, indexed: 0, chunks: 0 })
-  const [pendingJump, setPendingJump] = useState<{ slug: string; page: number } | null>(null)
+  const [pendingJump, setPendingJump] = useState<{ slug: string; page: number; snippet?: string } | null>(null)
   const [pageCtx, setPageCtx] = useState('')
   const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string } | null>(null)
   const [q, setQ] = useState('')
@@ -188,10 +188,10 @@ export default function App(): JSX.Element {
 
   // 打开论文并记录历史（前进/后退切换）
   const openPaper = useCallback(
-    (p: Paper, jumpPage?: number) => {
+    (p: Paper, jumpPage?: number, snippet?: string) => {
       setTabs((ts) => (ts.some((t) => t.paper.id === p.id) ? ts : [...ts, { paper: p }]))
       setActiveId(p.id)
-      setPendingJump(jumpPage ? { slug: p.slug, page: jumpPage } : null)
+      setPendingJump(jumpPage ? { slug: p.slug, page: jumpPage, snippet } : null)
       setHist((h) => {
         const cut = h.slice(0, hIdx + 1)
         if (cut[cut.length - 1] === p.id) return cut
@@ -284,11 +284,11 @@ export default function App(): JSX.Element {
 
   // 引用跳转 / 侧栏点开论文：都回到阅读模式
   const jumpTo = useCallback(
-    (slug: string, page: number) => {
+    (slug: string, page: number, snippet?: string) => {
       const p = papers.find((x) => x.slug === slug)
       if (p) {
         setMode('read')
-        openPaper(p, page)
+        openPaper(p, page, snippet)
       }
     },
     [papers, openPaper]
@@ -325,7 +325,7 @@ export default function App(): JSX.Element {
 
   // 对话模式：检索范围与引用面板
   const [chatScope, setChatScope] = useState<ChatScope>({ type: 'all', cat: '' })
-  const [refView, setRefView] = useState<{ paper: Paper; page: number } | null>(null)
+  const [refView, setRefView] = useState<{ paper: Paper; page: number; snippet?: string } | null>(null)
   const [refWidth, setRefWidth] = useState(() => Number(localStorage.getItem('pl.refW')) || 460)
   const cats = useMemo(() => [...new Set(papers.map((p) => p.category))].sort((a, b) => a.localeCompare(b)), [papers])
   const catCounts = useMemo(() => {
@@ -335,9 +335,9 @@ export default function App(): JSX.Element {
   }, [papers])
   // Chat 模式点引用：在右侧引用面板打开，不离开对话
   const openCite = useCallback(
-    (slug: string, page: number) => {
+    (slug: string, page: number, snippet?: string) => {
       const p = papers.find((x) => x.slug === slug)
-      if (p) setRefView({ paper: p, page })
+      if (p) setRefView({ paper: p, page, snippet })
     },
     [papers]
   )
@@ -604,7 +604,7 @@ export default function App(): JSX.Element {
                     localStorage.setItem('pl.refW', '460')
                   }}
                 />
-                <RefViewer paper={refView.paper} page={refView.page} width={refWidth} onClose={() => setRefView(null)} />
+                <RefViewer paper={refView.paper} page={refView.page} snippet={refView.snippet} width={refWidth} onClose={() => setRefView(null)} />
               </>
             )}
           </div>

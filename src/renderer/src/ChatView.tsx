@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { renderRich } from './rich'
 import { ModelPill, ThinkingPill, ScopePill, type ChatScope } from './ChatControls'
-import type { ChatMsg } from './types'
+import type { ChatMsg, SourceRef } from './types'
 
 interface Props {
   paperCount: number
@@ -14,7 +14,7 @@ interface Props {
   thinking: string
   onChangeModel: (m: string) => void
   onChangeThinking: (l: string) => void
-  onJump: (slug: string, page: number) => void
+  onJump: (slug: string, page: number, snippet?: string) => void
 }
 
 const SUGGESTIONS = [
@@ -34,12 +34,14 @@ export default function ChatView({ paperCount, cats, catCounts, scope, onScopeCh
   const send = (raw?: string): void => {
     const q = (raw ?? input).trim()
     if (!q || busy) return
+    // 带最近两轮问答做多轮追问（在追加本轮消息之前取历史）
+    const history = msgs.slice(-4).map((m) => ({ role: m.role, content: m.content }))
     setInput('')
     setMsgs((ms) => [...ms, { role: 'user', content: q }, { role: 'assistant', content: '' }])
     setBusy(true)
     scrollBottom()
     window.api.stream(
-      { mode: 'rag', question: q, category: scope.type === 'cat' ? scope.cat : undefined },
+      { mode: 'rag', question: q, category: scope.type === 'cat' ? scope.cat : undefined, history },
       {
         onDelta: (d) =>
           setMsgs((ms) => {

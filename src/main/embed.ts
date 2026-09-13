@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { getSettings } from './db'
 
 // 本地嵌入：transformers.js + multilingual-e5-small（384 维，q8 量化约 130MB，首次运行下载）
@@ -7,7 +8,10 @@ async function getLocalExtractor(): Promise<any> {
   if (!extractorPromise) {
     extractorPromise = (async () => {
       process.env.HF_ENDPOINT ||= 'https://hf-mirror.com' // 国内镜像
-      const { pipeline } = await import('@huggingface/transformers')
+      const { pipeline, env } = await import('@huggingface/transformers')
+      const { app } = await import('electron')
+      // 模型缓存放进 userData：打包后应用目录（asar）只读，默认缓存路径会写失败
+      env.cacheDir = path.join(app.getPath('userData'), 'model-cache')
       return pipeline('feature-extraction', 'Xenova/multilingual-e5-small', { dtype: 'q8' })
     })()
     extractorPromise.catch(() => {

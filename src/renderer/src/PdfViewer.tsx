@@ -3,6 +3,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { Tab } from './App'
 import type { Highlight } from './types'
+import { locateSnippet, flashHit } from './locate'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -11,6 +12,7 @@ export interface ViewerHandle {
   highlightSelection: () => Promise<void>
   zoomBy: (delta: number) => void
   zoomReset: () => void
+  removeHighlightLocal: (hid: number) => void
 }
 
 interface Props {
@@ -18,7 +20,7 @@ interface Props {
   activeId: number | null
   onActivate: (id: number) => void
   onCloseTab: (id: number) => void
-  pendingJump: { slug: string; page: number } | null
+  pendingJump: { slug: string; page: number; snippet?: string } | null
   onJumped: () => void
   onPageContext: (text: string) => void
   onSelect: (text: string, x: number, y: number) => void
@@ -128,7 +130,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         setNumPages(d.numPages)
         setCurPage(1)
         scrollRef.current?.scrollTo({ top: 0 })
-    curPageRef.current = 1
+        curPageRef.current = 1
       } catch (e) {
         setError(String(e))
       }
@@ -215,15 +217,35 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     }
   }))
 
+  // 引用跳转：优先用 snippet 定位到页内被引段落（高亮带渐隐），否则停在该页顶部
   useEffect(() => {
     if (doc && pendingJump && active && pendingJump.slug === active.paper.slug) {
+      let cancelled = false
       const t = setTimeout(() => {
-        scrollToPage(pendingJump.page)
-        onJumped()
+        const pg = Math.max(1, Math.min(numPages || pendingJump.page, pendingJump.page))
+        const el = pageRefs.current.get(pg)
+        const sc = scrollRef.current
+        if (!el || !sc) return
+        void (async () => {
+          const hit = pendingJump.snippet ? await locateSnippet(doc, pg, pendingJump.snippet).catch(() => null) : null
+          if (cancelled) return
+          const scTop = sc.getBoundingClientRect().top
+          const elTop = el.getBoundingClientRect().top - scTop + sc.scrollTop
+          const focus = hit ? elTop + hit.top * el.offsetHeight - sc.clientHeight * 0.3 : elTop
+          sc.scrollTo({ top: Math.max(0, focus), behavior: 'auto' })
+          setCurPage(pg)
+          curPageRef.current = pg
+          onPageContext(textCache.current[pg] ?? '')
+          if (hit) flashHit(el, hit)
+          onJumped()
+        })()
       }, 350)
-      return () => clearTimeout(t)
+      return () => {
+        cancelled = true
+        clearTimeout(t)
+      }
     }
-  }, [doc, pendingJump, active, scrollToPage, onJumped])
+  }, [doc, pendingJump, active, numPages, onPageContext, onJumped])
 
   const onScroll = useCallback(() => {
     const sc = scrollRef.current

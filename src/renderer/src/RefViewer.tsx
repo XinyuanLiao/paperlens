@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import type { Paper } from './types'
+import { locateSnippet, flashHit } from './locate'
 
 interface Props {
   paper: Paper
   page: number
+  snippet?: string
   width: number
   onClose: () => void
 }
 
-function PageCanvas({ doc, num, scale }: { doc: any; num: number; scale: number }): JSX.Element {
+function PageCanvas({ doc, num, scale, dim }: { doc: any; num: number; scale: number; dim?: { w: number; h: number } }): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [visible, setVisible] = useState(num <= 2)
-  const [dim, setDim] = useState<{ w: number; h: number } | null>(null)
 
   useEffect(() => {
     const el = wrapRef.current
@@ -34,8 +35,6 @@ function PageCanvas({ doc, num, scale }: { doc: any; num: number; scale: number 
       try {
         const pg = await doc.getPage(num)
         if (cancelled) return
-        const vp1 = pg.getViewport({ scale: 1 })
-        if (!cancelled) setDim({ w: vp1.width, h: vp1.height })
         const viewport = pg.getViewport({ scale })
         const canvas = canvasRef.current!
         const dpr = window.devicePixelRatio || 1
@@ -62,6 +61,7 @@ function PageCanvas({ doc, num, scale }: { doc: any; num: number; scale: number 
     }
   }, [visible, doc, num, scale])
 
+  // 尺寸由父组件（预取的 dims）提供：所有页一开始就占出真实高度，跳页滚动才准确
   return (
     <div
       className="page-wrap"
@@ -73,15 +73,16 @@ function PageCanvas({ doc, num, scale }: { doc: any; num: number; scale: number 
   )
 }
 
-// Chat 模式的引用面板：右侧连续滚动查看被引论文（不切换模式）
-export default function RefViewer({ paper, page, width, onClose }: Props): JSX.Element {
+// Chat 模式的引用面板：右侧连续滚动查看被引论文（不切换模式）。
+// 打开即定位到被引页：有 snippet 时进一步定位到页内被引段落并高亮
+export default function RefViewer({ paper, page, snippet, width, onClose }: Props): JSX.Element {
   const [doc, setDoc] = useState<any>(null)
   const [err, setErr] = useState('')
   const [numPages, setNumPages] = useState(0)
   const [dims, setDims] = useState<Array<{ w: number; h: number }>>([])
   const [scale, setScale] = useState(1)
   const [cur, setCur] = useState(page)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -124,16 +125,44 @@ export default function RefViewer({ paper, page, width, onClose }: Props): JSX.E
     }
   }, [paper.id])
 
-  // 面板宽度变化 → 重新适配宽度
-  const scrollRefCb = useCallback((el: HTMLDivElement | null) => {
+  // 面板宽度变化 → 重新适配宽度（effect 依赖 + 清理，避免 ref-callback 里 RO 泄漏）
+  const refScrollCb = useCallback((el: HTMLDivElement | null) => {
     scrollRef.current = el
-    if (!el) return
-    const ro = new ResizeObserver(() => {
-      if (dims[0]) setScale(Math.max(0.5, Math.min(3, (el.clientWidth - 40) / dims[0].w)))
-    })
+  }, [])
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !dims[0]) return
+    const fit = (): void => setScale(Math.max(0.5, Math.min(3, (el.clientWidth - 40) / dims[0].w)))
+    fit()
+    const ro = new ResizeObserver(fit)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [dims])
+  }, [dims, width])
+
+  // 文档就绪后跳到被引页：snippet 命中则定位到段并打高亮带
+  useEffect(() => {
+    if (!doc) return
+    let cancelled = false
+    void (async () => {
+      const hit = snippet ? await locateSnippet(doc, page, snippet).catch(() => null) : null
+      if (cancelled) return
+      const sc = scrollRef.current
+      const slot = sc?.querySelector<HTMLElement>(`[data-refpage="${page}"]`)
+      if (!sc || !slot) return
+      const scTop = sc.getBoundingClientRect().top
+      const slotTop = slot.getBoundingClientRect().top - scTop + sc.scrollTop
+      const focus = hit ? slotTop + hit.top * slot.offsetHeight - sc.clientHeight * 0.3 : slotTop - 8
+      sc.scrollTo({ top: Math.max(0, focus), behavior: 'auto' })
+      setCur(page)
+      if (hit) {
+        const wrap = slot.querySelector<HTMLElement>('.page-wrap')
+        if (wrap) flashHit(wrap, hit)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [doc, page, snippet])
 
   const onScrollState = useCallback(() => {
     const sc = scrollRef.current
@@ -176,11 +205,11 @@ export default function RefViewer({ paper, page, width, onClose }: Props): JSX.E
               <button onClick={() => setScale((s) => Math.min(3, s + 0.15))}>+</button>
             </div>
           </div>
-          <div className="ref-scroll" ref={scrollRefCb} onScroll={onScrollState}>
+          <div className="ref-scroll" ref={refScrollCb} onScroll={onScrollState}>
             {doc
               ? Array.from({ length: numPages }, (_, i) => (
                   <div key={i} data-refpage={i + 1} className="ref-page-slot">
-                    <PageCanvas doc={doc} num={i + 1} scale={scale} />
+                    <PageCanvas doc={doc} num={i + 1} scale={scale} dim={dims[i]} />
                   </div>
                 ))
               : !err && <div className="ref-loading">加载中…</div>}
