@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { catLabel } from './LibraryPane'
 
 const THINK_LABEL: Record<string, string> = { default: '默认', off: '关闭', low: '低', medium: '中', high: '高' }
 const THINK_ORDER = ['default', 'off', 'low', 'medium', 'high']
@@ -157,7 +158,7 @@ export function ScopePill({
   catCounts: Map<string, number>
 }): JSX.Element {
   const [open, setOpen] = useState(false)
-  const label = scope.type === 'all' ? `全库 · ${paperCount} 篇` : `${scope.cat} · ${catCounts.get(scope.cat) ?? 0} 篇`
+  const label = scope.type === 'all' ? `全库 · ${paperCount} 篇` : `${catLabel(scope.cat)} · ${catCounts.get(scope.cat) ?? 0} 篇`
   return (
     <Pill
       open={open}
@@ -190,7 +191,7 @@ export function ScopePill({
             setOpen(false)
           }}
         >
-          <span className="ellipsis">{c}</span>
+          <span className="ellipsis">{catLabel(c)}</span>
           {scope.type === 'cat' && scope.cat === c && <ChipCheck />}
         </button>
       ))}

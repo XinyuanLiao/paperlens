@@ -238,8 +238,10 @@ export function scanLibrary(libPath: string): ScanResult {
   }
   const upsertOne = (params: Record<string, unknown>, pdf: string): void => {
     try {
+      // 先判存在再 upsert：新路径算「新增」，已有路径算「更新」（重扫描据此通知界面刷新）
+      const existed = !!exists.get(pdf)
       upsert.run(params)
-      if (exists.get(pdf)) res.updated++
+      if (existed) res.updated++
       else res.added++
       res.total++
     } catch (err) {

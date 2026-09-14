@@ -23,6 +23,7 @@ const api = {
   categoryMenu: (cat: string, x: number, y: number) => ipcRenderer.send('category:menu', cat, x, y),
   blankMenu: (x: number, y: number) => ipcRenderer.send('library:blank-menu', x, y),
   renameCategory: (from: string, to: string) => ipcRenderer.invoke('category:rename', from, to),
+  renamePaper: (id: number, title: string) => ipcRenderer.invoke('papers:rename', id, title),
   movePaper: (id: number, category: string) => ipcRenderer.invoke('papers:move', id, category),
   createCategory: (name: string) => ipcRenderer.invoke('category:create', name),
   deleteCategory: (name: string) => ipcRenderer.invoke('category:delete', name),
@@ -32,6 +33,11 @@ const api = {
     const h = (_e: unknown, cat: string) => cb(cat)
     ipcRenderer.on('category:rename-request', h)
     return () => ipcRenderer.removeListener('category:rename-request', h)
+  },
+  onPapersRenameRequest: (cb: (p: { id: number; title: string }) => void) => {
+    const h = (_e: unknown, p: { id: number; title: string }) => cb(p)
+    ipcRenderer.on('papers:rename-request', h)
+    return () => ipcRenderer.removeListener('papers:rename-request', h)
   },
   onCategoryCreateRequest: (cb: () => void) => {
     const h = (): void => cb()

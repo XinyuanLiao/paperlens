@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Paper } from './types'
+import { catLabel } from './LibraryPane'
 
 export interface PaletteCommand {
   id: string
@@ -117,7 +118,7 @@ export default function CommandPalette({ papers, commands, onClose, onOpenPaper 
                     <>
                       <span className="pi-label">{row.paper.title}</span>
                       <span className="pi-meta">
-                        {row.paper.year ?? '—'} · {row.paper.category}
+                        {row.paper.year ?? '—'} · {catLabel(row.paper.category)}
                       </span>
                     </>
                   )}

@@ -100,12 +100,6 @@ export default function ChatView({ paperCount, cats, catCounts, scope, onScopeCh
 
   return (
     <div className="chat-view">
-      <button className="icon-btn chat-new" title="新对话（清空当前对话）" disabled={msgs.length === 0} onClick={() => setMsgs([])}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 3c-4.4 0-8 3.1-8 7 0 2.2 1.2 4.2 3 5.5V19l3.2-1.8c.6.1 1.2.2 1.8.2 4.4 0 8-3.1 8-7s-3.6-7-8-7z" />
-          <path d="M12 7.5v5M9.5 10h5" />
-        </svg>
-      </button>
       {msgs.length === 0 ? (
         <div className="chat-hero-wrap">
           <div className="chat-hero">

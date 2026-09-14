@@ -144,22 +144,33 @@ export default function App(): JSX.Element {
   }, [settings?.theme])
 
   // 刷新文献与分类列表；同时把打开的标签页/引用面板里的旧 paper 对象换成最新数据
-  //（手动移动/重命名后 path 变了，不同步的话下次打开会读到失效路径）
+  //（手动移动/重命名后 path 变了，不同步的话下次打开会读到失效路径）；已删除的论文同步关掉标签页/引用面板
   const refreshPapers = useCallback(async (): Promise<Paper[]> => {
     const [ps, cs] = await Promise.all([window.api.listPapers(), window.api.listCategories()])
     setPapers(ps)
     setCats(cs)
-    setTabs((ts) => ts.map((t) => {
-      const fresh = ps.find((p) => p.id === t.paper.id)
-      return fresh ? { paper: fresh } : t
-    }))
+    setTabs((ts) => {
+      const next: Tab[] = []
+      for (const t of ts) {
+        const fresh = ps.find((p) => p.id === t.paper.id)
+        if (fresh) next.push({ paper: fresh })
+      }
+      return next
+    })
     setRefView((rv) => {
       if (!rv) return rv
       const fresh = ps.find((p) => p.id === rv.paper.id)
-      return fresh ? { ...rv, paper: fresh } : rv
+      return fresh ? { ...rv, paper: fresh } : null
     })
     return ps
   }, [])
+
+  // 被删除论文的标签页收起后，激活标签落到列表末位（无标签则清空）
+  useEffect(() => {
+    if (activeId !== null && !tabs.some((t) => t.paper.id === activeId)) {
+      setActiveId(tabs.length ? tabs[tabs.length - 1].paper.id : null)
+    }
+  }, [tabs, activeId])
 
   const refreshLlmChip = useCallback(async () => {
     if (!settings?.apiKey) {
@@ -689,6 +700,7 @@ export default function App(): JSX.Element {
         <ImportDialog
           key={importSeq}
           initialFiles={importFiles}
+          initialCats={cats}
           hasApiKey={!!settings.apiKey}
           onBusyChange={setImportBusy}
           onClose={() => setImportFiles(null)}
@@ -699,7 +711,7 @@ export default function App(): JSX.Element {
         <CommandPalette
           papers={papers}
           onClose={() => setPaletteOpen(false)}
-          onOpenPaper={openPaper}
+          onOpenPaper={openPaperFromTree}
           commands={[
             { id: 'add', label: '导入 PDF 文献…', hint: '文件', run: addPapers },
             { id: 'picklib', label: '选择文献库文件夹…', hint: '文件', run: () => void pickLibraryNow() },

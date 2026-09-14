@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { shell } from 'electron'
 import { getDb, getSettings, scanLibrary, setExtraCats, getExtraCats } from './db'
 import { extractPages } from './ingest'
 import { chatStream } from './llm'
@@ -136,19 +137,26 @@ function expandFiles(paths: string[], libraryPath: string): string[] {
   return out
 }
 
+export interface ImportOpts {
+  // 用户在导入弹窗显式选择的分类；空串 = AI 自动推荐（未连 AI 时落到未分类 inbox）
+  category?: string
+}
+
 // 导入串行化：窗口拖入/弹窗/文件夹导入可能并发触发，链式排队避免 copy+scan 互相踩
 let importChain: Promise<unknown> = Promise.resolve()
-export function importPapers(filePaths: string[], send: (ev: string, p: unknown) => void): Promise<ImportOutcome[]> {
-  const run = importChain.catch(() => undefined).then(() => importPapersInternal(filePaths, send))
+export function importPapers(filePaths: string[], send: (ev: string, p: unknown) => void, opts: ImportOpts = {}): Promise<ImportOutcome[]> {
+  const run = importChain.catch(() => undefined).then(() => importPapersInternal(filePaths, send, opts))
   importChain = run.catch(() => undefined)
   return run
 }
 
-async function importPapersInternal(filePaths: string[], send: (ev: string, p: unknown) => void): Promise<ImportOutcome[]> {
+async function importPapersInternal(filePaths: string[], send: (ev: string, p: unknown) => void, opts: ImportOpts): Promise<ImportOutcome[]> {
   const s = getSettings()
   const libPapers = path.join(s.libraryPath, 'papers')
   fs.mkdirSync(libPapers, { recursive: true })
   const files = expandFiles(filePaths, s.libraryPath)
+  // 显式分类只做文件系统安全清洗（允许中文），与手动移动分类同一套规则
+  const manualCat = sanitizeCategoryName(opts.category ?? '')
   const outcomes: ImportOutcome[] = []
   for (let i = 0; i < files.length; i++) {
     const src = files[i]
@@ -174,6 +182,11 @@ async function importPapersInternal(filePaths: string[], send: (ev: string, p: u
           paperSlug = info.paperSlug ? slugify(info.paperSlug) : slugify(`${year ?? ''}-${info.title}`)
           classified = true
         }
+      }
+      // 用户选了分类就以其为准：AI 只负责标题/作者等元数据与默认推荐
+      if (manualCat) {
+        categorySlug = manualCat
+        classified = false
       }
       // 目标文件夹：已有分类复用，新分类建 NN-<名称>
       let dir = categorySlug === 'inbox' ? path.join(libPapers, '99-inbox') : findCategoryDir(libPapers, categorySlug)
@@ -256,4 +269,78 @@ export function deleteCategory(name: string, libPapers: string): boolean {
   }
   setExtraCats(getExtraCats().filter((c) => !eqName(c, name)))
   return true
+}
+
+// ---------- 删除 / 重命名文献 ----------
+// 删除：论文文件夹移入系统废纸篓（可找回），DB 行 + 块/向量/FTS/高亮一并清理。
+// 外键级联默认关闭且 FTS rowid 与 chunks.id 对齐，全部手动删，避免残留孤儿块污染检索
+export async function deletePaper(paperId: number): Promise<void> {
+  const db = getDb()
+  const p = db.prepare('SELECT id, path FROM papers WHERE id=?').get(paperId) as { id: number; path: string } | undefined
+  if (!p) throw new Error('论文不存在（可能已被删除）')
+  const dir = path.dirname(p.path)
+  try {
+    await shell.trashItem(dir)
+  } catch {
+    fs.rmSync(dir, { recursive: true, force: true }) // 废纸篓不可用（罕见）时直接删除
+  }
+  const chunkIds = (db.prepare('SELECT id FROM chunks WHERE paper_id=?').all(paperId) as Array<{ id: number }>).map((r) => r.id)
+  const tx = db.transaction(() => {
+    const delFts = db.prepare('DELETE FROM chunks_fts WHERE rowid=?')
+    for (const id of chunkIds) delFts.run(id)
+    db.prepare('DELETE FROM chunks WHERE paper_id=?').run(paperId)
+    db.prepare('DELETE FROM papers_fts WHERE rowid=?').run(paperId)
+    db.prepare('DELETE FROM highlights WHERE paper_id=?').run(paperId)
+    db.prepare('DELETE FROM papers WHERE id=?').run(paperId)
+  })
+  tx()
+}
+
+// 重命名：只改标题（md 笔记 + DB + 标题索引），不动文件夹名/slug——
+// 扫描 upsert 会用 md 里的 title 覆盖 DB，所以 md 必须同步改（缺失就补建），否则下次扫描会还原
+export function renamePaper(paperId: number, rawTitle: string): { title: string } {
+  const title = rawTitle.replace(/\s+/g, ' ').trim().slice(0, 300)
+  if (!title) throw new Error('标题不能为空')
+  const db = getDb()
+  const p = db
+    .prepare('SELECT id, slug, title, authors, year, venue, path FROM papers WHERE id=?')
+    .get(paperId) as
+    | { id: number; slug: string; title: string; authors: string; year: number | null; venue: string; path: string }
+    | undefined
+  if (!p) throw new Error('论文不存在（可能已被删除）')
+  const dir = path.dirname(p.path)
+  let mdPath = path.join(dir, `${p.slug}.md`)
+  if (!fs.existsSync(mdPath)) {
+    const alt = fs.existsSync(dir) ? fs.readdirSync(dir).find((f) => f.toLowerCase().endsWith('.md')) : undefined
+    if (alt) mdPath = path.join(dir, alt)
+  }
+  const safe = title.replace(/"/g, "'")
+  const year = p.year ?? 'null'
+  if (fs.existsSync(mdPath)) {
+    let raw = fs.readFileSync(mdPath, 'utf8')
+    if (/^title:.*$/m.test(raw)) raw = raw.replace(/^title:.*$/m, `title: "${safe}"`)
+    else raw = raw.replace(/^---\n/, `---\ntitle: "${safe}"\n`)
+    if (/^# .+$/m.test(raw)) raw = raw.replace(/^# .+$/m, `# ${safe}`)
+    fs.writeFileSync(mdPath, raw)
+  } else {
+    fs.writeFileSync(
+      mdPath,
+      `---\ntitle: "${safe}"\nauthors: "${p.authors.replace(/"/g, "'")}"\nyear: ${year}\nvenue: "${p.venue.replace(/"/g, "'")}"\ntags: [status/unread]\nstatus: unread\n---\n\n# ${safe}\n`
+    )
+  }
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE papers SET title=? WHERE id=?').run(title, paperId)
+    // papers_fts 的 rowid 与 papers.id 对齐（buildIndex 同一约定）
+    db.prepare('INSERT OR REPLACE INTO papers_fts(rowid,title,authors,venue,slug) VALUES(?,?,?,?,?)').run(
+      paperId,
+      title,
+      p.authors,
+      p.venue,
+      p.slug
+    )
+    // 标题变了，整篇级向量（含标题）过期：清掉让索引器只重嵌这一篇的 pvec，正文块不受影响
+    db.prepare('UPDATE papers SET pvec=NULL WHERE id=?').run(paperId)
+  })
+  tx()
+  return { title }
 }

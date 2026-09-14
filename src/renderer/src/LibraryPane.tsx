@@ -38,6 +38,9 @@ const relTime = (s?: string | null): string => {
   return d.toISOString().slice(0, 10)
 }
 
+// 分类显示名：inbox 是「未分类」的内部目录名，界面上统一显示中文
+export const catLabel = (c: string): string => (c === 'inbox' ? '未分类' : c)
+
 export default function LibraryPane({
   papers,
   cats,
@@ -108,7 +111,7 @@ export default function LibraryPane({
     if (!isNaN(id)) onMovePaper(id, c)
   }
 
-  // ---------- 弹窗：重命名 / 新建分类 / 移入新分类 ----------
+  // ---------- 弹窗：重命名 / 新建分类 / 移入新分类 / 重命名文献 ----------
   const [renameCat, setRenameCat] = useState<string | null>(null)
   const [renameVal, setRenameVal] = useState('')
   const [renaming, setRenaming] = useState(false)
@@ -116,6 +119,28 @@ export default function LibraryPane({
     setRenameCat(cat)
     setRenameVal(cat)
   }), [])
+
+  const [renamePaper, setRenamePaper] = useState<{ id: number; title: string } | null>(null)
+  const [renamePaperVal, setRenamePaperVal] = useState('')
+  const [renamingPaper, setRenamingPaper] = useState(false)
+  useEffect(() => window.api.onPapersRenameRequest(({ id, title }) => {
+    setRenamePaper({ id, title })
+    setRenamePaperVal(title)
+  }), [])
+
+  const doRenamePaper = async (): Promise<void> => {
+    if (!renamePaper || !renamePaperVal.trim() || renamingPaper) return
+    setRenamingPaper(true)
+    try {
+      await window.api.renamePaper(renamePaper.id, renamePaperVal.trim())
+      setRenamePaper(null)
+      onPapersChanged()
+    } catch (e) {
+      alert(String(e))
+    } finally {
+      setRenamingPaper(false)
+    }
+  }
 
   const [newCat, setNewCat] = useState<null | { paper?: Paper }>(null) // paper 存在 = 移动这篇并新建
   const [newCatVal, setNewCatVal] = useState('')
@@ -198,7 +223,7 @@ export default function LibraryPane({
           }}
         />
         <span>{p.year ?? '—'}</span>
-        {extra ?? <span className="cat">{p.category}</span>}
+        {extra ?? <span className="cat">{catLabel(p.category)}</span>}
       </div>
     </div>
   )
@@ -301,7 +326,7 @@ export default function LibraryPane({
                 paperRow(
                   p,
                   <>
-                    <span className="cat">{p.category}</span>
+                    <span className="cat">{catLabel(p.category)}</span>
                     <span title={`导入 ${p.added_at.slice(0, 10)}${p.opened_at ? ` · 打开 ${p.opened_at.slice(0, 10)}` : ''}`}>
                       {p.opened_at ? relTime(p.opened_at) : relTime(p.added_at)}
                     </span>
@@ -345,7 +370,7 @@ export default function LibraryPane({
                     <path d="M9 18l6-6-6-6" />
                   </svg>
                   <span className="ellipsis" style={{ flex: 1 }}>
-                    {c}
+                    {catLabel(c)}
                   </span>
                   <span className="cat-count">{list.length}</span>
                 </div>
@@ -389,6 +414,40 @@ export default function LibraryPane({
               </button>
               <button className="btn" onClick={() => void doRename()} disabled={renaming}>
                 确认重命名
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {renamePaper && (
+        <div className="modal-mask" onMouseDown={() => setRenamePaper(null)}>
+          <div className="modal modal-pad" style={{ width: 460 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>重命名文献</h2>
+              <button className="modal-x" title="取消" onClick={() => setRenamePaper(null)}>
+                ✕
+              </button>
+            </div>
+            <div className="field">
+              <label>标题</label>
+              <input
+                autoFocus
+                value={renamePaperVal}
+                onChange={(e) => setRenamePaperVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void doRenamePaper()
+                }}
+              />
+              <div className="hint">只改显示标题与检索信息，PDF 文件与阅读进度、高亮不受影响。</div>
+            </div>
+            <div className="modal-actions">
+              <span style={{ flex: 1 }} />
+              <button className="btn ghost" onClick={() => setRenamePaper(null)}>
+                取消
+              </button>
+              <button className="btn" onClick={() => void doRenamePaper()} disabled={renamingPaper || !renamePaperVal.trim()}>
+                保存
               </button>
             </div>
           </div>

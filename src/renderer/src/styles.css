@@ -367,8 +367,16 @@ html[data-theme='dark'] .float-bar { background: #232124; backdrop-filter: blur(
 
 /* ============ 右栏：聊天/翻译 ============ */
 .side { background: var(--bg2); display: flex; flex-direction: column; }
-.side-tabs { display: flex; align-items: center; padding: 0 10px 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.side-new-chat { margin-left: 8px; flex-shrink: 0; }
+.side-tabs { display: flex; align-items: center; padding: 0 12px 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+/* 新对话按钮：常亮胶囊（accent 描边 + 浅底），hover 实底——在标签行里足够醒目 */
+.side-new-chat {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; margin-left: 10px;
+  background: var(--accent-soft); color: var(--accent2); border: 1px solid var(--accent);
+  border-radius: 999px; padding: 3.5px 11px; font: inherit; font-size: 11.5px; font-weight: 600;
+  cursor: pointer; transition: background var(--speed), color var(--speed), transform 0.1s;
+}
+.side-new-chat:hover { background: var(--accent); color: #fff; }
+.side-new-chat:active { transform: scale(0.96); }
 .side-tab {
   flex: 1; text-align: center; padding: 11px 0 9px; cursor: pointer; color: var(--text-dim);
   font-size: 13px; border-bottom: 2px solid transparent; font-weight: 500; transition: color var(--speed);
@@ -556,7 +564,6 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 
 /* ============ Chat 模式：全库对话主界面 ============ */
 .chat-view { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
-.chat-new { position: absolute; top: 9px; right: 14px; z-index: 6; }
 .chat-hero-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 40px; gap: 22px; }
 .chat-hero { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
 .chat-hero .big { font-size: 46px; opacity: 0.9; }
@@ -661,11 +668,15 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .ref-scroll { flex: 1; min-height: 0; overflow: auto; background: var(--pdf-canvas); padding: 14px 0; }
 .ref-scroll .page-wrap { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1); }
 
-/* 有内边距的窄弹窗（重命名等）：基础 .modal 已为设置弹窗改为 padding:0 + 滚动结构 */
-.modal-pad { padding: 18px 20px; display: block; }
-.modal-pad .modal-head { position: static; margin: 0 0 14px; padding: 0; background: none; border-bottom: none; border-radius: 0; }
+/* 有内边距的窄弹窗（重命名/新建分类等）：统一留白节奏，动作区与内容用分隔线分开 */
+.modal-pad { padding: 20px 22px 18px; display: block; }
+.modal-pad .modal-head { position: static; margin: 0 0 16px; padding: 0; background: none; border-bottom: none; border-radius: 0; }
 .modal-pad h2 { font-size: 15px; }
-.modal-pad .modal-actions { margin-top: 14px; }
+.modal-pad .field { margin-bottom: 0; }
+.modal-pad .field label { margin-bottom: 7px; }
+.modal-pad .field input, .modal-pad .field select { padding: 9px 12px; }
+.modal-pad .field .hint { margin-top: 7px; }
+.modal-pad .modal-actions { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
 
 .md-link { color: var(--accent2); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; word-break: break-all; }
 .md-link:hover { color: var(--accent); }
@@ -704,21 +715,36 @@ html.mac { --tb-h: 44px; }
 
 /* ============ 导入弹窗 ============ */
 .import-drop {
-  margin-top: 4px; border: 1.5px dashed var(--border-lit); border-radius: 12px; padding: 20px 16px 16px;
-  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  margin-top: 2px; border: 1.5px dashed var(--border-lit); border-radius: 12px; padding: 26px 18px 22px;
+  display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center;
   transition: border-color var(--speed), background var(--speed);
 }
 .import-drop.on { border-color: var(--accent); background: var(--accent-soft); }
-.import-drop-icon { font-size: 30px; }
+.import-drop-icon { font-size: 32px; }
 .import-drop-tip { font-size: 13px; font-weight: 650; color: var(--text); }
 .import-drop-sub { font-size: 11px; color: var(--text-dim); }
-.import-drop-actions { display: flex; gap: 8px; margin-top: 5px; }
-.import-warn { margin-top: 9px; font-size: 11px; color: var(--warn); line-height: 1.5; }
-.import-queue {
-  margin-top: 10px; max-height: 240px; overflow-y: auto;
-  border: 1px solid var(--border); border-radius: 10px; padding: 4px;
+.import-drop-actions { display: flex; gap: 8px; margin-top: 8px; }
+.import-cat-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.import-cat-row label { font-size: 12px; color: var(--text-dim); flex-shrink: 0; }
+.import-cat-row select {
+  flex: 1; min-width: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 10px; color: var(--text); font: inherit; font-size: 12.5px; outline: none;
+  transition: border-color var(--speed); cursor: pointer;
 }
-.import-row { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 7px; font-size: 12px; }
+.import-cat-row select:focus { border-color: var(--accent); }
+.import-cat-fixed { flex: 1; font-size: 12.5px; color: var(--text); font-weight: 500; }
+.import-newcat { display: flex; gap: 8px; margin-top: 8px; }
+.import-newcat input {
+  flex: 1; min-width: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 10px; color: var(--text); outline: none; font-size: 12.5px; transition: border-color var(--speed);
+}
+.import-newcat input:focus { border-color: var(--accent); }
+.import-cat-hint { margin-top: 7px; font-size: 11px; color: var(--text-dim); line-height: 1.6; }
+.import-queue {
+  margin-top: 12px; max-height: 240px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 10px; padding: 5px;
+}
+.import-row { display: flex; align-items: center; gap: 8px; padding: 6.5px 10px; border-radius: 7px; font-size: 12px; }
 .import-row + .import-row { margin-top: 1px; }
 .import-row.working { background: var(--bg2); }
 .import-row.failed .import-row-name { color: var(--danger); }
@@ -736,9 +762,10 @@ html.mac { --tb-h: 44px; }
 .import-st.done { color: var(--ok); }
 .import-st.failed { color: var(--danger); }
 .import-st.working { color: var(--accent2); }
-.import-progress { margin-top: 10px; }
-.import-progress-label { margin-top: 6px; font-size: 11.5px; color: var(--text-dim); }
+.import-progress { margin-top: 12px; }
+.import-progress-label { margin-top: 7px; font-size: 11.5px; color: var(--text-dim); }
 .import-cats {
-  margin-top: 8px; font-size: 11.5px; color: var(--accent2); background: var(--accent-soft);
-  border-radius: 7px; padding: 6px 9px; line-height: 1.6;
+  margin-top: 10px; font-size: 11.5px; color: var(--accent2); background: var(--accent-soft);
+  border-radius: 7px; padding: 6px 10px; line-height: 1.6;
 }
+.import-modal .modal-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }

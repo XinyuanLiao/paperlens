@@ -4,13 +4,34 @@ import fs from 'node:fs'
 import * as dbmod from './db'
 import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPagesCached } from './ingest'
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
-import { importPapers, movePaperToCategory, createCategory, deleteCategory } from './import'
+import { importPapers, movePaperToCategory, createCategory, deleteCategory, deletePaper, renamePaper } from './import'
 import { embed } from './embed'
 
 let win: BrowserWindow | null = null
 
 function send(ev: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(ev, payload)
+}
+
+// ---------- 工作区重扫描：iCloud/网盘可能随时从别的设备同步来新文献 ----------
+// 启动 / dock 重新激活 / 窗口聚焦（节流）/ 定时，都会扫描一遍；有变化才通知界面刷新
+let lastScanAt = 0
+function rescanLibrary(reason: string): void {
+  const s = dbmod.getSettings()
+  if (!s.libraryPath || !fs.existsSync(s.libraryPath)) return
+  lastScanAt = Date.now()
+  try {
+    const r = dbmod.scanLibrary(s.libraryPath)
+    console.log(`[scan:${reason}] 新增 ${r.added} 更新 ${r.updated} 共 ${r.total}`)
+    if (r.added > 0 || r.updated > 0) send('papers:changed', { ids: [] })
+    if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
+  } catch (e) {
+    console.error('[scan]', e)
+  }
+}
+function maybeRescan(reason: string, minIntervalMs: number): void {
+  if (Date.now() - lastScanAt < minIntervalMs) return
+  rescanLibrary(reason)
 }
 
 // Windows/Linux 上窗口控制按钮由系统绘制在自绘顶栏右上角（titleBarOverlay），
@@ -51,6 +72,8 @@ function createWindow(): void {
   } else {
     win.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+  // 窗口聚焦时重扫（节流 60s）：软件常驻后台时，云盘同步落地的新文献回到窗口就能看到
+  win.on('focus', () => maybeRescan('focus', 60_000))
 }
 
 app.setName('PaperLens')
@@ -76,18 +99,14 @@ app.whenReady().then(() => {
       /* Dock 图标设置失败不影响使用 */
     }
   }
-  const s = dbmod.getSettings()
-  if (s.libraryPath && fs.existsSync(s.libraryPath)) {
-    try {
-      const r = dbmod.scanLibrary(s.libraryPath)
-      console.log(`[scan] 新增 ${r.added} 更新 ${r.updated} 共 ${r.total}`)
-      if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
-    } catch (e) {
-      console.error('[scan]', e)
-    }
-  }
+  // 每次打开软件都重扫工作区：个人云（iCloud 等）多设备同步可能带来新文献
+  rescanLibrary('startup')
+  // 兜底定时扫描：应用长时间开着、窗口一直没重新聚焦的网盘同步场景
+  setInterval(() => maybeRescan('timer', 4 * 60_000), 4 * 60_000)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // macOS dock 图标被点开（相当于重新打开软件）时重扫
+    rescanLibrary('activate')
   })
 })
 
@@ -133,12 +152,19 @@ function registerIpc(): void {
     })
     return r.canceled ? null : r.filePaths[0]
   })
-  ipcMain.handle('papers:import', async (_e, paths: string[]) => {
-    const outcomes = await importPapers(paths, send)
+  ipcMain.handle('papers:import', async (_e, paths: string[], category?: string) => {
+    const outcomes = await importPapers(paths, send, { category: String(category ?? '') })
     const r = dbmod.scanLibrary(dbmod.getSettings().libraryPath)
     if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch(() => {})
     send('papers:changed', { ids: outcomes.filter((o) => o.ok).map((o) => o.slug) }) // 兜底同步界面（弹窗收尾之外的路径）
     return { outcomes, scan: r }
+  })
+  ipcMain.handle('papers:rename', (_e, id: number, title: string) => {
+    const r = renamePaper(id, String(title))
+    // pvec 被清空 → 触发增量补嵌（只重嵌这一篇的整篇向量）
+    if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch(() => {})
+    send('papers:changed', { ids: [id] })
+    return r
   })
 
   // 手动归类：右键菜单 / 拖拽都走这里（移动文件夹 + 原地改写 DB，保留行身份）
@@ -193,6 +219,10 @@ function registerIpc(): void {
       },
       { type: 'separator' },
       {
+        label: '重命名…',
+        click: () => win!.webContents.send('papers:rename-request', { id, title: p.title })
+      },
+      {
         label: '移动到分类',
         submenu: [
           ...cats.map((c) => ({
@@ -212,6 +242,25 @@ function registerIpc(): void {
             click: () => win!.webContents.send('papers:move-new-request', { id, title: p.title })
           }
         ]
+      },
+      {
+        label: '删除文献…',
+        click: () => {
+          const ok = dialog.showMessageBoxSync(win!, {
+            type: 'warning',
+            title: '删除文献',
+            message: `删除《${p.title.slice(0, 80) || p.slug}》？`,
+            detail: '论文文件夹将移入系统废纸篓（可找回），阅读状态、高亮与索引一并清除。',
+            buttons: ['移入废纸篓', '取消'],
+            defaultId: 1,
+            cancelId: 1,
+            noLink: true
+          })
+          if (ok !== 0) return
+          deletePaper(id)
+            .then(() => send('papers:changed', { ids: [] }))
+            .catch((err) => dialog.showMessageBox(win!, { message: `删除失败：${String(err)}` }))
+        }
       }
     ])
     menu.popup({ window: win, x: Math.round(x), y: Math.round(y) })

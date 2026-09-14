@@ -152,16 +152,12 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
         <div className={`side-tab ${tab === 'translate' ? 'active' : ''}`} onClick={() => setTab('translate')}>
           翻译
         </div>
-        <button
-          className="icon-btn side-new-chat"
-          title="新对话：清空问答记录与上下文"
-          disabled={msgs.length === 0 && !current}
-          onClick={reset}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 3c-4.4 0-8 3.1-8 7 0 2.2 1.2 4.2 3 5.5V19l3.2-1.8c.6.1 1.2.2 1.8.2 4.4 0 8-3.1 8-7s-3.6-7-8-7z" />
+        <button className="side-new-chat" title="新对话：清空问答记录与上下文" onClick={reset}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 21c-4.4 0-8-3.1-8-7 0-2.2 1.2-4.2 3-5.5V4l3.2 1.8c.6-.1 1.2-.2 1.8-.2 4.4 0 8 3.1 8 7s-3.6 7-8 7z" />
             <path d="M12 7.5v5M9.5 10h5" />
           </svg>
+          新对话
         </button>
       </div>
       {tab === 'chat' ? (

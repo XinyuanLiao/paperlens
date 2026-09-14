@@ -94,7 +94,7 @@ declare global {
       startIndex: () => void
       pathForFile: (file: File) => string
       pickImport: () => Promise<string[]>
-      importPapers: (paths: string[]) => Promise<{ outcomes: ImportOutcome[]; scan: { added: number; updated: number; total: number } }>
+      importPapers: (paths: string[], category?: string) => Promise<{ outcomes: ImportOutcome[]; scan: { added: number; updated: number; total: number } }>
       addHighlight: (paperId: number, page: number, rects: HighlightRect[], text: string) => Promise<number>
       listHighlights: (paperId: number) => Promise<Highlight[]>
       deleteHighlight: (id: number) => Promise<boolean>
@@ -102,12 +102,14 @@ declare global {
       categoryMenu: (cat: string, x: number, y: number) => void
       blankMenu: (x: number, y: number) => void
       renameCategory: (from: string, to: string) => Promise<{ renamed: string; scan: { added: number; updated: number; total: number } }>
+      renamePaper: (id: number, title: string) => Promise<{ title: string }>
       movePaper: (id: number, category: string) => Promise<{ ok: boolean; category?: string; path?: string; moved?: boolean }>
       createCategory: (name: string) => Promise<{ name: string; dir: string }>
       deleteCategory: (name: string) => Promise<boolean>
       markOpened: (id: number) => void
       pickImportFolder: () => Promise<string | null>
       onCategoryRenameRequest: (cb: (cat: string) => void) => () => void
+      onPapersRenameRequest: (cb: (p: { id: number; title: string }) => void) => () => void
       onCategoryCreateRequest: (cb: () => void) => () => void
       onMoveNewRequest: (cb: (p: { id: number; title: string }) => void) => () => void
       onPapersChanged: (cb: () => void) => () => void
