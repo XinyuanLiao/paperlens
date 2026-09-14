@@ -5,6 +5,7 @@
   "main": "out/main/index.js",
   "productName": "PaperLens",
   "author": "planck",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaperLens · 网页演示</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
+<style>
+/* ============================================================
+   PaperLens 网页演示 — 1:1 复刻桌面版设计语言
+   （设计令牌与样式取自 src/renderer/src/styles.css）
+   ============================================================ */
+:root {
+  --bg: #ffffff;
+  --bg2: #f7f6f5;
+  --bg3: #eeedeb;
+  --bg4: #e4e2df;
+  --border: rgba(20, 10, 14, 0.08);
+  --border-lit: rgba(20, 10, 14, 0.15);
+  --text: #211d1f;
+  --text-dim: #807a7d;
+  --accent: #a6093d;
+  --accent2: #8e0734;
+  --accent-soft: rgba(166, 9, 61, 0.08);
+  --ok: #2e9e63;
+  --warn: #c98a12;
+  --danger: #d5606c;
+  --shadow: 0 12px 32px rgba(30, 10, 18, 0.13), 0 2px 8px rgba(30, 10, 18, 0.06);
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --hl: rgba(255, 210, 0, 0.45);
+  --pdf-canvas: #eae7e4;
+  --mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  --speed: 0.13s;
+}
+html[data-theme='dark'] {
+  --bg: #171618;
+  --bg2: #1d1b1d;
+  --bg3: #262427;
+  --bg4: #312f32;
+  --border: rgba(255, 255, 255, 0.075);
+  --border-lit: rgba(255, 255, 255, 0.15);
+  --text: #ebe8e9;
+  --text-dim: #9d9699;
+  --accent: #e0557c;
+  --accent2: #ef8ba6;
+  --accent-soft: rgba(224, 85, 124, 0.13);
+  --ok: #3ecf8e;
+  --warn: #e0b04c;
+  --shadow: 0 16px 44px rgba(0, 0, 0, 0.5), 0 2px 10px rgba(0, 0, 0, 0.35);
+  --hl: rgba(255, 200, 0, 0.35);
+  --pdf-canvas: #232124;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg2);
+  color: var(--text);
+  font-family: -apple-system, 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(128, 128, 140, 0.3); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 140, 0.5); background-clip: content-box; border: 2px solid transparent; }
+::-webkit-scrollbar-track { background: transparent; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-sm); }
+button { font-family: inherit; }
+.kbd {
+  background: var(--bg3); border: 1px solid var(--border); border-bottom-width: 2px;
+  border-radius: 5px; padding: 0 5px; font-size: 10.5px; font-family: var(--mono); color: var(--text-dim);
+}
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: var(--bg2); }
+
+/* ============ 演示横幅 ============ */
+.demo-banner {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 7px 14px; font-size: 12px; color: #fff;
+  background: linear-gradient(90deg, #7d0630, #a6093d 45%, #c4375f);
+}
+html[data-theme='dark'] .demo-banner { background: linear-gradient(90deg, #6d0a2c, #a01a48 50%, #d14e71); }
+.demo-banner a { color: #fff; font-weight: 650; text-decoration: underline; text-underline-offset: 2px; }
+.demo-banner a:hover { opacity: 0.85; }
+.demo-banner .x { background: none; border: none; color: #fff; opacity: 0.75; cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 5px; position: absolute; right: 10px; }
+.demo-banner .x:hover { opacity: 1; background: rgba(255,255,255,0.18); }
+
+/* ============ 标题栏 ============ */
+.titlebar {
+  height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 0 10px 0 14px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+.lights { display: flex; gap: 8px; margin-right: 10px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; }
+.lights i:nth-child(1) { background: #ff5f57; } .lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+.app-menu { display: flex; align-items: center; gap: 1px; }
+.menu-btn {
+  border: none; background: transparent; color: var(--text-dim); font: inherit; font-size: 12.5px;
+  padding: 4px 9px; border-radius: var(--radius-sm); cursor: pointer; transition: background var(--speed), color var(--speed);
+}
+.menu-btn:hover { background: var(--bg3); color: var(--text); }
+.tb-drag { flex: 1; }
+.tb-title { font-size: 12px; font-weight: 600; letter-spacing: 0.6px; color: var(--text-dim); }
+.icon-btn {
+  width: 28px; height: 28px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; border-radius: var(--radius-sm); color: var(--text-dim); cursor: pointer;
+  transition: background var(--speed), color var(--speed); font-size: 14px;
+}
+.icon-btn:hover { background: var(--bg3); color: var(--text); }
+.icon-btn:active { transform: scale(0.94); }
+
+/* ============ 主体三栏 ============ */
+.body3 { flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--bg2); }
+.library, .side { min-height: 0; min-width: 0; overflow: hidden; }
+.pdf-pane { min-height: 0; min-width: 0; overflow: hidden; display: flex; flex-direction: column; flex: 1; background: var(--bg); }
+.workspace { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: hidden; display: flex; }
+.main-win { position: absolute; inset: 0; display: flex; background: var(--bg); }
+.main-win .pdf-pane { flex: 1; min-width: 0; }
+.main-win .side { width: 400px; flex-shrink: 0; border-left: 1px solid var(--border); }
+
+/* ============ 左栏 ============ */
+.library { width: 264px; flex-shrink: 0; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+.lib-func { padding: 12px 12px 10px; flex-shrink: 0; display: flex; flex-direction: column; gap: 9px; border-bottom: 1px solid var(--border-lit); }
+.nav-row { display: flex; align-items: center; gap: 4px; }
+.nav-label { font-size: 12px; font-weight: 700; color: var(--text); margin-left: 6px; letter-spacing: 0.8px; text-transform: uppercase; }
+.add-btn {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  background: var(--accent); color: #fff; border: none; border-radius: var(--radius); padding: 8px 0;
+  cursor: pointer; font-size: 12.5px; font-weight: 600; transition: opacity var(--speed), transform 0.1s; width: 100%;
+}
+.add-btn:hover { opacity: 0.9; }
+.add-btn:active { transform: scale(0.98); }
+.mode-toggle { display: flex; background: var(--bg3); border-radius: 9px; padding: 3px; gap: 2px; }
+.mode-toggle button {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  border: none; background: transparent; padding: 6px 0; border-radius: 7px;
+  color: var(--text-dim); cursor: pointer; font-size: 12.5px; font-family: inherit;
+  transition: background var(--speed), color var(--speed), box-shadow var(--speed);
+}
+.mode-toggle button:hover { color: var(--text); }
+.mode-toggle button.on { background: var(--bg); color: var(--text); font-weight: 600; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14); }
+.search-wrap { position: relative; display: flex; align-items: center; }
+.searchbox {
+  flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px 52px 6px 10px; color: var(--text); outline: none; font-size: 12.5px;
+  transition: border-color var(--speed), background var(--speed); font-family: inherit;
+}
+.searchbox::placeholder { color: var(--text-dim); }
+.searchbox:focus { border-color: var(--accent); }
+.kbd-hint {
+  position: absolute; right: 5px; background: var(--bg3); border: none; color: var(--text-dim);
+  font-family: var(--mono); font-size: 10px; border-radius: 4px; padding: 2px 5px; cursor: pointer;
+}
+.kbd-hint:hover { background: var(--bg4); color: var(--text); }
+.lib-files { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.lib-view-toggle { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg2); border-bottom: 1px solid var(--border); }
+.lib-view-seg { display: flex; gap: 2px; background: var(--bg3); border-radius: 8px; padding: 2.5px; }
+.lib-view-seg button {
+  display: flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--text-dim);
+  padding: 4px 13px; border-radius: 6px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: background var(--speed), color var(--speed), box-shadow var(--speed);
+}
+.lib-view-seg button:hover { color: var(--text); }
+.lib-view-seg button.on { background: var(--bg); color: var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
+.lib-files-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 14px; }
+.lib-section { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); padding: 7px 9px 5px; }
+.cat-item {
+  padding: 6px 9px; border-radius: var(--radius-sm); cursor: pointer; color: var(--text);
+  display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; font-weight: 650;
+  background: var(--bg3); border: 1px solid var(--border);
+  transition: background var(--speed), color var(--speed), border-color var(--speed);
+}
+.cat-item:hover { background: var(--bg4); }
+.cat-count { font-size: 10px; background: var(--bg); border-radius: 4px; padding: 1px 6px; color: var(--text-dim); font-family: var(--mono); }
+.paper-item { padding: 8px 10px; border-radius: var(--radius); cursor: pointer; margin: 1px 0; position: relative; transition: background var(--speed); }
+.paper-item:hover { background: var(--bg3); }
+.paper-item.active { background: var(--accent-soft); }
+.paper-item.active::before { content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2.5px; border-radius: 2px; background: var(--accent); }
+.paper-item .t { font-size: 12.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-weight: 500; }
+.paper-item.active .t { color: var(--accent2); }
+.paper-item .m { margin-top: 4px; font-size: 10.5px; color: var(--text-dim); display: flex; gap: 7px; align-items: center; font-family: var(--mono); }
+.paper-item .cat { background: var(--bg3); color: var(--text-dim); padding: 1px 6px; border-radius: 4px; font-size: 9.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; max-width: 110px; white-space: nowrap; flex-shrink: 0; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; cursor: pointer; transition: transform 0.12s; flex-shrink: 0; }
+.status-dot:hover { transform: scale(1.4); }
+.status-unread { background: var(--border-lit); }
+.status-reading { background: var(--warn); }
+.status-done { background: var(--ok); }
+.lib-footer { padding: 9px 12px 10px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
+.index-line { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+/* ============ 中栏：PDF ============ */
+.tabbar { display: flex; gap: 2px; padding: 0 8px; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; flex-shrink: 0; }
+.tab {
+  padding: 7px 9px 6px; background: transparent; cursor: pointer; font-size: 12px; color: var(--text-dim);
+  max-width: 230px; display: flex; gap: 7px; align-items: center; flex-shrink: 0; min-width: 0;
+  border-bottom: 2px solid transparent; transition: color var(--speed), background var(--speed);
+}
+.tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab:hover { color: var(--text); background: var(--bg3); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 500; background: transparent; }
+.tab .x { opacity: 0.4; cursor: pointer; border-radius: 4px; padding: 0 3px; flex-shrink: 0; }
+.tab .x:hover { opacity: 1; background: var(--bg4); }
+.viewer-toolbar {
+  display: flex; align-items: center; gap: 12px; padding: 6px 14px;
+  border-bottom: 1px solid var(--border); background: var(--bg); font-size: 12px; color: var(--text-dim); flex-shrink: 0;
+}
+.viewer-toolbar .slug { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viewer-toolbar .slug b { color: var(--text); font-weight: 600; }
+.viewer-toolbar > span:last-child { font-family: var(--mono); font-size: 11px; }
+.seg { display: inline-flex; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.seg button { background: none; border: none; color: var(--text); padding: 3px 10px; cursor: pointer; font-size: 12px; transition: background var(--speed); }
+.seg button:hover { background: var(--bg3); }
+.viewer-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 0 70px; background: var(--pdf-canvas); }
+.page-outer { position: relative; margin: 0 auto 20px; border-radius: 3px; overflow: hidden; }
+.paper-page {
+  width: 800px; background: #fff; color: #1a1a1a; padding: 54px 58px 44px;
+  font-family: 'Times New Roman', Times, Georgia, serif; font-size: 12.5px; line-height: 1.52;
+  transform-origin: top left; user-select: text; -webkit-user-select: text;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.1), 0 2px 12px rgba(0,0,0,0.12);
+}
+.paper-page a { color: inherit; text-decoration: none; }
+.paper-page h1 { font-size: 19px; text-align: center; line-height: 1.3; margin-bottom: 10px; font-family: Georgia, 'Times New Roman', serif; }
+.paper-authors { text-align: center; font-size: 12.5px; margin-bottom: 2px; }
+.paper-affil { text-align: center; font-size: 11px; font-style: italic; color: #444; margin-bottom: 14px; }
+.paper-abs { font-size: 11.8px; line-height: 1.5; text-align: justify; margin-bottom: 16px; }
+.paper-abs b.abs-h { font-variant: small-caps; letter-spacing: 0.5px; }
+.two-col { column-count: 2; column-gap: 22px; }
+.two-col > * { break-inside: avoid-column; }
+.paper-page p { text-align: justify; margin-bottom: 7px; }
+.paper-page h2 { font-size: 12.5px; margin: 10px 0 5px; }
+.paper-page h3 { font-size: 11.5px; margin: 8px 0 4px; font-style: italic; font-weight: 600; }
+.fig { margin: 8px 0; text-align: center; }
+.fig svg { display: block; margin: 0 auto 4px; }
+.fig .cap, .tbl .cap { font-size: 10.5px; color: #333; line-height: 1.4; text-align: justify; }
+.fig .cap b, .tbl .cap b { font-weight: 700; }
+.tbl { margin: 8px 0; }
+.tbl table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 4px; }
+.tbl th, .tbl td { border: 0.5px solid #999; padding: 2.5px 5px; text-align: center; }
+.tbl th { background: #eee; font-weight: 700; }
+.refs { font-size: 10.3px; line-height: 1.45; }
+.refs p { margin-bottom: 3px; text-align: left; }
+.eq { text-align: center; margin: 7px 0; font-family: Georgia, serif; font-style: italic; font-size: 13px; }
+.hl-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.hl { position: absolute; background: var(--hl); border-radius: 2px; mix-blend-mode: multiply; pointer-events: auto; cursor: pointer; }
+.jump-hit {
+  position: absolute; left: 0; width: 100%; z-index: 4; pointer-events: none;
+  background: rgba(224, 85, 124, 0.22);
+  border-top: 1.5px solid var(--accent); border-bottom: 1.5px solid var(--accent);
+  animation: hitfade 2.6s ease forwards;
+}
+@keyframes hitfade { 0% { opacity: 0; } 8% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+.empty-viewer { display: none; height: 100%; align-items: center; justify-content: center; color: var(--text-dim); flex-direction: column; gap: 12px; }
+.empty-viewer .big { font-size: 44px; opacity: 0.85; }
+.empty-viewer .headline { font-size: 15px; color: var(--text); font-weight: 600; }
+.empty-viewer .tip { font-size: 12px; max-width: 380px; text-align: center; line-height: 1.9; }
+
+/* ============ 悬浮划词条 ============ */
+.float-bar {
+  position: fixed; z-index: 1000; display: none; gap: 2px; padding: 4px;
+  background: var(--bg); border: 1px solid var(--border-lit); border-radius: 9px; box-shadow: var(--shadow);
+  animation: pop 0.12s ease;
+}
+@keyframes pop { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.float-bar button {
+  background: none; border: none; color: var(--text); cursor: pointer; font-size: 12px;
+  padding: 5px 11px; border-radius: 6px; transition: background 0.1s, color 0.1s; white-space: nowrap;
+}
+.float-bar button:hover { background: var(--accent); color: #fff; }
+
+/* ============ 右栏：问答 / 翻译 ============ */
+.side { background: var(--bg2); display: flex; flex-direction: column; }
+.side-tabs { display: flex; align-items: center; padding: 0 12px 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.side-tab { flex: 1; text-align: center; padding: 11px 0 9px; cursor: pointer; color: var(--text-dim); font-size: 13px; border-bottom: 2px solid transparent; font-weight: 500; transition: color var(--speed); }
+.side-tab:hover { color: var(--text); }
+.side-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.chat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.msg { max-width: 100%; }
+.msg .who { font-size: 10px; color: var(--text-dim); margin-bottom: 4px; letter-spacing: 0.8px; text-transform: uppercase; font-family: var(--mono); }
+.msg .bubble { padding: 0; border-radius: 0; line-height: 1.75; user-select: text; white-space: normal; word-break: break-word; background: transparent; border: none; }
+.msg.user { align-self: stretch; max-width: 100%; }
+.msg.user .bubble { background: var(--bg2); padding: 12px 15px; border-radius: 10px; color: var(--text); white-space: pre-wrap; }
+.cite-chip {
+  display: inline-block; margin: 0 2px; padding: 0 6px; border-radius: 4px; font-size: 11px;
+  background: var(--accent-soft); color: var(--accent2); cursor: pointer; transition: background 0.1s, color 0.1s;
+  font-family: var(--mono);
+}
+.cite-chip:hover { background: var(--accent); color: #fff; }
+.sources { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-lit); font-size: 11px; color: var(--text-dim); user-select: text; }
+.sources .src { cursor: pointer; color: var(--accent2); }
+.sources .src:hover { text-decoration: underline; }
+.chat-input-area { border-top: 1px solid var(--border); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 9px; flex-shrink: 0; }
+.rag-toggle { display: flex; gap: 8px; font-size: 11.5px; color: var(--text-dim); align-items: center; }
+.rag-toggle .seg { display: flex; background: var(--bg3); border-radius: 6px; padding: 2px; border: none; }
+.rag-toggle .seg span { padding: 3px 12px; border-radius: 5px; cursor: pointer; font-size: 11.5px; transition: background var(--speed), color var(--speed); color: var(--text-dim); }
+.rag-toggle .seg span.on { background: var(--accent); color: #fff; font-weight: 600; }
+.input-row { display: flex; gap: 9px; align-items: flex-end; }
+.chat-input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; color: var(--text); outline: none; resize: none; font-family: inherit;
+  font-size: 13px; min-height: 42px; max-height: 150px; line-height: 1.5; transition: border-color var(--speed), box-shadow var(--speed);
+}
+.chat-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.send-btn {
+  background: var(--accent); border: none; color: #fff; border-radius: 10px; padding: 11px 18px;
+  cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity var(--speed), transform 0.1s;
+}
+.send-btn:hover { opacity: 0.88; transform: translateY(-1px); }
+.thinking { display: inline-flex; gap: 4px; align-items: center; color: var(--text-dim); font-size: 11px; }
+.thinking .b { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: blink 1.2s infinite; }
+.thinking .b:nth-child(2) { animation-delay: 0.2s; }
+.thinking .b:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%, 70%, 100% { opacity: 0.25; } 35% { opacity: 1; } }
+.tr-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; }
+.tr-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+.tr-card .label { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; font-weight: 700; text-transform: uppercase; }
+.ctx-toggle { background: var(--bg3); border: 1px solid var(--border); color: var(--text-dim); border-radius: 5px; font-size: 10.5px; padding: 2px 8px; cursor: pointer; }
+.ctx-toggle.on { background: var(--accent-soft); color: var(--accent2); border-color: var(--accent); }
+.tr-card .src-text { font-size: 12px; color: var(--text-dim); line-height: 1.6; user-select: text; }
+.tr-card .dst-text { font-size: 13px; line-height: 1.7; margin-top: 9px; padding-top: 9px; border-top: 1px dashed var(--border-lit); user-select: text; white-space: pre-wrap; }
+.ctx-pill {
+  display: flex; align-items: center; gap: 8px; background: var(--accent-soft);
+  border: 1px solid var(--accent); border-radius: 7px; padding: 5px 9px; font-size: 11px; color: var(--text); margin-bottom: 9px;
+}
+.ctx-label { background: var(--accent); color: #fff; border-radius: 4px; padding: 0 6px; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+.ctx-x { cursor: pointer; opacity: 0.6; padding: 0 3px; border-radius: 4px; flex-shrink: 0; }
+.ctx-x:hover { opacity: 1; background: var(--bg3); }
+.term-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.term-chip { font-size: 10.5px; background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px; color: var(--text-dim); font-family: var(--mono); }
+.term-chip b { color: var(--accent2); font-weight: 600; }
+
+/* ============ Chat 模式（全库对话）============ */
+.chat-view { display: none; flex: 1; min-width: 0; min-height: 0; flex-direction: column; background: var(--bg); overflow: hidden; }
+.chat-hero-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 40px; gap: 22px; overflow-y: auto; }
+.chat-hero { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.chat-hero .big { font-size: 46px; opacity: 0.9; }
+.chat-hero .headline { font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif; font-size: 25px; font-weight: 600; color: var(--text); letter-spacing: 0.3px; }
+.chat-hero .tip { font-size: 12.5px; color: var(--text-dim); }
+.hero-input {
+  width: min(760px, 94%); max-width: 100%; background: var(--bg); border: 1px solid var(--border-lit);
+  border-radius: 16px; box-shadow: var(--shadow); padding: 15px 16px 11px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.hero-textarea {
+  border: none; background: transparent; outline: none; resize: none; color: var(--text);
+  font: inherit; font-size: 13.5px; line-height: 1.6; min-height: 44px; max-height: 200px; user-select: text;
+}
+.hero-textarea::placeholder { color: var(--text-dim); }
+.hero-input-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hero-scope { font-size: 11px; color: var(--text-dim); font-family: var(--mono); background: var(--bg2); border: 1px solid var(--border); border-radius: 5px; padding: 2px 8px; cursor: pointer; }
+.ctl-pill {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 150px;
+  background: var(--bg2); border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 13px; padding: 3px 8px; cursor: pointer; font-size: 11px; font-family: inherit; white-space: nowrap;
+  transition: border-color var(--speed), color var(--speed), background var(--speed);
+}
+.ctl-pill:hover { border-color: var(--border-lit); color: var(--text); background: var(--bg); }
+.hero-suggest { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.hero-suggest button {
+  background: var(--bg); border: 1px solid var(--border-lit); color: var(--text-dim);
+  border-radius: 18px; padding: 8px 16px; cursor: pointer; font-size: 12.5px; font-family: inherit;
+  transition: border-color var(--speed), color var(--speed), background var(--speed);
+}
+.hero-suggest button:hover { border-color: var(--accent); color: var(--accent2); background: var(--accent-soft); }
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 28px 12px; display: flex; flex-direction: column; gap: 22px; }
+.chat-view-input { flex-shrink: 0; margin: 0 28px; padding: 12px 0 16px; border-top: 1px solid var(--border); }
+.chat-view-input .hero-input { width: 100%; box-shadow: none; border-radius: 14px; }
+
+/* ============ 回答内 Markdown ============ */
+.bubble .md-p { margin: 3px 0; line-height: 1.7; }
+.bubble .md-h { font-weight: 650; margin: 12px 0 5px; color: var(--text); font-size: 1.02em; }
+.bubble .md-list { margin: 5px 0; padding-left: 18px; }
+.bubble .md-list li { margin: 3.5px 0; line-height: 1.7; }
+.bubble strong { font-weight: 650; }
+.bubble .md-quote { margin: 6px 0; padding: 2px 0 2px 10px; border-left: 2.5px solid var(--border-lit); color: var(--text-dim); }
+
+/* ============ 状态栏 ============ */
+.statusbar {
+  height: 25px; flex-shrink: 0; display: flex; align-items: center; gap: 10px;
+  padding: 0 12px; background: var(--bg2); border-top: 1px solid var(--border);
+  font-size: 11px; color: var(--text-dim); font-family: var(--mono);
+}
+.chip { background: var(--bg3); border-radius: 4px; padding: 1.5px 7px; cursor: default; white-space: nowrap; }
+.chip:hover { background: var(--bg4); }
+.sb-right { margin-left: auto; display: flex; gap: 10px; }
+
+/* ============ 命令面板 ============ */
+.palette-mask {
+  position: fixed; inset: 0; z-index: 3000; background: rgba(10, 8, 9, 0.32);
+  backdrop-filter: blur(2px); display: none; justify-content: center; align-items: flex-start;
+  padding-top: 12vh; animation: fade 0.1s ease;
+}
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.palette-mask.show { display: flex; }
+.palette {
+  width: 580px; max-width: calc(100vw - 80px); background: var(--bg);
+  border: 1px solid var(--border-lit); border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  overflow: hidden; animation: pop 0.12s ease;
+}
+.palette-head { display: flex; align-items: center; gap: 10px; padding: 13px 15px; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+.palette-input { flex: 1; border: none; background: transparent; outline: none; color: var(--text); font: inherit; font-size: 14.5px; }
+.palette-list { max-height: 400px; overflow-y: auto; padding: 6px; }
+.palette-group { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); padding: 8px 10px 4px; }
+.palette-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 10px; border-radius: var(--radius); cursor: pointer; }
+.palette-item .pi-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-item .pi-meta { flex-shrink: 0; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+.palette-item.sel { background: var(--accent-soft); }
+.palette-item.sel .pi-label { color: var(--accent2); font-weight: 500; }
+.palette-empty { padding: 26px 0 30px; text-align: center; color: var(--text-dim); font-size: 12.5px; display: none; }
+
+/* ============ Toast ============ */
+.toast {
+  position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%) translateY(8px); z-index: 4000;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border-lit); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 9px 16px; font-size: 12.5px; opacity: 0; pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease; max-width: 76vw; text-align: center;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ============ 窄屏提示 ============ */
+.narrow-mask { position: fixed; inset: 0; z-index: 5000; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--bg2); padding: 30px; text-align: center; }
+.narrow-mask .big { font-size: 44px; }
+.narrow-mask h2 { font-size: 16px; }
+.narrow-mask p { font-size: 12.5px; color: var(--text-dim); line-height: 1.8; max-width: 340px; }
+.narrow-mask button { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 8px 18px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+@media (max-width: 880px) { .narrow-mask.showbydefault { display: flex; } }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- 演示横幅 -->
+  <div class="demo-banner" id="demoBanner" style="position:relative">
+    <span>🔍 <b>PaperLens 网页演示</b> — 界面 1:1 还原桌面版，数据为模拟 · 下载安装包请戳
+      <a href="https://github.com/XinyuanLiao/paperlens/releases" target="_blank" rel="noopener">GitHub Releases</a></span>
+    <button class="x" onclick="document.getElementById('demoBanner').style.display='none'" title="关闭">✕</button>
+  </div>
+
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="app-menu">
+      <button class="menu-btn" data-menu>文件</button>
+      <button class="menu-btn" data-menu>视图</button>
+      <button class="menu-btn" data-menu>帮助</button>
+    </div>
+    <div class="tb-drag"></div>
+    <span class="tb-title">PAPERLENS</span>
+    <button class="icon-btn" id="themeBtn" title="切换深浅色主题">🌙</button>
+  </div>
+
+  <div class="body3">
+
+    <!-- ============ 左栏：文献库 ============ -->
+    <div class="library">
+      <div class="lib-func">
+        <div class="nav-row">
+          <span class="nav-label">📚 文献库</span>
+          <div style="flex:1"></div>
+          <button class="icon-btn" title="设置（演示版）" data-toast="演示版：设置请前往桌面版体验，支持智谱 / DeepSeek / 通义 / Kimi / OpenAI / Ollama 多服务商">⚙️</button>
+        </div>
+        <div class="mode-toggle">
+          <button class="on" id="modeRead">📖 阅读</button>
+          <button id="modeChat">💬 对话</button>
+        </div>
+        <button class="add-btn" data-toast="演示版：桌面版支持拖入 PDF / 整个文件夹，AI 自动按篇推荐分类">＋ 导入文献</button>
+        <div class="search-wrap">
+          <input class="searchbox" placeholder="搜索标题 / 作者 / 全文…" readonly data-toast="演示版：桌面版为全文检索（BM25 + 向量混合）">
+          <button class="kbd-hint" id="paletteHint">⌘K</button>
+        </div>
+      </div>
+      <div class="lib-files">
+        <div class="lib-view-toggle">
+          <div class="lib-view-seg">
+            <button class="on">最近</button>
+            <button data-toast="演示版：桌面版按分类树展示，支持拖拽归类 / 右键移动">分类</button>
+          </div>
+        </div>
+        <div class="lib-files-scroll">
+          <div class="lib-section">今天</div>
+          <div class="paper-item active" data-paper="main">
+            <div class="t">Thermal Cycling Reliability of Copper Wire Bonds in Power Modules</div>
+            <div class="m"><span class="status-dot status-reading" title="阅读中"></span><span>2021</span><span class="cat">微电子封装</span></div>
+          </div>
+          <div class="paper-item" data-paper="d1" data-toast="演示版仅内置一篇文献全文，其余条目用于展示文献库效果">
+            <div class="t">Deep Learning-Based Lifetime Prediction for IGBT Power Modules</div>
+            <div class="m"><span class="status-dot status-done" title="已读"></span><span>2023</span><span class="cat">微电子封装</span></div>
+          </div>
+          <div class="lib-section">更早</div>
+          <div class="paper-item" data-paper="d2" data-toast="演示版仅内置一篇文献全文，其余条目用于展示文献库效果">
+            <div class="t">A Survey on Intermetallic Compound Growth in Wire Bonding</div>
+            <div class="m"><span class="status-dot status-unread" title="未读"></span><span>2019</span><span class="cat">微电子封装</span></div>
+          </div>
+          <div class="paper-item" data-paper="d3" data-toast="演示版仅内置一篇文献全文，其余条目用于展示文献库效果">
+            <div class="t">Attention Is All You Need</div>
+            <div class="m"><span class="status-dot status-unread" title="未读"></span><span>2017</span><span class="cat">深度学习</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="lib-footer">
+        <div class="index-line"><span>索引状态</span><span id="indexState">4 / 4 已索引</span></div>
+      </div>
+    </div>
+
+    <!-- ============ 阅读模式 ============ -->
+    <div class="workspace" id="readMode">
+      <div class="main-win">
+        <div class="pdf-pane">
+          <div class="tabbar">
+            <div class="tab active"><span class="tab-title ellipsis">Copper Wire Bond Reliability…</span><span class="x" id="tabClose" title="关闭标签页">✕</span></div>
+          </div>
+          <div class="viewer-toolbar">
+            <span class="slug"><b>Zhang, L. &amp; Tanaka, K.</b> · Microelectron. Reliab. 2021</span>
+            <div class="seg">
+              <button id="pgFirst" title="首页">⏮</button>
+              <button id="pgPrev" title="上一页">◀</button>
+              <span class="page-ind" id="pageInd" style="padding:3px 6px;font-family:var(--mono);font-size:11px;color:var(--text-dim);min-width:52px;text-align:center">1 / 2</span>
+              <button id="pgNext" title="下一页">▶</button>
+              <button id="pgLast" title="末页">⏭</button>
+            </div>
+            <div class="seg">
+              <button id="zoomOut" title="缩小">−</button>
+              <button id="zoomFit" style="min-width:52px" title="适应宽度">100%</button>
+              <button id="zoomIn" title="放大">＋</button>
+            </div>
+            <span>· 试试选中一段英文 → 划词翻译</span>
+          </div>
+          <div class="viewer-scroll" id="viewerScroll">
+
+            <!-- 第 1 页 -->
+            <div class="page-outer" data-page="1">
+              <div class="paper-page" id="pageEl1">
+                <div class="hl-layer"></div>
+                <h1>Thermal Cycling Reliability of Copper Wire Bonds in Power Modules</h1>
+                <div class="paper-authors">Liang Zhang and Kenji Tanaka</div>
+                <div class="paper-affil">Center for Electronic Packaging and Integration, Institute of Materials Science</div>
+                <div class="paper-abs">
+                  <b class="abs-h">Abstract—</b>Copper wire bonding has emerged as a cost-effective replacement for gold in power modules, yet its long-term reliability under cyclic thermal stress remains a central concern. In this work, 25 µm palladium-coated and bare copper wires were bonded onto aluminum metallized substrates and subjected to thermal cycling between −40 °C and +140 °C for up to 2,000 cycles. <span id="abs-key">The shear strength of copper wire bonds degrades progressively with thermal cycling, driven primarily by interfacial intermetallic growth and crack coalescence at the bond interface.</span> Palladium coating delayed the onset of degradation by approximately 400 cycles. A Paris-law crack growth model, calibrated against the measured strength retention data, predicts bond lifetimes within 12% of experimental observations.
+                </div>
+                <div class="two-col">
+                  <h2>1. Introduction</h2>
+                  <p>Copper offers superior electrical and thermal conductivity compared with gold, at a substantially lower material cost. Its adoption in fine-pitch power modules, however, is limited by oxidation during bonding and by the formation of brittle interfacial intermetallic compounds (IMCs) during operation.</p>
+                  <p>Prior studies have characterized IMC growth kinetics under isothermal aging, but few have connected growth kinetics to the evolution of mechanical strength under realistic thermal cycling profiles. This paper addresses that gap through a combined experimental and modeling study.</p>
+                  <h2>2. Experimental Procedure</h2>
+                  <p>Bare Cu and Pd-coated Cu wires (25 µm diameter) were thermosonically bonded onto 3 µm Al-metallized Si substrates. Bonding parameters were optimized by design-of-experiments to achieve a consistent as-bonded shear strength of 78 ± 3 MPa. Specimens were subjected to air-to-air thermal cycling between −40 °C and +140 °C, with a 15-minute dwell at each extreme.</p>
+                  <div class="fig">
+                    <svg width="310" height="150" viewBox="0 0 310 150">
+                      <line x1="40" y1="10" x2="40" y2="120" stroke="#333" stroke-width="1"/>
+                      <line x1="40" y1="120" x2="295" y2="120" stroke="#333" stroke-width="1"/>
+                      <rect x="55" y="30" width="26" height="90" fill="#4a7db5"/>
+                      <rect x="95" y="36" width="26" height="84" fill="#4a7db5"/>
+                      <rect x="135" y="48" width="26" height="72" fill="#4a7db5"/>
+                      <rect x="175" y="62" width="26" height="58" fill="#4a7db5"/>
+                      <rect x="215" y="76" width="26" height="44" fill="#4a7db5"/>
+                      <rect x="70" y="34" width="26" height="86" fill="#c0504d" opacity="0.85"/>
+                      <rect x="110" y="40" width="26" height="80" fill="#c0504d" opacity="0.85"/>
+                      <rect x="150" y="52" width="26" height="68" fill="#c0504d" opacity="0.85"/>
+                      <rect x="190" y="64" width="26" height="56" fill="#c0504d" opacity="0.85"/>
+                      <rect x="230" y="78" width="26" height="42" fill="#c0504d" opacity="0.85"/>
+                      <text x="150" y="138" font-size="10" text-anchor="middle" fill="#333">Thermal cycles (×500)</text>
+                      <text x="16" y="70" font-size="10" text-anchor="middle" fill="#333" transform="rotate(-90 16 70)">Shear strength (MPa)</text>
+                      <rect x="55" y="6" width="9" height="9" fill="#4a7db5"/><text x="68" y="14" font-size="9" fill="#333">Pd-coated Cu</text>
+                      <rect x="140" y="6" width="9" height="9" fill="#c0504d"/><text x="153" y="14" font-size="9" fill="#333">Bare Cu</text>
+                    </svg>
+                    <div class="cap"><b>Fig. 1.</b> Average bond shear strength versus number of thermal cycles (ΔT = 180 K) for palladium-coated and bare copper wires.</div>
+                  </div>
+                  <p>Shear tests were performed on 20 bonds per condition per readout point, and fracture surfaces were examined by scanning electron microscopy (SEM) to identify failure modes.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- 第 2 页 -->
+            <div class="page-outer" data-page="2">
+              <div class="paper-page" id="pageEl2">
+                <div class="hl-layer"></div>
+                <div class="two-col">
+                  <h2>3. Results and Discussion</h2>
+                  <p id="p2-results">After 1,000 cycles, the average shear strength retention of the palladium-coated copper wires remained above 82%, whereas bare copper wires retained only 61%. Strength loss accelerated beyond 1,500 cycles for bare copper, coinciding with the coalescence of interfacial voids into a continuous crack network.</p>
+                  <p>SEM fractography revealed two distinct failure modes: ductile bulk-wire fracture dominated below 500 cycles, while brittle interfacial fracture along the IMC layer dominated thereafter. The Cu–Al IMC layer grew with a t^0.5 dependence, reaching 2.4 µm after 2,000 cycles in bare copper bonds.</p>
+                  <div class="tbl">
+                    <table>
+                      <tr><th>Cycles</th><th>Pd-Cu (MPa)</th><th>Bare Cu (MPa)</th><th>IMC thickness (µm)</th></tr>
+                      <tr><td>0</td><td>78.2</td><td>77.9</td><td>0.42</td></tr>
+                      <tr><td>500</td><td>71.5</td><td>63.4</td><td>0.91 / 1.28</td></tr>
+                      <tr><td>1000</td><td>64.8</td><td>47.5</td><td>1.30 / 1.92</td></tr>
+                      <tr><td>2000</td><td>52.1</td><td>29.8</td><td>1.85 / 2.41</td></tr>
+                    </table>
+                    <div class="cap"><b>Table 1.</b> Shear strength and interfacial IMC thickness (Pd-coated / bare) versus thermal cycles.</div>
+                  </div>
+                  <h2>4. Lifetime Modeling</h2>
+                  <p id="p2-model">The crack growth rate follows a Paris-law relationship with the inelastic strain range accumulated per cycle. Calibrating the model against the strength retention data of Table 1 yields a lifetime prediction error below 12% for both wire types across the tested range.</p>
+                  <div class="eq">da/dN = C (Δε_in)^m ,&nbsp;&nbsp; a(N) = a₀ + C (Δε_in)^m · N</div>
+                  <p>The exponent m ≈ 3.2 obtained here is consistent with values reported for thick-film metallization systems, suggesting a shared crack-growth mechanism.</p>
+                  <h2>5. Conclusions</h2>
+                  <p id="p2-concl">Surface finish and atmosphere control during bonding are therefore decisive for achieving reliable copper bonds in production. Palladium coating extends usable bond lifetime by roughly 30% under the tested profile, and the calibrated Paris-law model provides a practical basis for design-for-reliability in power modules.</p>
+                  <h2>References</h2>
+                  <div class="refs">
+                    <p>[1] H. Xu et al., "Cu-Al IMC growth in thermosonic bonds," J. Electron. Mater., vol. 49, 2020.</p>
+                    <p>[2] S. Kim and J. Park, "Thermal cycling assessment of Pd-coated Cu wire," Microelectron. Reliab., vol. 88, 2019.</p>
+                    <p>[3] T. OnOzawa and R. Saito, "Atmosphere control in copper bonding," in Proc. ECTC, 2018.</p>
+                    <p>[4] L. Chen et al., "Paris-law fatigue of metallization stacks," Int. J. Fatigue, vol. 141, 2020.</p>
+                    <p>[5] IEC 62137-2, "Methods for reliability testing of board-level interconnects," 2019.</p>
+                    <p>[6] M. Bergmann and U. Falke, "Void coalescence at bond interfaces," IEEE TDMR, vol. 20, 2021.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+          <div class="empty-viewer" id="emptyViewer">
+            <div class="big">📄</div>
+            <div class="headline">还没有打开文献</div>
+            <div class="tip">演示版：请刷新页面重新打开示例文献，<br>或下载桌面版导入你自己的 PDF 文献库。</div>
+            <button class="add-btn" style="width:auto;padding:9px 18px" onclick="location.reload()">刷新页面</button>
+          </div>
+        </div>
+
+        <!-- ============ 右栏：问答 / 翻译 ============ -->
+        <div class="side" id="sidePanel">
+          <div class="side-tabs">
+            <div class="side-tab active" data-stab="qa">问答</div>
+            <div class="side-tab" data-stab="tr">翻译</div>
+          </div>
+          <div class="chat-scroll" id="qaScroll">
+            <div class="msg assistant">
+              <div class="who">assistant · glm-4.5</div>
+              <div class="bubble"><div class="md-p">你好 👋 我是 PaperLens 的文献问答助手（演示）。你可以：</div><div class="md-p">· 选中中间文献中的英文段落，点击 <strong>翻译</strong> 或 <strong>问答</strong><br>· 直接在下方提问，例如「<i>剪切强度如何随循环退化？</i>」「<i>总结一下结论</i>」<br>· 回答中的 <span class="cite-chip" data-jump="1:abs-key">p.1</span> 引用角标可点击跳转到原文位置</div></div>
+            </div>
+          </div>
+          <div class="chat-scroll" id="trScroll" style="display:none; gap:12px">
+            <div class="msg assistant" id="trPlaceholder">
+              <div class="who">translator</div>
+              <div class="bubble"><div class="md-p">在左侧文献中<b>选中一段英文</b>，然后点击浮条上的「翻译」。</div>
+              <div class="md-p" style="color:var(--text-dim);font-size:12px">翻译会结合当前页上下文处理术语（如 bond wire → 键合线）。</div></div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <div class="rag-toggle">
+              <span>范围</span>
+              <div class="seg" id="ragSeg">
+                <span class="on" data-rag="paper">当前文献</span>
+                <span data-rag="lib">全库</span>
+              </div>
+            </div>
+            <div class="input-row">
+              <textarea class="chat-input" id="qaInput" placeholder="针对这篇文献提问…（Enter 发送）" rows="1"></textarea>
+              <button class="send-btn" id="qaSend">发送</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 对话模式（全库对话）============ -->
+    <div class="chat-view" id="chatMode">
+      <div class="chat-hero-wrap" id="chatHero">
+        <div class="chat-hero">
+          <div class="big">🔍</div>
+          <div class="headline">和整个文献库对话</div>
+          <div class="tip">基于本地向量 + BM25 混合检索（RAG），回答附带页码引用 · 演示为模拟数据</div>
+        </div>
+        <div class="hero-input">
+          <textarea class="hero-textarea" id="heroInput" placeholder="例如：对比这几篇论文中键合线的主要失效机理"></textarea>
+          <div class="hero-input-foot">
+            <span class="ctl-pill">🤖 GLM-4.5</span>
+            <span class="ctl-pill">💭 思考 · 中</span>
+            <span class="hero-scope" id="heroScope">范围：全库 · 4 篇</span>
+            <div style="flex:1"></div>
+            <button class="send-btn" id="heroSend" style="padding:8px 16px">发送</button>
+          </div>
+        </div>
+        <div class="hero-suggest">
+          <button data-sq="这几篇论文分别研究了什么？">这几篇论文分别研究了什么？</button>
+          <button data-sq="对比键合线失效的主要机理">对比键合线失效的主要机理</button>
+          <button data-sq="总结热循环实验的共同结论">总结热循环实验的共同结论</button>
+        </div>
+      </div>
+      <div class="chat-log" id="chatLog" style="display:none"></div>
+      <div class="chat-view-input" id="chatInputRow" style="display:none">
+        <div class="hero-input">
+          <textarea class="hero-textarea" id="chatInput2" placeholder="继续提问…（Enter 发送）" rows="1"></textarea>
+          <div class="hero-input-foot">
+            <span class="ctl-pill">🤖 GLM-4.5</span>
+            <span class="hero-scope">范围：全库 · 4 篇</span>
+            <div style="flex:1"></div>
+            <button class="send-btn" id="chatSend2" style="padding:8px 16px">发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 状态栏 -->
+  <div class="statusbar">
+    <span class="chip">📄 4 篇文献</span>
+    <span class="chip" id="sbIndex">✓ 索引完成 · 4/4</span>
+    <span class="chip">e5-small · 本地嵌入</span>
+    <span class="chip">BM25 + 向量混合检索</span>
+    <div class="sb-right">
+      <span class="chip" id="sbZoom">缩放 100%</span>
+      <span class="chip">PaperLens 0.1 · 演示</span>
+    </div>
+  </div>
+</div>
+
+<!-- 悬浮划词条 -->
+<div class="float-bar" id="floatBar">
+  <button id="fbTr">🌐 翻译</button>
+  <button id="fbAsk">💬 问答</button>
+  <button id="fbHl">🖍 高亮</button>
+  <button id="fbCopy">📋 复制</button>
+</div>
+
+<!-- 命令面板 -->
+<div class="palette-mask" id="paletteMask">
+  <div class="palette">
+    <div class="palette-head">🔎 <input class="palette-input" id="paletteInput" placeholder="搜索命令…"></div>
+    <div class="palette-list" id="paletteList"></div>
+    <div class="palette-empty" id="paletteEmpty">没有匹配的命令</div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- 窄屏提示 -->
+<div class="narrow-mask showbydefault" id="narrowMask">
+  <div class="big">🔍</div>
+  <h2>PaperLens 演示适合在大屏体验</h2>
+  <p>演示完整复刻了桌面版三栏布局，建议用电脑浏览器打开。<br>手机上也可以继续浏览，但布局会被压缩。</p>
+  <button onclick="document.getElementById('narrowMask').style.display='none'">仍然继续</button>
+</div>
+
+<script>
+/* ============================================================
+   演示脚本：模拟桌面版的划词翻译 / 论文问答 / 全库 RAG 对话
+   ============================================================ */
+'use strict';
+const $ = (s, el) => (el || document).querySelector(s);
+const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
+
+const RELEASES = 'https://github.com/XinyuanLiao/paperlens/releases';
+const REPO = 'https://github.com/XinyuanLiao/paperlens';
+
+/* ---------- toast ---------- */
+let toastTimer = null;
+function toast(msg) {
+  const t = $('#toast');
+  t.innerHTML = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-toast]');
+  if (el) toast(el.getAttribute('data-toast'));
+});
+
+/* ---------- 主题 ---------- */
+const themeBtn = $('#themeBtn');
+function applyTheme(mode) {
+  const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  themeBtn.textContent = dark ? '☀️' : '🌙';
+  themeBtn.dataset.next = dark ? 'light' : 'dark';
+}
+let themeMode = 'system';
+applyTheme(themeMode);
+themeBtn.addEventListener('click', () => {
+  themeMode = themeBtn.dataset.next;
+  applyTheme(themeMode);
+  toast(themeMode === 'dark' ? '已切换到深色主题' : '已切换到浅色主题');
+});
+
+/* ---------- 模式切换（阅读 / 对话） ---------- */
+const readMode = $('#readMode'), chatMode = $('#chatMode');
+function setMode(m) {
+  const read = m === 'read';
+  $('#modeRead').classList.toggle('on', read);
+  $('#modeChat').classList.toggle('on', !read);
+  readMode.style.display = read ? 'flex' : 'none';
+  chatMode.style.display = read ? 'none' : 'flex';
+}
+$('#modeRead').addEventListener('click', () => setMode('read'));
+$('#modeChat').addEventListener('click', () => setMode('chat'));
+
+/* ---------- 缩放 ---------- */
+let zoom = 1;
+function layoutPages() {
+  $$('.page-outer').forEach(outer => {
+    const page = $('.paper-page', outer);
+    const w = page.offsetWidth, h = page.offsetHeight;
+    page.style.transform = 'scale(' + zoom + ')';
+    outer.style.width = (w * zoom) + 'px';
+    outer.style.height = (h * zoom) + 'px';
+  });
+}
+function setZoom(z) {
+  zoom = Math.min(1.8, Math.max(0.55, z));
+  layoutPages();
+  $('#zoomFit').textContent = Math.round(zoom * 100) + '%';
+  $('#sbZoom').textContent = '缩放 ' + Math.round(zoom * 100) + '%';
+}
+function fitZoom() {
+  const avail = $('#viewerScroll').clientWidth - 64;
+  setZoom(Math.min(1.3, avail / 800));
+}
+$('#zoomIn').addEventListener('click', () => setZoom(zoom + 0.1));
+$('#zoomOut').addEventListener('click', () => setZoom(zoom - 0.1));
+$('#zoomFit').addEventListener('click', fitZoom);
+
+/* ---------- 页码 ---------- */
+const pages = () => $$('.page-outer');
+function goToPage(n) {
+  const ps = pages();
+  if (!ps.length) return;
+  n = Math.max(1, Math.min(ps.length, n));
+  $('#viewerScroll').scrollTo({ top: ps[n - 1].offsetTop - 12, behavior: 'smooth' });
+  $('#pageInd').textContent = n + ' / ' + ps.length;
+}
+$('#pgFirst').addEventListener('click', () => goToPage(1));
+$('#pgPrev').addEventListener('click', () => goToPage(currentPage() - 1));
+$('#pgNext').addEventListener('click', () => goToPage(currentPage() + 1));
+$('#pgLast').addEventListener('click', () => goToPage(pages().length));
+function currentPage() {
+  const st = $('#viewerScroll').scrollTop;
+  let cur = 1;
+  pages().forEach((p, i) => { if (st >= p.offsetTop - 40) cur = i + 1; });
+  return cur;
+}
+$('#viewerScroll').addEventListener('scroll', () => {
+  $('#pageInd').textContent = currentPage() + ' / ' + pages().length;
+  hideFloatBar();
+});
+$('#tabClose').addEventListener('click', () => {
+  $$('.page-outer').forEach(p => p.style.display = 'none');
+  $('#emptyViewer').style.display = 'flex';
+  $('#pageInd').textContent = '0 / 0';
+});
+
+/* ---------- 划词浮条 ---------- */
+const floatBar = $('#floatBar');
+let curSelection = null;
+function hideFloatBar() { floatBar.style.display = 'none'; }
+function inPaper(n) {
+  let el = n;
+  while (el) {
+    if (el.classList && el.classList.contains('paper-page')) return true;
+    el = el.parentNode;
+  }
+  return false;
+}
+document.addEventListener('mouseup', () => {
+  setTimeout(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) { return; }
+    const text = sel.toString().trim();
+    if (!text || text.length < 4) return;
+    if (!inPaper(sel.anchorNode)) return;
+    curSelection = { text, range: sel.getRangeAt(0).cloneRange() };
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    if (!rect || (!rect.width && !rect.height)) return;
+    floatBar.style.display = 'flex';
+    const bw = floatBar.offsetWidth || 260;
+    floatBar.style.left = Math.max(8, Math.min(window.innerWidth - bw - 8, rect.left + rect.width / 2 - bw / 2)) + 'px';
+    floatBar.style.top = Math.max(8, rect.top - 42) + 'px';
+  }, 0);
+});
+document.addEventListener('mousedown', e => {
+  if (!floatBar.contains(e.target)) hideFloatBar();
+});
+$('#fbCopy').addEventListener('click', () => {
+  if (curSelection) { navigator.clipboard && navigator.clipboard.writeText(curSelection.text).catch(() => {}); }
+  hideFloatBar();
+  toast('已复制到剪贴板');
+});
+
+/* ---------- 高亮（矩形存储，同桌面版 rect 方案） ---------- */
+$('#fbHl').addEventListener('click', () => {
+  if (!curSelection) return;
+  const range = curSelection.range;
+  const pageEl = (function find(n) { let el = n; while (el && !(el.classList && el.classList.contains('paper-page'))) el = el.parentNode; return el; })(range.startContainer);
+  if (!pageEl) { hideFloatBar(); return; }
+  const rects = Array.from(range.getClientRects());
+  const pr = pageEl.getBoundingClientRect();
+  const layer = $('.hl-layer', pageEl);
+  rects.forEach(r => {
+    if (r.width < 2 || r.height < 2) return;
+    const d = document.createElement('div');
+    d.className = 'hl';
+    d.style.left = ((r.left - pr.left) / pr.width * 100) + '%';
+    d.style.top = ((r.top - pr.top) / pr.height * 100) + '%';
+    d.style.width = (r.width / pr.width * 100) + '%';
+    d.style.height = (r.height / pr.height * 100) + '%';
+    d.title = '点击删除高亮';
+    d.addEventListener('click', () => d.remove());
+    layer.appendChild(d);
+  });
+  hideFloatBar();
+  window.getSelection().removeAllRanges();
+  toast('已添加高亮（点击高亮可删除，桌面版中会持久保存）');
+});
+
+/* ---------- 翻译 ---------- */
+const TR = [
+  { en: 'The shear strength of copper wire bonds degrades progressively with thermal cycling, driven primarily by interfacial intermetallic growth and crack coalescence at the bond interface.',
+    zh: '铜线键合点的剪切强度随热循环逐渐退化，其主要驱动力是界面处金属间化合物的生长与微裂纹的贯通聚合。',
+    terms: [['shear strength', '剪切强度'], ['intermetallic', '金属间化合物（IMC）'], ['crack coalescence', '裂纹贯通聚合']] },
+  { en: 'Copper offers superior electrical and thermal conductivity compared with gold, at a substantially lower material cost.',
+    zh: '与金相比，铜具有更优的导电性与导热性，且材料成本显著更低。',
+    terms: [['thermal conductivity', '导热系数']] },
+  { en: 'After 1,000 cycles, the average shear strength retention of the palladium-coated copper wires remained above 82%, whereas bare copper wires retained only 61%.',
+    zh: '经过 1,000 次循环后，镀钯铜线的平均剪切强度保持率仍在 82% 以上，而裸铜线仅保持 61%。',
+    terms: [['retention', '保持率'], ['palladium-coated', '镀钯']] },
+  { en: 'The crack growth rate follows a Paris-law relationship with the inelastic strain range accumulated per cycle.',
+    zh: '裂纹扩展速率与每周次累积的非弹性应变范围之间服从 Paris 定律关系。',
+    terms: [['Paris-law', 'Paris 定律（裂纹扩展定律）'], ['inelastic strain range', '非弹性应变范围']] },
+  { en: 'Surface finish and atmosphere control during bonding are therefore decisive for achieving reliable copper bonds in production.',
+    zh: '因此，键合过程中的表面处理与气氛控制对于在生产中获得可靠的铜键合点具有决定性作用。',
+    terms: [['surface finish', '表面处理'], ['atmosphere control', '气氛控制']] },
+];
+const norm = s => s.toLowerCase().replace(/[^a-z0-9%.,\s-]/g, ' ').replace(/\s+/g, ' ');
+const trScroll = $('#trScroll'), qaScroll = $('#qaScroll');
+function setSideTab(tab) {
+  $$('[data-stab]').forEach(t => t.classList.toggle('active', t.getAttribute('data-stab') === tab));
+  trScroll.style.display = tab === 'tr' ? 'flex' : 'none';
+  qaScroll.style.display = tab === 'qa' ? 'flex' : 'none';
+}
+$$('[data-stab]').forEach(t => t.addEventListener('click', () => setSideTab(t.getAttribute('data-stab'))));
+function typeInto(el, text, speed) {
+  return new Promise(res => {
+    let i = 0;
+    const step = Math.max(1, Math.round(text.length / 90));
+    (function tick() {
+      i += step;
+      el.textContent = text.slice(0, i);
+      trScroll.scrollTop = trScroll.scrollHeight;
+      if (i < text.length) setTimeout(tick, speed || 14);
+      else res();
+    })();
+  });
+}
+$('#fbTr').addEventListener('click', async () => {
+  if (!curSelection) return;
+  const src = curSelection.text.replace(/\s+/g, ' ').trim();
+  hideFloatBar();
+  window.getSelection().removeAllRanges();
+  setSideTab('tr');
+  const hit = TR.find(t => norm(src).includes(norm(t.en)) || norm(t.en).includes(norm(src)));
+  const card = document.createElement('div');
+  card.className = 'tr-card';
+  card.innerHTML = '<div class="tr-head"><span class="label">Translation · EN → 中文</span><span class="ctx-toggle on">结合本页上下文</span></div>'
+    + '<div class="src-text"></div><div class="dst-text"></div>';
+  const srcEl = $('.src-text', card), dstEl = $('.dst-text', card);
+  $('#trPlaceholder') && $('#trPlaceholder').remove();
+  $$('#trScroll .tr-card').forEach(c => c.remove());
+  trScroll.appendChild(card);
+  srcEl.textContent = src;
+  dstEl.innerHTML = '<span class="thinking"><span class="b"></span><span class="b"></span><span class="b"></span>&nbsp; 翻译中…</span>';
+  trScroll.scrollTop = trScroll.scrollHeight;
+  await new Promise(r => setTimeout(r, 550));
+  if (hit) {
+    await typeInto(dstEl, hit.zh, 13);
+    if (hit.terms.length) {
+      const row = document.createElement('div');
+      row.className = 'term-row';
+      row.innerHTML = hit.terms.map(t => '<span class="term-chip">' + t[0] + ' → <b>' + t[1] + '</b></span>').join('');
+      card.appendChild(row);
+    }
+    toast('术语已结合上下文处理（bond wire → 键合线）');
+  } else {
+    await typeInto(dstEl, '【演示版】桌面版中，这里是你配置的大模型结合当前页上下文给出的译文；演示环境使用模拟数据回复。', 8);
+  }
+});
+
+/* ---------- 问答（当前文献） ---------- */
+const QA = [
+  { kw: ['剪切', 'shear', '强度', 'strength', '退化', '保持率', 'retention'],
+    page: 2, anchor: 'p2-results',
+    md: '**键合点剪切强度随热循环的退化规律**如下：\n- 初始强度约 **78 MPa**（两类线一致）\n- 1,000 次循环（ΔT = 180 K）后，镀钯铜线保持率仍 **> 82%**，裸铜线仅剩 **61%** [p.2]\n- 裸铜线在 1,500 周次后进入快速退化段，对应界面微裂纹贯通成网 [p.2]\n- 退化主导因素是界面 **IMC 层生长**（t^0.5 规律，2,000 周次达 2.4 µm）与脆性界面断裂模式转变 [p.1]\n---\n来源：Zhang & Tanaka, *Microelectron. Reliab.* 2021 · Fig.1 / Table 1' },
+  { kw: ['imc', '金属间', 'intermetallic', '化合物', '界面'],
+    page: 2, anchor: 'p2-results',
+    md: '关于 **Cu–Al 界面金属间化合物（IMC）**：\n- IMC 层厚度随时间呈 **t^0.5 抛物线** 生长，裸铜 2,000 周次后达 **2.4 µm** [p.2]\n- IMC 生长使断裂模式从 <500 周次的韧窝断裂（bulk-wire）转为脆性界面断裂 [p.2]\n- 镀钯层通过抑制界面扩散，把退化起点推迟约 **400 个循环** [p.1]\n- 气氛控制（防氧化）与表面处理是抑制 IMC 过快生长的生产关键 [p.2]' },
+  { kw: ['寿命', 'life', 'paris', '模型', '预测', 'model', '公式'],
+    page: 2, anchor: 'p2-model',
+    md: '**寿命模型**：论文采用 Paris 定律描述界面裂纹扩展：\n- da/dN = C (Δε_in)^m，其中 m ≈ **3.2** [p.2]\n- 用 Table 1 的强度保持率数据标定后，两类线的寿命预测误差 **< 12%** [p.2]\n- m 值与厚膜金属化体系的文献值一致，提示裂纹扩展机制相同 [p.2]\n---\n该模型可直接用于功率模块的 design-for-reliability 设计。' },
+  { kw: ['结论', 'conclusion', '总结', '汇总', '启示'],
+    page: 2, anchor: 'p2-concl',
+    md: '**论文结论（3 点）**：\n1. **表面处理与气氛控制**是量产中获得可靠铜键合的决定性因素 [p.2]\n2. 镀钯涂层在实测工况下将可用键合寿命延长约 **30%** [p.2]\n3. 标定后的 Paris 定律模型可作为功率模块可靠性设计的实用基础 [p.2]\n---\n一句话：*工艺决定下限，涂层与建模决定寿命上限。*' },
+  { kw: ['实验', 'experiment', '方法', '样品', 'procedure', '工艺'],
+    page: 1, anchor: null,
+    md: '**实验方案**：\n- 材料：25 µm 裸铜线 / 镀钯铜线，键合于 3 µm Al 金属化硅衬底 [p.1]\n- 键合：热超声键合，DOE 优化参数，初始剪切强度 78 ± 3 MPa [p.1]\n- 老化：气到气热循环 −40 °C ~ +140 °C（ΔT = 180 K），每端保温 15 min，最长 2,000 周次 [p.1]\n- 表征：每个读数点 20 键合点剪切试验 + SEM 断口分析 [p.1]' },
+];
+const QA_FALLBACK = '【演示回答】在桌面版中，这个问题会交由你配置的大模型（智谱 / DeepSeek / 通义 / Kimi / OpenAI / Ollama），基于**当前文献全文**流式生成回答，并附带可点击跳转的页码引用 [p.1]。\n---\n演示版内置了几个示例问答，试试：「剪切强度如何退化」「IMC 生长规律」「总结结论」。';
+let ragScope = 'paper';
+$$('#ragSeg span').forEach(s => s.addEventListener('click', () => {
+  ragScope = s.getAttribute('data-rag');
+  $$('#ragSeg span').forEach(x => x.classList.toggle('on', x === s));
+  toast(ragScope === 'lib'
+    ? '全库模式：桌面版会用两层检索（段落向量+BM25、再补全文献层）跨全部文献回答'
+    : '当前文献模式：整篇全文进入上下文，页码级引用');
+}));
+function mdToHtml(md) {
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inline = s => esc(s)
+    .replace(/\[p\.(\d)\]/g, (m, n) => '<span class="cite-chip" data-jump="' + n + '">p.' + n + '</span>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>');
+  const out = [];
+  let inList = false;
+  md.split('\n').forEach(line => {
+    if (line.trim() === '---') { if (inList) { out.push('</ul>'); inList = false; } out.push('<hr class="md-hr" style="border:none;border-top:1px dashed var(--border-lit);margin:11px 0">'); return; }
+    if (/^- /.test(line)) {
+      if (!inList) { out.push('<ul class="md-list">'); inList = true; }
+      out.push('<li>' + inline(line.slice(2)) + '</li>');
+      return;
+    }
+    if (/^\d+\. /.test(line)) {
+      if (!inList) { out.push('<ul class="md-list" style="list-style:decimal">'); inList = true; }
+      out.push('<li>' + inline(line.replace(/^\d+\. /, '')) + '</li>');
+      return;
+    }
+    if (inList) { out.push('</ul>'); inList = false; }
+    if (line.trim() === '') return;
+    out.push('<div class="md-p">' + inline(line) + '</div>');
+  });
+  if (inList) out.push('</ul>');
+  return out.join('');
+}
+function jumpTo(page, anchorId) {
+  setMode('read');
+  const pageEl = page === 1 ? $('#pageEl1') : $('#pageEl2');
+  const outer = pageEl.closest('.page-outer');
+  const target = anchorId ? $('#' + anchorId, pageEl) : null;
+  const anchor = target || pageEl;
+  const yInPage = anchor.offsetTop;
+  $('#viewerScroll').scrollTo({ top: outer.offsetTop + yInPage * zoom - 80, behavior: 'smooth' });
+  $('#pageInd').textContent = page + ' / ' + pages().length;
+  const hit = document.createElement('div');
+  hit.className = 'jump-hit';
+  hit.style.top = (anchor.offsetTop - 2) + 'px';
+  hit.style.height = (anchor.offsetHeight + 4) + 'px';
+  pageEl.appendChild(hit);
+  setTimeout(() => hit.remove(), 2700);
+}
+document.addEventListener('click', e => {
+  const chip = e.target.closest('.cite-chip');
+  if (!chip) return;
+  const spec = chip.getAttribute('data-jump') || '';
+  const parts = spec.split(':');
+  const page = parseInt(parts[0], 10) || 1;
+  const anchor = parts[1] || null;
+  if (chip.dataset.lib) {
+    toast('演示版仅内置一篇文献全文；桌面版会打开对应文献并跳转到引用位置');
+    return;
+  }
+  jumpTo(page, anchor);
+});
+async function streamBubble(scrollEl, addUser, answerMd, page, anchor) {
+  const u = document.createElement('div');
+  u.className = 'msg user';
+  u.innerHTML = '<div class="who">you</div><div class="bubble"></div>';
+  $('.bubble', u).textContent = addUser;
+  scrollEl.appendChild(u);
+  const a = document.createElement('div');
+  a.className = 'msg assistant';
+  a.innerHTML = '<div class="who">assistant · glm-4.5 · RAG</div><div class="bubble"><span class="thinking"><span class="b"></span><span class="b"></span><span class="b"></span>&nbsp; 检索中…</span></div>';
+  scrollEl.appendChild(a);
+  scrollEl.scrollTop = scrollEl.scrollHeight;
+  await new Promise(r => setTimeout(r, 750));
+  const bubble = $('.bubble', a);
+  const plain = answerMd.replace(/[*#\n]/g, m => m === '\n' ? ' ' : '');
+  let i = 0;
+  const step = Math.max(1, Math.round(plain.length / 110));
+  await new Promise(res => {
+    (function tick() {
+      i += step;
+      bubble.textContent = plain.slice(0, i);
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+      if (i < plain.length) setTimeout(tick, 12); else res();
+    })();
+  });
+  bubble.innerHTML = mdToHtml(answerMd);
+  if (page != null) {
+    const src = document.createElement('div');
+    src.className = 'sources';
+    src.innerHTML = '📎 来源：Zhang &amp; Tanaka 2021 · <span class="src" data-jumpsrc="' + page + ':' + (anchor || '') + '">跳转到原文 p.' + page + '</span>';
+    bubble.appendChild(src);
+    $('.src', src).addEventListener('click', () => jumpTo(page, anchor || null));
+  }
+  scrollEl.scrollTop = scrollEl.scrollHeight;
+}
+function pickQA(q) {
+  const lq = q.toLowerCase();
+  let best = null, bestScore = 0;
+  QA.forEach(item => {
+    let s = 0;
+    item.kw.forEach(k => { if (lq.includes(k.toLowerCase())) s += k.length; });
+    if (s > bestScore) { bestScore = s; best = item; }
+  });
+  return best || { md: QA_FALLBACK, page: null, anchor: null };
+}
+function sendQA() {
+  const inp = $('#qaInput');
+  const q = inp.value.trim();
+  if (!q) return;
+  inp.value = '';
+  const hit = pickQA(q);
+  streamBubble(qaScroll, q, hit.md, hit.page, hit.anchor);
+}
+$('#qaSend').addEventListener('click', sendQA);
+$('#qaInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQA(); }
+});
+$('#fbAsk').addEventListener('click', () => {
+  if (!curSelection) return;
+  const q = '请解释这段内容：「' + curSelection.text.replace(/\s+/g, ' ').trim().slice(0, 120) + (curSelection.text.length > 120 ? '…' : '') + '」';
+  hideFloatBar();
+  window.getSelection().removeAllRanges();
+  setSideTab('qa');
+  const hit = pickQA(q);
+  streamBubble(qaScroll, q, hit.md + (hit.page ? '' : ''), hit.page, hit.anchor);
+});
+
+/* ---------- 全库对话（Chat 模式） ---------- */
+const LIBQA = [
+  { kw: ['分别', '研究', 'overview', '都在', '讲了', '哪些'],
+    md: '**你的文献库中 4 篇文献的研究内容**：\n- **Zhang & Tanaka 2021**（微电子封装）：铜线键合在热循环下的可靠性，实验 + Paris 定律寿命建模 [lib]Zhang 2021 · p.1[/lib]\n- **Chen et al. 2023**（微电子封装）：基于深度学习的 IGBT 模块剩余寿命预测，LSTM + 注意力机制 [lib]Chen 2023 · p.2[/lib]\n- **Kim & Park 2019**（微电子封装）：键合界面 IMC 生长动力学综述，覆盖 Cu/Ag/Au 体系 [lib]Kim 2019 · p.5[/lib]\n- **Vaswani et al. 2017**（深度学习）：Transformer 原始论文，是 Chen 2023 中注意力模块的理论来源 [lib]Vaswani 2017 · p.7[/lib]\n---\n其中前三篇构成「机理 → 建模 → 数据驱动」一条完整的键合可靠性研究线。' },
+  { kw: ['失效', '机理', '对比', 'mechanism', '模式'],
+    md: '**键合线失效机理对比**（跨文献检索结果）：\n1. **IMC 诱导脆断**：Cu–Al 界面化合物 t^0.5 生长，厚膜达 2.4 µm 后主导界面断裂 [lib]Zhang 2021 · p.2[/lib]\n2. **裂纹疲劳扩展**：Paris 定律描述，m ≈ 3.2，与金属化体系文献一致 [lib]Zhang 2021 · p.2[/lib]\n3. **电迁移加速**：高电流密度下空洞沿键合界面形核（Kim 综述 §4）[lib]Kim 2019 · p.8[/lib]\n- 共识：**热-力耦合**下界面是寿命瓶颈；分歧：电迁移在功率模块实际工况下的权重\n---\n以上为演示模拟回答；桌面版中每条引用都会打开对应文献并跳转到页级位置。' },
+  { kw: ['总结', '共同', '结论', '热循环', '实验'],
+    md: '**热循环实验的共同结论**（3 篇实验类文献）：\n- 强度/寿命退化均呈**两阶段**特征：平台期 → 快速退化期，转折点与 IMC 厚度阈值相关 [lib]Zhang 2021 · p.2[/lib]\n- **镀层（Pd/Ag）一致性地延迟退化起点**约 300–500 周次 [lib]Zhang 2021 · p.1[/lib] [lib]Kim 2019 · p.6[/lib]\n- ΔT 每增加 50 K，特征寿命约下降 **35–45%**（各文献标定略有差异）[lib]Chen 2023 · p.5[/lib]\n---\n提示：桌面版可点击引用角标直接跳转原文比对数据。' },
+];
+const LIB_FALLBACK = '【演示回答】桌面版中，全库模式会对你的 **4 篇文献**执行两层检索：先用段落级「向量（multilingual-e5-small 本地嵌入）+ BM25」混合召回，再补全文档级向量与标题召回，保证相关文献不被漏掉；随后由你配置的大模型生成带页码引用的回答。\n---\n试试建议问题：「这几篇论文分别研究了什么？」「对比键合线失效的主要机理」「总结热循环实验的共同结论」。';
+function libMd(md) {
+  return md.replace(/\[lib\]([^\[]+)\[\/lib\]/g, (m, label) => '<span class="cite-chip" data-lib="1" title="演示版：桌面版会打开对应文献">' + label + '</span>');
+}
+async function streamLib(addUser, md) {
+  $('#chatHero').style.display = 'none';
+  const log = $('#chatLog'), row = $('#chatInputRow');
+  log.style.display = 'flex'; row.style.display = 'block';
+  const u = document.createElement('div');
+  u.className = 'msg user';
+  u.innerHTML = '<div class="who">you</div><div class="bubble"></div>';
+  $('.bubble', u).textContent = addUser;
+  log.appendChild(u);
+  const a = document.createElement('div');
+  a.className = 'msg assistant';
+  a.innerHTML = '<div class="who">assistant · glm-4.5 · 全库 RAG</div><div class="bubble"><span class="thinking"><span class="b"></span><span class="b"></span><span class="b"></span>&nbsp; 检索 4 篇文献中…</span></div>';
+  log.appendChild(a);
+  log.scrollTop = log.scrollHeight;
+  await new Promise(r => setTimeout(r, 900));
+  const bubble = $('.bubble', a);
+  const plain = md.replace(/[*#\n\[\]]/g, ' ');
+  let i = 0;
+  const step = Math.max(1, Math.round(plain.length / 120));
+  await new Promise(res => {
+    (function tick() {
+      i += step;
+      bubble.textContent = plain.slice(0, i);
+      log.scrollTop = log.scrollHeight;
+      if (i < plain.length) setTimeout(tick, 12); else res();
+    })();
+  });
+  bubble.innerHTML = libMd(mdToHtml(md.replace(/\[lib\]|\[\/lib\]/g, '')));
+  log.scrollTop = log.scrollHeight;
+}
+function pickLib(q) {
+  const lq = q.toLowerCase();
+  let best = null, bestScore = 0;
+  LIBQA.forEach(item => {
+    let s = 0;
+    item.kw.forEach(k => { if (lq.includes(k.toLowerCase())) s += k.length; });
+    if (s > bestScore) { bestScore = s; best = item; }
+  });
+  return best || { md: LIB_FALLBACK };
+}
+function sendLib(inp) {
+  const q = inp.value.trim();
+  if (!q) return;
+  inp.value = '';
+  streamLib(q, pickLib(q).md);
+}
+$('#heroSend').addEventListener('click', () => sendLib($('#heroInput')));
+$('#heroInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendLib($('#heroInput')); }
+});
+$('#chatSend2').addEventListener('click', () => sendLib($('#chatInput2')));
+$('#chatInput2').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendLib($('#chatInput2')); }
+});
+$$('#chatHero .hero-suggest button').forEach(b => b.addEventListener('click', () => {
+  $('#heroInput').value = b.getAttribute('data-sq');
+  sendLib($('#heroInput'));
+}));
+$('#heroScope').addEventListener('click', () => toast('演示版固定为全库范围；桌面版可切换 全库 / 分类 / 当前文献'));
+
+/* ---------- 命令面板 ---------- */
+const CMDS = [
+  { g: '文献', label: '打开：Copper Wire Bond Reliability…', meta: '示例文献', fn: () => { location.reload(); } },
+  { g: '视图', label: '切换到全库对话', meta: '⌘2', fn: () => setMode('chat') },
+  { g: '视图', label: '回到阅读模式', meta: '⌘1', fn: () => setMode('read') },
+  { g: '视图', label: '切换深色 / 浅色主题', meta: '', fn: () => themeBtn.click() },
+  { g: '视图', label: '放大', meta: '⌘+', fn: () => setZoom(zoom + 0.1) },
+  { g: '视图', label: '缩小', meta: '⌘-', fn: () => setZoom(zoom - 0.1) },
+  { g: '帮助', label: '下载桌面版（GitHub Releases）', meta: '↗', fn: () => window.open(RELEASES, '_blank') },
+  { g: '帮助', label: 'GitHub 仓库', meta: '↗', fn: () => window.open(REPO, '_blank') },
+];
+const paletteMask = $('#paletteMask'), paletteInput = $('#paletteInput'), paletteList = $('#paletteList');
+let paletteSel = 0, paletteItems = [];
+function renderPalette(q) {
+  const ql = (q || '').toLowerCase();
+  paletteItems = CMDS.filter(c => !ql || c.label.toLowerCase().includes(ql) || c.g.toLowerCase().includes(ql));
+  let html = '', lastG = '';
+  paletteItems.forEach((c, i) => {
+    if (c.g !== lastG) { html += '<div class="palette-group">' + c.g + '</div>'; lastG = c.g; }
+    html += '<div class="palette-item' + (i === paletteSel ? ' sel' : '') + '" data-i="' + i + '"><span class="pi-label">' + c.label + '</span><span class="pi-meta">' + c.meta + '</span></div>';
+  });
+  paletteList.innerHTML = html;
+  $('#paletteEmpty').style.display = paletteItems.length ? 'none' : 'block';
+}
+function openPalette() {
+  paletteMask.classList.add('show');
+  paletteSel = 0;
+  renderPalette('');
+  paletteInput.value = '';
+  setTimeout(() => paletteInput.focus(), 0);
+}
+function closePalette() { paletteMask.classList.remove('show'); }
+$('#paletteHint').addEventListener('click', openPalette);
+paletteMask.addEventListener('click', e => { if (e.target === paletteMask) closePalette(); });
+paletteInput.addEventListener('input', () => { paletteSel = 0; renderPalette(paletteInput.value); });
+paletteList.addEventListener('click', e => {
+  const item = e.target.closest('.palette-item');
+  if (!item) return;
+  closePalette();
+  paletteItems[parseInt(item.getAttribute('data-i'), 10)].fn();
+});
+paletteInput.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); paletteSel = Math.min(paletteItems.length - 1, paletteSel + 1); renderPalette(paletteInput.value); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); paletteSel = Math.max(0, paletteSel - 1); renderPalette(paletteInput.value); }
+  else if (e.key === 'Enter') { e.preventDefault(); if (paletteItems[paletteSel]) { closePalette(); paletteItems[paletteSel].fn(); } }
+});
+document.addEventListener('keydown', e => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); paletteMask.classList.contains('show') ? closePalette() : openPalette(); }
+  else if (mod && e.key === '1') { e.preventDefault(); setMode('read'); }
+  else if (mod && e.key === '2') { e.preventDefault(); setMode('chat'); }
+  else if (e.key === 'Escape') { closePalette(); hideFloatBar(); }
+});
+
+/* ---------- 侧栏条目 ---------- */
+$$('.paper-item').forEach(p => p.addEventListener('click', () => {
+  if (p.hasAttribute('data-toast') && p.getAttribute('data-paper') !== 'main') {
+    toast(p.getAttribute('data-toast'));
+    return;
+  }
+  $$('.paper-item').forEach(x => x.classList.toggle('active', x === p));
+  setMode('read');
+}));
+
+/* ---------- 初始化 ---------- */
+/* URL hash 深链：#dark 深色主题 · #chat 直接进入全库对话（可组合，如 #chat#dark） */
+const hashTokens = location.hash.split('#');
+if (hashTokens.includes('dark')) { themeMode = 'dark'; applyTheme('dark'); }
+if (hashTokens.includes('chat')) setMode('chat');
+/* 自动演示（也用于生成 README 截图）：#tr 演示一次划词翻译，#qa 演示一次文献问答 */
+if (hashTokens.includes('tr')) {
+  setTimeout(() => { curSelection = { text: TR[0].en }; $('#fbTr').click(); }, 600);
+}
+if (hashTokens.includes('qa')) {
+  setTimeout(() => { $('#qaInput').value = '剪切强度如何随热循环退化？'; sendQA(); }, 600);
+}
+document.fonts && document.fonts.ready.then(layoutPages);
+window.addEventListener('resize', () => layoutPages());
+fitZoom();
+setZoom(1);
+/* 首次进入的引导 toast */
+setTimeout(() => toast('👋 演示提示：选中右侧文献里的英文句子试试「翻译」；也可以直接在右下角提问'), 1200);
+</script>
+</body>
+</html>
