@@ -7,6 +7,8 @@ import { chatStream } from './llm'
 
 export interface ImportOutcome {
   file: string
+  // 源文件完整路径（弹窗按它精确匹配队列行，避免不同目录同名文件错位）
+  path?: string
   ok: boolean
   slug?: string
   title?: string
@@ -137,26 +139,114 @@ function expandFiles(paths: string[], libraryPath: string): string[] {
   return out
 }
 
-export interface ImportOpts {
-  // 用户在导入弹窗显式选择的分类；空串 = AI 自动推荐（未连 AI 时落到未分类 inbox）
-  category?: string
+// ---------- 导入预检：先逐篇识别推荐分类，用户确认/调整后再导入 ----------
+// 识别结果缓存（按 mtime 失效）：预检跑过的文件导入时直接复用，不重复调 AI
+interface ClassifyInfo {
+  title: string
+  authors: string
+  year: number | null
+  venue: string
+  categorySlug: string
+  paperSlug: string
+  mtime: number
+}
+const classifyCache = new Map<string, ClassifyInfo>()
+
+async function classifyCached(src: string): Promise<ClassifyInfo | null> {
+  let mtime = 0
+  try {
+    mtime = fs.statSync(src).mtimeMs
+  } catch {
+    /* 读取失败让 extractPages 报具体错误 */
+  }
+  const hit = classifyCache.get(src)
+  if (hit && hit.mtime === mtime) return hit
+  const pages = await extractPages(src, 2)
+  const info = await classify(pages.slice(0, 2).join('\n'))
+  if (!info) return null
+  const full = { ...info, mtime }
+  classifyCache.set(src, full)
+  return full
 }
 
-// 导入串行化：窗口拖入/弹窗/文件夹导入可能并发触发，链式排队避免 copy+scan 互相踩
-let importChain: Promise<unknown> = Promise.resolve()
-export function importPapers(filePaths: string[], send: (ev: string, p: unknown) => void, opts: ImportOpts = {}): Promise<ImportOutcome[]> {
-  const run = importChain.catch(() => undefined).then(() => importPapersInternal(filePaths, send, opts))
+export interface PreviewItem {
+  file: string
+  path: string
+  ok: boolean
+  category?: string
+  title?: string
+  error?: string
+}
+
+// 与导入共用串行链：预检没跑完时导入排在其后，缓存结果直接复用
+export function previewImport(paths: string[], send: (ev: string, p: unknown) => void): Promise<PreviewItem[]> {
+  const run = importChain.catch(() => undefined).then(() => previewImportInternal(paths, send))
   importChain = run.catch(() => undefined)
   return run
 }
 
-async function importPapersInternal(filePaths: string[], send: (ev: string, p: unknown) => void, opts: ImportOpts): Promise<ImportOutcome[]> {
+async function previewImportInternal(paths: string[], send: (ev: string, p: unknown) => void): Promise<PreviewItem[]> {
+  const s = getSettings()
+  const files = expandFiles(paths, s.libraryPath)
+  const out: PreviewItem[] = []
+  for (let i = 0; i < files.length; i++) {
+    const src = files[i]
+    send('preview:progress', { done: i, total: files.length, current: path.basename(src) })
+    let item: PreviewItem
+    if (!s.apiKey) {
+      item = { file: path.basename(src), path: src, ok: true, category: 'inbox' }
+    } else {
+      try {
+        const info = await classifyCached(src)
+        item = info
+          ? { file: path.basename(src), path: src, ok: true, category: info.categorySlug, title: info.title }
+          : { file: path.basename(src), path: src, ok: false, error: 'AI 未返回有效结果，导入时将放入未分类' }
+      } catch (err) {
+        item = { file: path.basename(src), path: src, ok: false, error: String(err) }
+      }
+    }
+    out.push(item)
+    send('preview:file', item)
+  }
+  send('preview:progress', { done: files.length, total: files.length, current: '' })
+  return out
+}
+
+export interface ImportItem {
+  path: string
+  // 逐篇目标分类：'' = AI 自动推荐；'inbox' = 未分类；其余为分类名
+  category?: string
+}
+
+function normalizeItems(items: Array<string | ImportItem>): ImportItem[] {
+  return items.map((x) => (typeof x === 'string' ? { path: x } : x))
+}
+
+// 导入串行化：窗口拖入/弹窗/文件夹导入可能并发触发，链式排队避免 copy+scan 互相踩
+let importChain: Promise<unknown> = Promise.resolve()
+export function importPapers(items: Array<string | ImportItem>, send: (ev: string, p: unknown) => void): Promise<ImportOutcome[]> {
+  const run = importChain.catch(() => undefined).then(() => importPapersInternal(normalizeItems(items), send))
+  importChain = run.catch(() => undefined)
+  return run
+}
+
+async function importPapersInternal(items: ImportItem[], send: (ev: string, p: unknown) => void): Promise<ImportOutcome[]> {
   const s = getSettings()
   const libPapers = path.join(s.libraryPath, 'papers')
   fs.mkdirSync(libPapers, { recursive: true })
-  const files = expandFiles(filePaths, s.libraryPath)
-  // 显式分类只做文件系统安全清洗（允许中文），与手动移动分类同一套规则
-  const manualCat = sanitizeCategoryName(opts.category ?? '')
+  // 每个文件的目标分类：该项路径（含文件夹展开出的文件）继承其选择；空串 = AI 自动
+  const fileCat = new Map<string, string>()
+  const files: string[] = []
+  const seen = new Set<string>()
+  for (const it of items) {
+    for (const f of expandFiles([it.path], s.libraryPath)) {
+      const key = path.resolve(f).toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      fileCat.set(f, it.category ?? '')
+      files.push(f)
+    }
+  }
   const outcomes: ImportOutcome[] = []
   for (let i = 0; i < files.length; i++) {
     const src = files[i]
@@ -169,10 +259,11 @@ async function importPapersInternal(filePaths: string[], send: (ev: string, p: u
     let categorySlug = 'inbox'
     let paperSlug = slugify(fb.base)
     let classified = false
+    let aiCat: string | null = null
     try {
       if (s.apiKey) {
-        const pages = await extractPages(src, 2)
-        const info = await classify(pages.slice(0, 2).join('\n'))
+        // 预检过则直接命中缓存；没预检过（拖入即导、AI 中途断开重试）现场识别
+        const info = await classifyCached(src)
         if (info) {
           title = info.title
           authors = info.authors
@@ -180,13 +271,18 @@ async function importPapersInternal(filePaths: string[], send: (ev: string, p: u
           venue = info.venue
           categorySlug = info.categorySlug
           paperSlug = info.paperSlug ? slugify(info.paperSlug) : slugify(`${year ?? ''}-${info.title}`)
-          classified = true
+          aiCat = info.categorySlug
         }
       }
-      // 用户选了分类就以其为准：AI 只负责标题/作者等元数据与默认推荐
-      if (manualCat) {
+      // 用户在队列里选了分类就以其为准（与 AI 推荐一致时仍算 AI 归类）
+      const manualCat = sanitizeCategoryName(fileCat.get(src) ?? '')
+      if (manualCat && manualCat !== 'inbox') {
         categorySlug = manualCat
-        classified = false
+        classified = manualCat === aiCat
+      } else if (manualCat === 'inbox') {
+        categorySlug = 'inbox'
+      } else if (aiCat) {
+        classified = true
       }
       // 目标文件夹：已有分类复用，新分类建 NN-<名称>
       let dir = categorySlug === 'inbox' ? path.join(libPapers, '99-inbox') : findCategoryDir(libPapers, categorySlug)
@@ -199,11 +295,11 @@ async function importPapersInternal(filePaths: string[], send: (ev: string, p: u
       fs.copyFileSync(src, path.join(dest, 'paper.pdf'))
       const note = `---\ntitle: "${title.replace(/"/g, "'")}"\nauthors: "${authors.replace(/"/g, "'")}"\nyear: ${year ?? 'null'}\nvenue: "${venue.replace(/"/g, "'")}"\ntags: [status/unread]\nstatus: unread\n---\n\n# ${title}\n\n- **作者:** ${authors || '（作者见原文）'}\n- **发表:** ${venue || `${year ?? ''}（待核实）`}\n- **来源:** 本地导入（${path.basename(src)}）${classified ? '，AI 自动归类' : ''}\n\n## 速览\n\n（导入时未生成摘要。）\n\n## 阅读状态\n\n- ${new Date().getFullYear()} 通过应用内导入入库，未精读。\n`
       fs.writeFileSync(path.join(dest, `${slug}.md`), note)
-      const oc: ImportOutcome = { file: path.basename(src), ok: true, slug, title, category: path.basename(dir).replace(/^\d+-/, ''), classified }
+      const oc: ImportOutcome = { file: path.basename(src), path: src, ok: true, slug, title, category: path.basename(dir).replace(/^\d+-/, ''), classified }
       outcomes.push(oc)
       send('import:file', oc)
     } catch (err) {
-      const oc: ImportOutcome = { file: path.basename(src), ok: false, classified: false, error: String(err) }
+      const oc: ImportOutcome = { file: path.basename(src), path: src, ok: false, classified: false, error: String(err) }
       outcomes.push(oc)
       send('import:file', oc)
     }

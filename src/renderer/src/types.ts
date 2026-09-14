@@ -55,11 +55,23 @@ export interface Highlight {
 
 export interface ImportOutcome {
   file: string
+  // 源文件完整路径（弹窗按它精确匹配队列行）
+  path?: string
   ok: boolean
   slug?: string
   title?: string
   category?: string
   classified: boolean
+  error?: string
+}
+
+// 导入预检（逐篇 AI 识别，不落盘）：弹窗队列每行的推荐分类来源
+export interface ImportPreviewItem {
+  file: string
+  path: string
+  ok: boolean
+  category?: string
+  title?: string
   error?: string
 }
 
@@ -94,7 +106,10 @@ declare global {
       startIndex: () => void
       pathForFile: (file: File) => string
       pickImport: () => Promise<string[]>
-      importPapers: (paths: string[], category?: string) => Promise<{ outcomes: ImportOutcome[]; scan: { added: number; updated: number; total: number } }>
+      importPapers: (items: Array<{ path: string; category?: string }>) => Promise<{ outcomes: ImportOutcome[]; scan: { added: number; updated: number; total: number } }>
+      previewImport: (paths: string[]) => Promise<ImportPreviewItem[]>
+      onPreviewFile: (cb: (p: ImportPreviewItem) => void) => () => void
+      onPreviewProgress: (cb: (p: { done: number; total: number; current: string }) => void) => () => void
       addHighlight: (paperId: number, page: number, rects: HighlightRect[], text: string) => Promise<number>
       listHighlights: (paperId: number) => Promise<Highlight[]>
       deleteHighlight: (id: number) => Promise<boolean>

@@ -14,7 +14,18 @@ const api = {
   startIndex: () => ipcRenderer.send('index:start'),
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   pickImport: () => ipcRenderer.invoke('papers:pick-import'),
-  importPapers: (paths: string[]) => ipcRenderer.invoke('papers:import', paths),
+  importPapers: (items: Array<{ path: string; category?: string }>) => ipcRenderer.invoke('papers:import', items),
+  previewImport: (paths: string[]) => ipcRenderer.invoke('papers:preview-import', paths),
+  onPreviewFile: (cb: (p: unknown) => void) => {
+    const h = (_e: unknown, p: unknown) => cb(p)
+    ipcRenderer.on('preview:file', h)
+    return () => ipcRenderer.removeListener('preview:file', h)
+  },
+  onPreviewProgress: (cb: (p: { done: number; total: number; current: string }) => void) => {
+    const h = (_e: unknown, p: { done: number; total: number; current: string }) => cb(p)
+    ipcRenderer.on('preview:progress', h)
+    return () => ipcRenderer.removeListener('preview:progress', h)
+  },
   addHighlight: (paperId: number, page: number, rects: Array<{ x: number; y: number; w: number; h: number }>, text: string) =>
     ipcRenderer.invoke('highlights:add', paperId, page, rects, text),
   listHighlights: (paperId: number) => ipcRenderer.invoke('highlights:list', paperId),

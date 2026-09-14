@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import * as dbmod from './db'
 import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPagesCached } from './ingest'
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
-import { importPapers, movePaperToCategory, createCategory, deleteCategory, deletePaper, renamePaper } from './import'
+import { importPapers, previewImport, movePaperToCategory, createCategory, deleteCategory, deletePaper, renamePaper } from './import'
 import { embed } from './embed'
 
 let win: BrowserWindow | null = null
@@ -152,8 +152,10 @@ function registerIpc(): void {
     })
     return r.canceled ? null : r.filePaths[0]
   })
-  ipcMain.handle('papers:import', async (_e, paths: string[], category?: string) => {
-    const outcomes = await importPapers(paths, send, { category: String(category ?? '') })
+  // 导入预检：逐篇 AI 识别推荐分类/标题（不落盘），弹窗展示给用户确认调整
+  ipcMain.handle('papers:preview-import', (_e, paths: string[]) => previewImport(paths, send))
+  ipcMain.handle('papers:import', async (_e, items: Array<{ path: string; category?: string }>) => {
+    const outcomes = await importPapers(items, send)
     const r = dbmod.scanLibrary(dbmod.getSettings().libraryPath)
     if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch(() => {})
     send('papers:changed', { ids: outcomes.filter((o) => o.ok).map((o) => o.slug) }) // 兜底同步界面（弹窗收尾之外的路径）

@@ -724,30 +724,16 @@ html.mac { --tb-h: 44px; }
 .import-drop-tip { font-size: 13px; font-weight: 650; color: var(--text); }
 .import-drop-sub { font-size: 11px; color: var(--text-dim); }
 .import-drop-actions { display: flex; gap: 8px; margin-top: 8px; }
-.import-cat-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
-.import-cat-row label { font-size: 12px; color: var(--text-dim); flex-shrink: 0; }
-.import-cat-row select {
-  flex: 1; min-width: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 8px 10px; color: var(--text); font: inherit; font-size: 12.5px; outline: none;
-  transition: border-color var(--speed); cursor: pointer;
-}
-.import-cat-row select:focus { border-color: var(--accent); }
-.import-cat-fixed { flex: 1; font-size: 12.5px; color: var(--text); font-weight: 500; }
-.import-newcat { display: flex; gap: 8px; margin-top: 8px; }
-.import-newcat input {
-  flex: 1; min-width: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 8px 10px; color: var(--text); outline: none; font-size: 12.5px; transition: border-color var(--speed);
-}
-.import-newcat input:focus { border-color: var(--accent); }
-.import-cat-hint { margin-top: 7px; font-size: 11px; color: var(--text-dim); line-height: 1.6; }
+.import-cat-hint { margin-top: 10px; font-size: 11px; color: var(--text-dim); line-height: 1.6; }
+.import-bulk { display: flex; align-items: center; gap: 8px; margin: 10px 2px 0; font-size: 11.5px; color: var(--text-dim); }
 .import-queue {
-  margin-top: 12px; max-height: 240px; overflow-y: auto;
+  margin-top: 8px; max-height: 260px; overflow-y: auto;
   border: 1px solid var(--border); border-radius: 10px; padding: 5px;
 }
-.import-row { display: flex; align-items: center; gap: 8px; padding: 6.5px 10px; border-radius: 7px; font-size: 12px; }
-.import-row + .import-row { margin-top: 1px; }
-.import-row.working { background: var(--bg2); }
-.import-row.failed .import-row-name { color: var(--danger); }
+.import-row-wrap + .import-row-wrap { margin-top: 1px; }
+.import-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 7px; font-size: 12px; }
+.import-row-wrap.working .import-row { background: var(--bg2); }
+.import-row-wrap.failed .import-row .import-row-name { color: var(--danger); }
 .import-row.folder { color: var(--text-dim); background: var(--bg2); }
 .import-row-name { flex: 1; min-width: 0; }
 .import-row-x {
@@ -755,6 +741,26 @@ html.mac { --tb-h: 44px; }
   padding: 0 4px; border-radius: 4px; font-size: 11px;
 }
 .import-row-x:hover { background: var(--bg3); color: var(--text); }
+/* 每行右侧的分类选择：AI 推荐预填，可单独改 */
+.import-row-cat {
+  flex-shrink: 0; max-width: 150px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3.5px 4px; color: var(--text); font: inherit; font-size: 11.5px;
+  outline: none; cursor: pointer; transition: border-color var(--speed);
+  text-overflow: ellipsis;
+}
+.import-row-cat:hover { border-color: var(--border-lit); }
+.import-row-cat:focus { border-color: var(--accent); }
+.import-ai-tag {
+  flex-shrink: 0; font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--accent2); background: var(--accent-soft); border-radius: 4px; padding: 1px 5px;
+}
+.import-newcat-row { display: flex; gap: 8px; padding: 0 10px 7px 26px; }
+.import-newcat-row input {
+  flex: 1; min-width: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 9px; color: var(--text); outline: none; font-size: 11.5px; transition: border-color var(--speed);
+}
+.import-newcat-row input:focus { border-color: var(--accent); }
+.import-newcat-row .btn { padding: 5px 12px; font-size: 11.5px; }
 .import-st {
   flex-shrink: 0; font-size: 11px; color: var(--text-dim); font-family: var(--mono);
   max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
