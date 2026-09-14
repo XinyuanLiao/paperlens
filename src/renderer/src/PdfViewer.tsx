@@ -3,7 +3,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { Tab } from './App'
 import type { Highlight } from './types'
-import { locateSnippet, flashHit } from './locate'
+import { locateSnippet, locateByKeywords, flashHit } from './locate'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -20,11 +20,13 @@ interface Props {
   activeId: number | null
   onActivate: (id: number) => void
   onCloseTab: (id: number) => void
-  pendingJump: { slug: string; page: number; snippet?: string } | null
+  pendingJump: { slug: string; page: number; snippet?: string; probe?: string } | null
   onJumped: () => void
   onPageContext: (text: string) => void
   onSelect: (text: string, x: number, y: number) => void
   onDeleteHighlight: (id: number) => void
+  // 面板常驻但 chat 模式下隐藏：隐藏时全局缩放快捷键不生效（让位给引用面板）
+  visible: boolean
 }
 
 interface PageTextMap {
@@ -32,7 +34,7 @@ interface PageTextMap {
 }
 
 const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
-  { tabs, activeId, onActivate, onCloseTab, pendingJump, onJumped, onPageContext, onSelect, onDeleteHighlight },
+  { tabs, activeId, onActivate, onCloseTab, pendingJump, onJumped, onPageContext, onSelect, onDeleteHighlight, visible },
   ref
 ): JSX.Element {
   const active = tabs.find((t) => t.paper.id === activeId) ?? null
@@ -62,9 +64,10 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     el.addEventListener('wheel', onWheel, { passive: false })
   }, [])
 
-  // Cmd/Ctrl + -/=/0 缩放
+  // Cmd/Ctrl + -/=/0 缩放（仅阅读模式可见时生效；chat 模式下同一组快捷键归引用面板）
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if (!visible) return
       if (!(e.ctrlKey || e.metaKey)) return
       if (e.key === '=' || e.key === '+') {
         e.preventDefault()
@@ -79,7 +82,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [visible])
 
   useEffect(() => {
     setDoc(null)
@@ -217,25 +220,36 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     }
   }))
 
-  // 引用跳转：优先用 snippet 定位到页内被引段落（高亮带渐隐），否则停在该页顶部
+  // 引用跳转：snippet 精确定位到页内被引段落（多行高亮带渐隐）→ 无 snippet /
+  // 未命中时用「问题 + 回答上下文」关键词定位（可能落到相邻页），否则停在该页顶部
   useEffect(() => {
     if (doc && pendingJump && active && pendingJump.slug === active.paper.slug) {
       let cancelled = false
       const t = setTimeout(() => {
         const pg = Math.max(1, Math.min(numPages || pendingJump.page, pendingJump.page))
-        const el = pageRefs.current.get(pg)
         const sc = scrollRef.current
-        if (!el || !sc) return
+        if (!sc) return
         void (async () => {
-          const hit = pendingJump.snippet ? await locateSnippet(doc, pg, pendingJump.snippet).catch(() => null) : null
+          let hitPage = pg
+          let el = pageRefs.current.get(hitPage)
+          let hit = pendingJump.snippet ? await locateSnippet(doc, pg, pendingJump.snippet).catch(() => null) : null
+          if (!hit && pendingJump.probe) {
+            const kh = await locateByKeywords(doc, pg, pendingJump.probe).catch(() => null)
+            if (kh) {
+              hit = kh.hit
+              hitPage = kh.page
+              el = pageRefs.current.get(hitPage) ?? el
+            }
+          }
           if (cancelled) return
+          if (!el) return
           const scTop = sc.getBoundingClientRect().top
           const elTop = el.getBoundingClientRect().top - scTop + sc.scrollTop
           const focus = hit ? elTop + hit.top * el.offsetHeight - sc.clientHeight * 0.3 : elTop
           sc.scrollTo({ top: Math.max(0, focus), behavior: 'auto' })
-          setCurPage(pg)
-          curPageRef.current = pg
-          onPageContext(textCache.current[pg] ?? '')
+          setCurPage(hitPage)
+          curPageRef.current = hitPage
+          onPageContext(textCache.current[hitPage] ?? '')
           if (hit) flashHit(el, hit)
           onJumped()
         })()

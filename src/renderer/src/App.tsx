@@ -101,7 +101,7 @@ export default function App(): JSX.Element {
   const [importBusy, setImportBusy] = useState(false)
   const [chatReset, setChatReset] = useState(0)
   const [indexedCount, setIndexedCount] = useState({ papers: 0, indexed: 0, chunks: 0 })
-  const [pendingJump, setPendingJump] = useState<{ slug: string; page: number; snippet?: string } | null>(null)
+  const [pendingJump, setPendingJump] = useState<{ slug: string; page: number; snippet?: string; probe?: string } | null>(null)
   const [pageCtx, setPageCtx] = useState('')
   const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string } | null>(null)
   const [q, setQ] = useState('')
@@ -226,12 +226,12 @@ export default function App(): JSX.Element {
     void refreshLlmChip()
   }, [refreshLlmChip])
 
-  // 打开论文并记录历史（前进/后退切换）
+  // 打开论文并记录历史（前进/后退切换）；probe = 问题+回答上下文，引用跳转的关键词定位用
   const openPaper = useCallback(
-    (p: Paper, jumpPage?: number, snippet?: string) => {
+    (p: Paper, jumpPage?: number, snippet?: string, probe?: string) => {
       setTabs((ts) => (ts.some((t) => t.paper.id === p.id) ? ts : [...ts, { paper: p }]))
       setActiveId(p.id)
-      setPendingJump(jumpPage ? { slug: p.slug, page: jumpPage, snippet } : null)
+      setPendingJump(jumpPage ? { slug: p.slug, page: jumpPage, snippet, probe } : null)
       // 「最近」视图排序依据：与 sqlite datetime('now') 同格式（UTC）
       void window.api.markOpened(p.id)
       const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
@@ -312,11 +312,11 @@ export default function App(): JSX.Element {
 
   // 引用跳转 / 侧栏点开论文：都回到阅读模式
   const jumpTo = useCallback(
-    (slug: string, page: number, snippet?: string) => {
+    (slug: string, page: number, snippet?: string, probe?: string) => {
       const p = papers.find((x) => x.slug === slug)
       if (p) {
         setMode('read')
-        openPaper(p, page, snippet)
+        openPaper(p, page, snippet, probe)
       }
     },
     [papers, openPaper]
@@ -386,8 +386,26 @@ export default function App(): JSX.Element {
 
   // 对话模式：检索范围与引用面板
   const [chatScope, setChatScope] = useState<ChatScope>({ type: 'all', cat: '' })
-  const [refView, setRefView] = useState<{ paper: Paper; page: number; snippet?: string } | null>(null)
+  const [refView, setRefView] = useState<{ paper: Paper; page: number; snippet?: string; probe?: string } | null>(null)
   const [refWidth, setRefWidth] = useState(() => Number(localStorage.getItem('pl.refW')) || 460)
+
+  // 对话字号（问答/翻译/对话三处共用），CSS 变量 --chat-fs 驱动，localStorage 记忆
+  const [chatFs, setChatFs] = useState(() => Math.max(11, Math.min(19, Number(localStorage.getItem('pl.chatFs')) || 13)))
+  useEffect(() => {
+    document.documentElement.style.setProperty('--chat-fs', `${chatFs}px`)
+  }, [chatFs])
+  const changeFs = useCallback((d: number) => {
+    setChatFs((f) => {
+      const n = Math.max(11, Math.min(19, f + d))
+      localStorage.setItem('pl.chatFs', String(n))
+      return n
+    })
+  }, [])
+  const resetFs = useCallback(() => {
+    localStorage.setItem('pl.chatFs', '13')
+    setChatFs(13)
+  }, [])
+
   const catCounts = useMemo(() => {
     const m = new Map<string, number>()
     for (const p of papers) m.set(p.category, (m.get(p.category) ?? 0) + 1)
@@ -395,9 +413,9 @@ export default function App(): JSX.Element {
   }, [papers])
   // Chat 模式点引用：在右侧引用面板打开，不离开对话
   const openCite = useCallback(
-    (slug: string, page: number, snippet?: string) => {
+    (slug: string, page: number, snippet?: string, probe?: string) => {
       const p = papers.find((x) => x.slug === slug)
-      if (p) setRefView({ paper: p, page, snippet })
+      if (p) setRefView({ paper: p, page, snippet, probe })
     },
     [papers]
   )
@@ -498,6 +516,10 @@ export default function App(): JSX.Element {
         { label: '放大', hint: isMac ? '⌘ +' : 'Ctrl +', action: () => viewerRef.current?.zoomBy(0.15) },
         { label: '缩小', hint: isMac ? '⌘ -' : 'Ctrl -', action: () => viewerRef.current?.zoomBy(-0.15) },
         { label: '适应宽度', hint: isMac ? '⌘ 0' : 'Ctrl 0', action: () => viewerRef.current?.zoomReset() },
+        { sep: true, label: '' },
+        { label: '增大对话字号', hint: '问答/翻译/对话', action: () => changeFs(1) },
+        { label: '减小对话字号', hint: '问答/翻译/对话', action: () => changeFs(-1) },
+        { label: '重置对话字号', hint: '13px', action: resetFs },
         { sep: true, label: '' },
         { label: '重新加载', hint: isMac ? '⌘ R' : 'Ctrl R', action: () => location.reload() }
       ] as MenuItem[]
@@ -611,6 +633,7 @@ export default function App(): JSX.Element {
                 }}
                 onSelect={onSelect}
                 onDeleteHighlight={onDeleteHighlight}
+                visible={mode === 'read'}
               />
             )}
             {showSide && (
@@ -637,12 +660,15 @@ export default function App(): JSX.Element {
                 thinking={thinking}
                 onChangeModel={changeModel}
                 onChangeThinking={changeThinking}
+                fs={chatFs}
+                onFs={changeFs}
               />
             </div>
           </div>
           {/* 对话区：同样常驻，保留对话历史 */}
           <div className={`chat-wrap ${mode === 'chat' ? '' : 'pane-hidden'}`}>
             <ChatView
+              papers={papers}
               paperCount={papers.length}
               cats={cats}
               catCounts={catCounts}
@@ -655,6 +681,8 @@ export default function App(): JSX.Element {
               onChangeThinking={changeThinking}
               onJump={openCite}
               resetKey={chatReset}
+              fs={chatFs}
+              onFs={changeFs}
             />
             {refView && (
               <>
@@ -667,7 +695,7 @@ export default function App(): JSX.Element {
                     localStorage.setItem('pl.refW', '460')
                   }}
                 />
-                <RefViewer paper={refView.paper} page={refView.page} snippet={refView.snippet} width={refWidth} onClose={() => setRefView(null)} />
+                <RefViewer paper={refView.paper} page={refView.page} snippet={refView.snippet} probe={refView.probe} width={refWidth} onClose={() => setRefView(null)} />
               </>
             )}
           </div>

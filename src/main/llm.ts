@@ -22,11 +22,24 @@ function applyThinking(body: Record<string, unknown>, provider: string, level: T
   // deepseek / moonshot / custom：无通用思考参数，交给模型选择（如 deepseek-reasoner）
 }
 
-function buildBody(model: string, messages: ChatMessage[], stream: boolean, temperature?: number): Record<string, unknown> {
+function buildBody(model: string, messages: ChatMessage[], stream: boolean, temperature?: number, provider?: string): Record<string, unknown> {
   const s = getSettings()
   const body: Record<string, unknown> = { model, messages, stream, temperature: temperature ?? 0.3 }
-  applyThinking(body, s.provider, (s.thinkingLevel ?? 'default') as ThinkingLevel)
+  applyThinking(body, provider ?? s.provider, (s.thinkingLevel ?? 'default') as ThinkingLevel)
   return body
+}
+
+// 连接测试 / 设置页直测用的端点覆盖：不落盘、直接用界面当前编辑值测试
+export interface LlmEndpoint {
+  apiBase?: string
+  apiKey?: string
+  model?: string
+  provider?: string
+}
+
+function friendlyFetchError(err: unknown, apiBase: string): Error {
+  const code = (err as { cause?: { code?: string } })?.cause?.code ?? ''
+  return new Error(`无法连接 ${apiBase}${code ? `（${code}）` : ''}：请检查网络与 API Base 地址是否正确`)
 }
 
 // 智谱 GLM 等 OpenAI 兼容接口的 SSE 流式调用
@@ -36,11 +49,16 @@ export async function* chatStream(messages: ChatMessage[], opts: { temperature?:
     yield '⚠️ 尚未配置 API Key：请点击左下角「设置」，填入智谱开放平台的 API Key。'
     return
   }
-  const resp = await fetch(`${s.apiBase}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.apiKey}` },
-    body: JSON.stringify(buildBody(s.model, messages, true, opts.temperature ?? 0.3))
-  })
+  let resp: Response
+  try {
+    resp = await fetch(`${s.apiBase}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.apiKey}` },
+      body: JSON.stringify(buildBody(s.model, messages, true, opts.temperature ?? 0.3))
+    })
+  } catch (err) {
+    throw friendlyFetchError(err, s.apiBase)
+  }
   if (!resp.ok || !resp.body) {
     throw new Error(`LLM API ${resp.status}: ${await resp.text().catch(() => '')}`)
   }
@@ -97,16 +115,32 @@ export function explainMessages(text: string, context: string): ChatMessage[] {
   ]
 }
 
-// 非流式一次性调用（连接测试用）
-export async function chatOnce(messages: ChatMessage[]): Promise<{ latencyMs: number; reply: string }> {
+// 非流式一次性调用（连接测试用）；over 提供时用界面当前编辑值直测，不依赖已保存配置
+export async function chatOnce(messages: ChatMessage[], over?: LlmEndpoint): Promise<{ latencyMs: number; reply: string }> {
   const s = getSettings()
+  const apiBase = (over?.apiBase ?? s.apiBase ?? '').replace(/\/+$/, '')
+  const apiKey = over?.apiKey ?? s.apiKey
+  const model = over?.model ?? s.model
+  const provider = over?.provider ?? s.provider
+  if (!apiBase) throw new Error('未配置 API Base')
+  if (!apiKey) throw new Error('未配置 API Key')
+  if (!model) throw new Error('未配置模型名')
   const t0 = Date.now()
-  const resp = await fetch(`${s.apiBase}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.apiKey}` },
-    body: JSON.stringify(buildBody(s.model, messages, false))
-  })
-  if (!resp.ok) throw new Error(`API ${resp.status}: ${(await resp.text()).slice(0, 200)}`)
+  let resp: Response
+  try {
+    resp = await fetch(`${apiBase}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(buildBody(model, messages, false, undefined, provider))
+    })
+  } catch (err) {
+    throw friendlyFetchError(err, apiBase)
+  }
+  if (!resp.ok) {
+    const txt = (await resp.text().catch(() => '')).slice(0, 180)
+    const hint = resp.status === 401 || resp.status === 403 ? '（API Key 无效或无权限）' : resp.status === 404 ? '（检查 API Base 与模型名）' : resp.status === 429 ? '（请求过频或余额不足）' : ''
+    throw new Error(`API ${resp.status}${hint}${txt ? `：${txt}` : ''}`)
+  }
   const json = (await resp.json()) as { choices: Array<{ message: { content: string } }> }
   return { latencyMs: Date.now() - t0, reply: json.choices?.[0]?.message?.content ?? '' }
 }
@@ -119,17 +153,24 @@ export interface TestResult {
   error?: string
 }
 
-// 连接测试 + 余额查询（DeepSeek 有官方余额接口，其余查不到就返回 null）
-export async function testLLM(): Promise<TestResult> {
+// 连接测试 + 余额查询（DeepSeek 有官方余额接口，其余查不到就返回 null）。
+// over = 设置页当前编辑值：先保存再测试的旧逻辑测的是旧全局配置，正确 key 也会失败
+export async function testLLM(over?: LlmEndpoint): Promise<TestResult> {
   const s = getSettings()
-  if (!s.apiKey) return { ok: false, error: '未配置 API Key' }
+  const apiBase = (over?.apiBase ?? s.apiBase ?? '').replace(/\/+$/, '')
+  const apiKey = over?.apiKey ?? s.apiKey
+  const model = over?.model ?? s.model
+  const provider = over?.provider ?? s.provider
+  if (!apiKey) return { ok: false, error: '未配置 API Key' }
+  if (!apiBase) return { ok: false, error: '未配置 API Base' }
+  if (!model) return { ok: false, error: '未配置模型名' }
   try {
-    const { latencyMs } = await chatOnce([{ role: 'user', content: 'hi' }])
+    const { latencyMs } = await chatOnce([{ role: 'user', content: 'hi' }], { apiBase, apiKey, model, provider })
     let balance: { amount: string; currency: string } | null = null
     try {
-      if (s.provider === 'deepseek') {
-        const root = s.apiBase.replace(/\/v1\/?$/, '')
-        const r = await fetch(`${root}/user/balance`, { headers: { Authorization: `Bearer ${s.apiKey}` } })
+      if (provider === 'deepseek') {
+        const root = apiBase.replace(/\/v1\/?$/, '')
+        const r = await fetch(`${root}/user/balance`, { headers: { Authorization: `Bearer ${apiKey}` } })
         if (r.ok) {
           const j = (await r.json()) as { balance_infos?: Array<{ total_balance: string; currency: string }> }
           const b = j.balance_infos?.[0]
@@ -139,7 +180,7 @@ export async function testLLM(): Promise<TestResult> {
     } catch {
       balance = null
     }
-    return { ok: true, model: s.model, latencyMs, balance }
+    return { ok: true, model, latencyMs, balance }
   } catch (err) {
     return { ok: false, error: String(err).slice(0, 300) }
   }

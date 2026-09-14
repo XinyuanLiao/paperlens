@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import { renderRich } from './rich'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { renderRich, type Jump } from './rich'
+import { buildSuggestions } from './suggest'
 import { ModelPill, ThinkingPill, ScopePill, type ChatScope } from './ChatControls'
-import type { ChatMsg, SourceRef } from './types'
+import type { ChatMsg, Paper, SourceRef } from './types'
 
 interface Props {
+  papers: Paper[]
   paperCount: number
   cats: string[]
   catCounts: Map<string, number>
@@ -14,23 +16,39 @@ interface Props {
   thinking: string
   onChangeModel: (m: string) => void
   onChangeThinking: (l: string) => void
-  onJump: (slug: string, page: number, snippet?: string) => void
+  onJump: Jump
   resetKey: number
+  // 对话字号（问答/翻译/对话共用）
+  fs: number
+  onFs: (delta: number) => void
 }
 
-const SUGGESTIONS = [
-  '这个文献库里有哪些研究方向？',
-  '帮我梳理库中与热建模相关的论文',
-  '对比库里 TSFM 方法的异同'
-]
-
-// 全库对话主界面（Chat 模式）：hero 欢迎态 + 全屏 RAG 问答
-export default function ChatView({ paperCount, cats, catCounts, scope, onScopeChange, models, model, thinking, onChangeModel, onChangeThinking, onJump, resetKey }: Props): JSX.Element {
+// 全库对话主界面（Chat 模式）：hero 欢迎态 + 全屏 RAG 问答。
+// 建议问题由库内内容实时生成（标题关键词/分类/近期文献），不再是固定三条
+export default function ChatView({
+  papers,
+  paperCount,
+  cats,
+  catCounts,
+  scope,
+  onScopeChange,
+  models,
+  model,
+  thinking,
+  onChangeModel,
+  onChangeThinking,
+  onJump,
+  resetKey,
+  fs,
+  onFs
+}: Props): JSX.Element {
   const [msgs, setMsgs] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollBottom = () => setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' }), 50)
+
+  const suggestions = useMemo(() => buildSuggestions(papers, catCounts), [papers, catCounts])
 
   // 侧栏「新建对话」：清空当前会话回到欢迎页
   useEffect(() => {
@@ -71,6 +89,24 @@ export default function ChatView({ paperCount, cats, catCounts, scope, onScopeCh
     )
   }
 
+  // 引用跳转带上「该轮的问题 + 芯片所在回答的局部上下文」：
+  // snippet 未命中或缺失时用它做关键词定位，read 模式整篇问答也靠它精确定位段落
+  const jumpFor = (i: number): Jump => {
+    const q = msgs[i - 1]?.role === 'user' ? msgs[i - 1].content : ''
+    return (slug, page, snippet, ctx) => onJump(slug, page, snippet, [q, ctx].filter(Boolean).join('\n'))
+  }
+
+  const fsCtl = (
+    <div className="fs-ctl" title={`对话字号（当前 ${fs}px，问答/翻译/对话共用）`}>
+      <button onClick={() => onFs(-1)} title="减小字号">
+        A−
+      </button>
+      <button onClick={() => onFs(1)} title="增大字号">
+        A+
+      </button>
+    </div>
+  )
+
   const inputBox = (
     <div className="hero-input">
       <textarea
@@ -90,6 +126,7 @@ export default function ChatView({ paperCount, cats, catCounts, scope, onScopeCh
         <ScopePill cats={cats} scope={scope} onChange={onScopeChange} paperCount={paperCount} catCounts={catCounts} />
         <ModelPill models={models} model={model} onChange={onChangeModel} />
         <ThinkingPill level={thinking} onChange={onChangeThinking} />
+        {fsCtl}
         <span style={{ flex: 1 }} />
         <button className="send-btn" onClick={() => send()} disabled={busy || !input.trim()}>
           发送
@@ -109,7 +146,7 @@ export default function ChatView({ paperCount, cats, catCounts, scope, onScopeCh
           </div>
           {inputBox}
           <div className="hero-suggest">
-            {SUGGESTIONS.map((s) => (
+            {suggestions.map((s) => (
               <button key={s} onClick={() => send(s)}>
                 {s}
               </button>
@@ -122,7 +159,7 @@ export default function ChatView({ paperCount, cats, catCounts, scope, onScopeCh
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
                 <div className="who">{m.role === 'user' ? '你' : 'AI'}</div>
-                <div className="bubble">{renderRich(m.content, m.sources, onJump)}</div>
+                <div className="bubble">{renderRich(m.content, m.sources, jumpFor(i))}</div>
               </div>
             ))}
             {busy && (

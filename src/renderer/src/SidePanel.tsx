@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
-import { renderRich } from './rich'
+import { renderRich, type Jump } from './rich'
 import { ModelPill, ThinkingPill } from './ChatControls'
 import type { ChatMsg, Paper, SourceRef } from './types'
 
@@ -13,13 +13,16 @@ export interface SideControl {
 interface Props {
   paper: Paper | null
   pageContext: string
-  onJump: (slug: string, page: number, snippet?: string) => void
+  onJump: Jump
   models: string[]
   model: string
   thinking: string
   onChangeModel: (m: string) => void
   onChangeThinking: (l: string) => void
   width: number
+  // 对话字号（问答/翻译/对话共用）
+  fs: number
+  onFs: (delta: number) => void
 }
 
 interface Translation {
@@ -28,7 +31,7 @@ interface Translation {
 }
 
 const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
-  { paper, pageContext, onJump, models, model, thinking, onChangeModel, onChangeThinking, width },
+  { paper, pageContext, onJump, models, model, thinking, onChangeModel, onChangeThinking, width, fs, onFs },
   ref
 ): JSX.Element {
   const [tab, setTab] = useState<'chat' | 'translate'>('chat')
@@ -97,6 +100,13 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
 
   const ctxTranslation = ctxOn && current?.out ? current : null
 
+  // 引用跳转带上「该轮的问题 + 芯片所在回答的局部上下文」：
+  // 整篇问答模式没有 snippet，靠它们做关键词定位到页内段落
+  const jumpFor = (i: number): Jump => {
+    const q = msgs[i - 1]?.role === 'user' ? msgs[i - 1].content : ''
+    return (slug, page, snippet, ctx) => onJump(slug, page, snippet, [q, ctx].filter(Boolean).join('\n'))
+  }
+
   // 新对话：清空问答记录、翻译卡片与问答上下文
   const reset = (): void => {
     setMsgs([])
@@ -159,6 +169,14 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
           </svg>
           新对话
         </button>
+        <div className="fs-ctl" title={`字号（当前 ${fs}px，问答/翻译/对话共用）`}>
+          <button onClick={() => onFs(-1)} title="减小字号">
+            A−
+          </button>
+          <button onClick={() => onFs(1)} title="增大字号">
+            A+
+          </button>
+        </div>
       </div>
       {tab === 'chat' ? (
         <>
@@ -181,7 +199,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
                 <div className="who">{m.role === 'user' ? '你' : 'AI'}</div>
-                <div className="bubble">{m.role === 'assistant' ? renderRich(m.content, m.sources, onJump) : m.content}</div>
+                <div className="bubble">{m.role === 'assistant' ? renderRich(m.content, m.sources, jumpFor(i)) : m.content}</div>
               </div>
             ))}
             {busy && (

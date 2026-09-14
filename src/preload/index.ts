@@ -75,7 +75,7 @@ const api = {
     ipcRenderer.on('import:file', h)
     return () => ipcRenderer.removeListener('import:file', h)
   },
-  testLLM: () => ipcRenderer.invoke('llm:test'),
+  testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => ipcRenderer.invoke('llm:test', over),
   testEmbed: () => ipcRenderer.invoke('embed:test'),
 
   // 流式对话：返回 stop 不需要（请求即发即忘，以 reqId 收尾）

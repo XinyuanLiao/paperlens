@@ -450,8 +450,8 @@ function registerIpc(): void {
     if (!isIndexRunning()) void buildIndex(send).catch((e) => send('index:error', String(e)))
   })
 
-  // 连接测试
-  ipcMain.handle('llm:test', () => testLLM())
+  // 连接测试：over = 渲染端当前编辑值（先保存再测会读到旧全局配置，正确 key 也测不过）
+  ipcMain.handle('llm:test', (_e, over?: import('./llm').LlmEndpoint) => testLLM(over))
   ipcMain.handle('embed:test', async () => {
     try {
       const { dim } = await embed(['connection test'])

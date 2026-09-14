@@ -87,14 +87,24 @@ export default function SettingsDialog({ settings, indexed, indexInfo, onSave, o
     setBusy(false)
   }
 
+  // 直测当前编辑值（激活配置卡片里的 key/base/model），不依赖已保存的全局配置：
+  // 旧逻辑先保存再用全局配置测试，编辑中的 key 还没同步过去 → 正确的 key 也会测失败
   const testLlm = async (): Promise<void> => {
     setLlmTest('测试中…')
-    await onSave(form) // 测试用已保存配置
-    const r = await window.api.testLLM()
+    const active = profiles.find((p) => p.models.includes(form.model)) ?? profiles[0]
+    const over = active
+      ? {
+          provider: active.provider,
+          apiBase: active.apiBase,
+          apiKey: active.apiKey,
+          model: active.models.includes(form.model) ? form.model : (active.models[0] ?? form.model)
+        }
+      : { provider: form.provider, apiBase: form.apiBase, apiKey: form.apiKey, model: form.model }
+    await onSave(form) // 同步保存，关闭路径行为不变
+    const r = await window.api.testLLM(over)
     if (r.ok) {
       const bal = r.balance ? `，余额 ${r.balance.currency === 'CNY' ? '¥' : r.balance.currency + ' '}${r.balance.amount}` : ''
-      const q = r.quota ? `，${r.quota}` : ''
-      setLlmTest(`✓ 连接成功：${r.model}（${r.latencyMs}ms）${bal}${q}`)
+      setLlmTest(`✓ 连接成功：${r.model}（${r.latencyMs}ms）${bal}`)
     } else {
       setLlmTest(`✗ ${r.error ?? '连接失败'}`)
     }

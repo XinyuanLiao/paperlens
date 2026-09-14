@@ -130,7 +130,7 @@ declare global {
       onPapersChanged: (cb: () => void) => () => void
       onImportRequest: (cb: () => void) => () => void
       onImportFile: (cb: (o: ImportOutcome) => void) => () => void
-      testLLM: () => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; quota?: string; error?: string }>
+      testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; quota?: string; error?: string }>
       testEmbed: () => Promise<{ ok: boolean; dim?: number; error?: string }>
       stream: (
         args: Record<string, unknown>,

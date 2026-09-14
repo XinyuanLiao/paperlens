@@ -52,7 +52,8 @@ export default function SetupWizard({ initial, onDone }: Props): JSX.Element {
   const testLlm = async (): Promise<void> => {
     setLlmTest('测试中…')
     await window.api.saveSettings(form)
-    const r = await window.api.testLLM()
+    // 用界面当前值直测：不依赖已保存配置，填对即通过
+    const r = await window.api.testLLM({ provider: form.provider, apiBase: form.apiBase, apiKey: form.apiKey, model: form.model })
     setLlmTest(r.ok ? `✓ 连接成功：${r.model}（${r.latencyMs}ms）` : `✗ ${r.error ?? '连接失败'}`)
   }
 
