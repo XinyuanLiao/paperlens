@@ -257,7 +257,7 @@ export default function ImportDialog({ initialFiles, initialCats, hasApiKey, onB
 
   return (
     <div className="modal-mask" onMouseDown={phase === 'importing' ? undefined : onClose}>
-      <div className="modal modal-pad import-modal" style={{ width: 560 }} onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal import-modal" style={{ width: 580 }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h2>导入 PDF 文献</h2>
           <button className="modal-x" title={phase === 'importing' ? '导入中，可最小化窗口等待' : '关闭'} onClick={onClose}>
@@ -265,9 +265,10 @@ export default function ImportDialog({ initialFiles, initialCats, hasApiKey, onB
           </button>
         </div>
 
+        <div className="import-body">
         {phase === 'idle' && (
           <div
-            className={`import-drop ${dragOver ? 'on' : ''}`}
+            className={`import-drop ${dragOver ? 'on' : ''} ${items.length > 0 || folders.length > 0 ? 'compact' : ''}`}
             onDragOver={(e) => {
               e.preventDefault()
               e.stopPropagation()
@@ -282,9 +283,13 @@ export default function ImportDialog({ initialFiles, initialCats, hasApiKey, onB
               addPaths(paths)
             }}
           >
-            <div className="import-drop-icon">📄</div>
-            <div className="import-drop-tip">把 PDF 拖到这里</div>
-            <div className="import-drop-sub">支持多选，也可以整个文件夹</div>
+            <div className="import-drop-side">
+              <div className="import-drop-icon">📄</div>
+              <div>
+                <div className="import-drop-tip">{items.length > 0 || folders.length > 0 ? '继续添加 PDF' : '把 PDF 拖到这里'}</div>
+                <div className="import-drop-sub">支持多选，也可以整个文件夹</div>
+              </div>
+            </div>
             <div className="import-drop-actions">
               <button className="btn ghost" onClick={() => void pickFiles()}>
                 选择文件…
@@ -399,6 +404,7 @@ export default function ImportDialog({ initialFiles, initialCats, hasApiKey, onB
             {phase === 'done' && catSummary.length > 0 && <div className="import-cats">归类：{catSummary.join('、')}</div>}
           </>
         )}
+        </div>
 
         <div className="modal-actions">
           {phase === 'idle' ? (
