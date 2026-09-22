@@ -140,6 +140,14 @@ declare global {
       onImportProgress: (cb: (p: { done: number; total: number; current: string }) => void) => () => void
       openExternal: (url: string) => void
       syncTheme: (theme: string) => void
+      chatList: (kind: string, paperId: number | null) => Promise<ChatMsg[]>
+      chatAppend: (kind: string, paperId: number | null, role: string, content: string, sources?: string) => Promise<number>
+      chatClear: (kind: string, paperId: number | null) => Promise<boolean>
+      appVersion: () => Promise<string>
+      checkUpdate: () => Promise<
+        | { ok: true; current: string; latest: string; url: string; notes: string; published: string }
+        | { ok: false; current: string; error: string }
+      >
     }
   }
 }

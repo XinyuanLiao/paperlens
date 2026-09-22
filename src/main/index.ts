@@ -538,4 +538,41 @@ function registerIpc(): void {
   ipcMain.on('open-external', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
   })
+
+  // ---------- 聊天记录持久化 ----------
+  ipcMain.handle('chat:list', (_e, kind: string, paperId: number | null) => dbmod.listChat(String(kind), paperId ?? null))
+  ipcMain.handle('chat:append', (_e, kind: string, paperId: number | null, role: string, content: string, sources?: string) => {
+    if (typeof content !== 'string' || !content.trim()) return 0
+    return dbmod.appendChat(String(kind), paperId ?? null, String(role), content, sources)
+  })
+  ipcMain.handle('chat:clear', (_e, kind: string, paperId: number | null) => {
+    dbmod.clearChat(String(kind), paperId ?? null)
+    return true
+  })
+
+  // ---------- 版本与更新 ----------
+  ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('update:check', async () => {
+    const cur = app.getVersion()
+    try {
+      const r = await fetch('https://api.github.com/repos/XinyuanLiao/paperlens/releases/latest', {
+        headers: { 'User-Agent': `paperlens/${cur}`, Accept: 'application/vnd.github+json' },
+        signal: AbortSignal.timeout(15_000)
+      })
+      if (!r.ok) return { ok: false as const, current: cur, error: `GitHub API ${r.status}` }
+      const j = (await r.json()) as { tag_name?: string; html_url?: string; body?: string; published_at?: string }
+      const latest = (j.tag_name ?? '').replace(/^v/, '')
+      if (!latest) return { ok: false as const, current: cur, error: 'release 信息缺失' }
+      return {
+        ok: true as const,
+        current: cur,
+        latest,
+        url: j.html_url ?? 'https://github.com/XinyuanLiao/paperlens/releases/latest',
+        notes: (j.body ?? '').slice(0, 2000),
+        published: j.published_at ?? ''
+      }
+    } catch (err) {
+      return { ok: false as const, current: cur, error: String(err).slice(0, 200) }
+    }
+  })
 }

@@ -1,6 +1,6 @@
 {
   "name": "paperlens",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "PaperLens — PDF 文献阅读 + 划词翻译 + LLM 问答 + 全库 RAG",
   "main": "out/main/index.js",
   "productName": "PaperLens",

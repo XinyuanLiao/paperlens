@@ -103,6 +103,16 @@ export function initDb(): void {
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_hl_paper ON highlights(paper_id);
+    CREATE TABLE IF NOT EXISTS chatlog(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      paper_id INTEGER,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      sources TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_chatlog ON chatlog(kind, paper_id);
   `)
   // 迁移：papers 增加 pvec（整篇级向量：标题+作者+首页）与 opened_at（最近打开时间）
   const cols = (db.prepare('PRAGMA table_info(papers)').all() as Array<{ name: string }>).map((c) => c.name)
@@ -116,6 +126,7 @@ export function initDb(): void {
   db.exec('DELETE FROM chunks WHERE paper_id NOT IN (SELECT id FROM papers)')
   db.exec('DELETE FROM chunks_fts WHERE paper_id NOT IN (SELECT id FROM papers)')
   db.exec('DELETE FROM papers_fts WHERE rowid NOT IN (SELECT id FROM papers)')
+  db.exec('DELETE FROM chatlog WHERE paper_id IS NOT NULL AND paper_id NOT IN (SELECT id FROM papers)')
 
   const st = db.prepare("SELECT value FROM meta WHERE key='settings'")
   if (!st.get()) {
@@ -354,4 +365,42 @@ export function listCategoryNames(): string[] {
     (r) => r.category
   )
   return [...new Set([...fromPapers, ...getExtraCats()])].sort((a, b) => a.localeCompare(b))
+}
+
+// ---------- 聊天记录持久化 ----------
+// kind='global'：ChatView 全库对话（全局一份）；kind='side'：SidePanel 论文问答（按论文分组，
+// paper_id=NULL 表示未打开论文时的全库问答会话，与 global 分开存）
+export interface ChatLogMsg {
+  role: 'user' | 'assistant'
+  content: string
+  sources?: Array<{ n: number; slug: string; title: string; page: number; snippet?: string }>
+}
+
+export function listChat(kind: string, paperId: number | null): ChatLogMsg[] {
+  return (
+    db.prepare('SELECT role, content, sources FROM chatlog WHERE kind=? AND paper_id IS ? ORDER BY id').all(kind, paperId) as Array<{
+      role: string
+      content: string
+      sources: string | null
+    }>
+  ).map((r) => ({
+    role: r.role === 'user' ? 'user' : 'assistant',
+    content: r.content,
+    ...(r.sources ? { sources: JSON.parse(r.sources) } : {})
+  }))
+}
+
+export function appendChat(kind: string, paperId: number | null, role: string, content: string, sources?: string): number {
+  const r = db.prepare('INSERT INTO chatlog(kind,paper_id,role,content,sources) VALUES(?,?,?,?,?)').run(
+    kind,
+    paperId,
+    role === 'user' ? 'user' : 'assistant',
+    content,
+    sources ?? null
+  )
+  return Number(r.lastInsertRowid)
+}
+
+export function clearChat(kind: string, paperId: number | null): void {
+  db.prepare('DELETE FROM chatlog WHERE kind=? AND paper_id IS ?').run(kind, paperId)
 }

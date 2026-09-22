@@ -4,6 +4,9 @@ import { buildSuggestions } from './suggest'
 import { ModelPill, ThinkingPill, ScopePill, type ChatScope } from './ChatControls'
 import type { ChatMsg, Paper, SourceRef } from './types'
 
+// 全库对话全局持久化（kind='global' 单一会话）；论文级问答在 SidePanel（kind='side' 按 paperId 分组）
+const LOG_KIND = 'global'
+
 interface Props {
   papers: Paper[]
   paperCount: number
@@ -46,42 +49,69 @@ export default function ChatView({
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // 流式累计器：onEnd 时落库完整回答
+  const outRef = useRef('')
+  const srcRef = useRef<SourceRef[] | undefined>(undefined)
   const scrollBottom = () => setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' }), 50)
 
   const suggestions = useMemo(() => buildSuggestions(papers, catCounts), [papers, catCounts])
 
-  // 侧栏「新建对话」：清空当前会话回到欢迎页
+  // 挂载即恢复上次的对话记录（全局一份），停在底部
   useEffect(() => {
-    if (resetKey > 0) setMsgs([])
+    void window.api.chatList(LOG_KIND, null).then((ms) => {
+      if (ms.length) {
+        setMsgs(ms)
+        setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9 }), 30)
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 侧栏「新建对话」：清空当前会话（含持久化）回到欢迎页
+  useEffect(() => {
+    if (resetKey > 0) {
+      void window.api.chatClear(LOG_KIND, null)
+      setMsgs([])
+    }
   }, [resetKey])
 
   const send = (raw?: string): void => {
     const q = (raw ?? input).trim()
     if (!q || busy) return
+    void window.api.chatAppend(LOG_KIND, null, 'user', q)
     // 带最近两轮问答做多轮追问（在追加本轮消息之前取历史）
     const history = msgs.slice(-4).map((m) => ({ role: m.role, content: m.content }))
     setInput('')
     setMsgs((ms) => [...ms, { role: 'user', content: q }, { role: 'assistant', content: '' }])
     setBusy(true)
+    outRef.current = ''
+    srcRef.current = undefined
     scrollBottom()
     window.api.stream(
       { mode: 'rag', question: q, category: scope.type === 'cat' ? scope.cat : undefined, history },
       {
-        onDelta: (d) =>
+        onDelta: (d) => {
+          outRef.current += d
           setMsgs((ms) => {
             const next = [...ms]
             const last = next[next.length - 1]
             if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content + d }
             return next
-          }),
-        onSources: (srcs) =>
+          })
+        },
+        onSources: (srcs) => {
+          srcRef.current = srcs as SourceRef[]
           setMsgs((ms) => {
             const next = [...ms]
             const last = next[next.length - 1]
             if (last?.role === 'assistant') next[next.length - 1] = { ...last, sources: srcs as SourceRef[] }
             return next
-          }),
+          })
+        },
         onEnd: () => {
+          if (outRef.current.trim()) {
+            void window.api.chatAppend(LOG_KIND, null, 'assistant', outRef.current, srcRef.current ? JSON.stringify(srcRef.current) : undefined)
+          }
           setBusy(false)
           scrollBottom()
         }
@@ -158,7 +188,6 @@ export default function ChatView({
           <div className="chat-log" ref={scrollRef}>
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
-                <div className="who">{m.role === 'user' ? '你' : 'AI'}</div>
                 <div className="bubble">{renderRich(m.content, m.sources, jumpFor(i))}</div>
               </div>
             ))}

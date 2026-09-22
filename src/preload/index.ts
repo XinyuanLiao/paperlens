@@ -112,7 +112,17 @@ const api = {
     return () => ipcRenderer.removeListener('import:progress', h)
   },
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
-  syncTheme: (theme: string) => ipcRenderer.send('ui:theme', theme)
+  syncTheme: (theme: string) => ipcRenderer.send('ui:theme', theme),
+
+  // 聊天记录持久化（kind: 'global' = 全库对话一份；'side' = 论文问答按 paperId 分组）
+  chatList: (kind: string, paperId: number | null) => ipcRenderer.invoke('chat:list', kind, paperId),
+  chatAppend: (kind: string, paperId: number | null, role: string, content: string, sources?: string) =>
+    ipcRenderer.invoke('chat:append', kind, paperId, role, content, sources),
+  chatClear: (kind: string, paperId: number | null) => ipcRenderer.invoke('chat:clear', kind, paperId),
+
+  // 版本与更新
+  appVersion: () => ipcRenderer.invoke('app:version'),
+  checkUpdate: () => ipcRenderer.invoke('update:check')
 }
 
 contextBridge.exposeInMainWorld('api', api)

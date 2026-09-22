@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { Tab } from './App'
@@ -13,6 +13,102 @@ export interface ViewerHandle {
   zoomBy: (delta: number) => void
   zoomReset: () => void
   removeHighlightLocal: (hid: number) => void
+}
+
+// ---------- 全文搜索 ----------
+// 索引项：PDF 单位坐标（scale=1 viewport），匹配时按页面尺寸归一化
+interface FindItem {
+  str: string
+  x: number
+  y: number
+  w: number
+  h: number
+  eol: boolean
+}
+interface NormRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+interface FindHit {
+  page: number
+  rects: NormRect[]
+}
+
+// 单页匹配：把该页全部文本 run 拼成一条大字符串（y 跳变处插换行隔断跨栏/跨行误连），
+// 命中区间再按 run 切回矩形（等宽近似：字符宽 = run 宽 / 字符数）
+function findInPage(items: FindItem[], q: string, pageW: number, pageH: number): NormRect[] {
+  if (!q || !items.length) return []
+  const ql = q.toLowerCase()
+  let text = ''
+  const owner: number[] = [] // text[i] 属于哪个 item（-1 = 换行占位）
+  const chAt: number[] = [] // text[i] 在其 item 内的字符偏移
+  let prevY: number | null = null
+  items.forEach((it, i) => {
+    if (prevY !== null && Math.abs(it.y - prevY) > Math.max(it.h, 2) * 0.6) {
+      text += '\n'
+      owner.push(-1)
+      chAt.push(0)
+    }
+    for (let c = 0; c < it.str.length; c++) {
+      text += it.str[c]
+      owner.push(i)
+      chAt.push(c)
+    }
+    if (it.eol) {
+      text += '\n'
+      owner.push(-1)
+      chAt.push(0)
+    }
+    prevY = it.y
+  })
+  const tl = text.toLowerCase()
+  const out: NormRect[] = []
+  let from = 0
+  for (;;) {
+    const at = tl.indexOf(ql, from)
+    if (at < 0) break
+    const end = at + ql.length
+    let i = at
+    while (i < end) {
+      const seg = owner[i]
+      if (seg < 0) {
+        i++
+        continue
+      }
+      let j = i
+      while (j + 1 < end && owner[j + 1] === seg) j++
+      const item = items[seg]
+      const n = Math.max(1, item.str.length)
+      const c0 = chAt[i]
+      const c1 = chAt[j]
+      out.push({
+        x: (item.x + (item.w * c0) / n) / pageW,
+        y: 1 - (item.y + item.h * 0.85) / pageH,
+        w: (item.w * (c1 - c0 + 1)) / n / pageW,
+        h: (item.h * 1.12) / pageH
+      })
+      i = j + 1
+    }
+    from = at + 1
+  }
+  return out
+}
+
+async function buildFindIndex(doc: any): Promise<Map<number, FindItem[]>> {
+  const m = new Map<number, FindItem[]>()
+  for (let n = 1; n <= doc.numPages; n++) {
+    const pg = await doc.getPage(n)
+    const tc = await pg.getTextContent()
+    m.set(
+      n,
+      (tc.items as Array<{ str: string; transform: number[]; width: number; height: number; hasEOL?: boolean }>)
+        .filter((it) => typeof it.str === 'string' && it.transform)
+        .map((it) => ({ str: it.str, x: it.transform[4], y: it.transform[5], w: it.width, h: it.height, eol: !!it.hasEOL }))
+    )
+  }
+  return m
 }
 
 interface Props {
@@ -33,6 +129,8 @@ interface PageTextMap {
   [num: number]: string
 }
 
+const isMacKey = (): string => (/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl')
+
 const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   { tabs, activeId, onActivate, onCloseTab, pendingJump, onJumped, onPageContext, onSelect, onDeleteHighlight, visible },
   ref
@@ -52,6 +150,19 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   const [curPage, setCurPage] = useState(1)
   const [numPages, setNumPages] = useState(0)
 
+  // 全文搜索：索引惰性构建（首次打开搜索框时取全文），同 doc 复用
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQ, setFindQ] = useState('')
+  const [findHits, setFindHits] = useState<FindHit[]>([])
+  const [findIdx, setFindIdx] = useState(0)
+  const [findPhase, setFindPhase] = useState<'idle' | 'indexing' | 'ready'>('idle')
+  const findIndexRef = useRef<Map<number, FindItem[]> | null>(null)
+  const findInputRef = useRef<HTMLInputElement | null>(null)
+  const docRef = useRef<any>(null)
+  useEffect(() => {
+    docRef.current = doc
+  }, [doc])
+
   // 挂载滚动容器：Ctrl+滚轮缩放；不再在 resize 时重缩放/回跳（保持阅读位置）
   const attachScrollEl = useCallback((el: HTMLDivElement | null) => {
     scrollRef.current = el
@@ -64,7 +175,31 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     el.addEventListener('wheel', onWheel, { passive: false })
   }, [])
 
-  // Cmd/Ctrl + -/=/0 缩放（仅阅读模式可见时生效；chat 模式下同一组快捷键归引用面板）
+  // 打开搜索框：立即聚焦输入；索引构建由下方 effect 兜底（doc 可能尚未就绪）
+  const openFind = useCallback(() => {
+    setFindOpen(true)
+    setTimeout(() => findInputRef.current?.focus(), 30)
+  }, [])
+
+  // 搜索框开着但索引未建（首次打开 / 文档刚加载完）：后台逐页取全文建索引。
+  // 只在 idle 态启动，失败停在 ready（无索引）不重试。
+  // 不能用 cleanup cancelled：setFindPhase('indexing') 会触发本 effect 重跑，cleanup 把
+  // 刚建好的索引丢掉（界面永远停在「建立索引…」）；过期索引用 docRef 比对丢弃
+  useEffect(() => {
+    if (!findOpen || !doc || findIndexRef.current || findPhase !== 'idle') return
+    setFindPhase('indexing')
+    void buildFindIndex(doc)
+      .then((m) => {
+        if (docRef.current !== doc) return // 已切文档：丢弃过期索引（新文档会重建）
+        findIndexRef.current = m
+        setFindPhase('ready')
+      })
+      .catch(() => {
+        if (docRef.current === doc && !findIndexRef.current) setFindPhase('ready')
+      })
+  }, [findOpen, doc, findPhase])
+
+  // Cmd/Ctrl + -/=/0 缩放、Ctrl/Cmd+F 搜索（仅阅读模式可见时生效；chat 模式下快捷键归引用面板）
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!visible) return
@@ -78,11 +213,93 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
       } else if (e.key === '0') {
         e.preventDefault()
         setZoom(1)
+      } else if (e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        openFind()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [visible])
+  }, [visible, openFind])
+
+  // 关键词（防抖）→ 全部命中：逐页跑等宽匹配，按页序输出
+  useEffect(() => {
+    const q = findQ.trim()
+    if (!findOpen || !q) {
+      setFindHits([])
+      setFindIdx(0)
+      return
+    }
+    if (findPhase !== 'ready') return
+    const t = setTimeout(() => {
+      const idx = findIndexRef.current
+      if (!idx) return
+      const hits: FindHit[] = []
+      for (let n = 1; n <= (pageDims.length || 0); n++) {
+        const items = idx.get(n)
+        const dim = pageDims[n - 1]
+        if (!items || !dim) continue
+        const rects = findInPage(items, q, dim.w, dim.h)
+        if (rects.length) hits.push({ page: n, rects })
+      }
+      setFindHits(hits)
+      setFindIdx(0)
+    }, 220)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findQ, findPhase, findOpen, doc, pageDims])
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false)
+    setFindQ('')
+    setFindHits([])
+    setFindIdx(0)
+  }, [])
+
+  const gotoHit = useCallback(
+    (dir: 1 | -1) => {
+      if (!findHits.length) return
+      setFindIdx((i) => (i + dir + findHits.length) % findHits.length)
+    },
+    [findHits]
+  )
+
+  // 跳到当前命中（与引用跳转同款定位：页内 y 焦点 + 页码同步）
+  const scrollToHit = useCallback(
+    (hit: FindHit) => {
+      const sc = scrollRef.current
+      const el = pageRefs.current.get(hit.page)
+      if (!sc || !el) return
+      const scTop = sc.getBoundingClientRect().top
+      const elTop = el.getBoundingClientRect().top - scTop + sc.scrollTop
+      const focus = elTop + hit.rects[0].y * el.offsetHeight - sc.clientHeight * 0.35
+      sc.scrollTo({ top: Math.max(0, focus), behavior: 'auto' })
+      setCurPage(hit.page)
+      curPageRef.current = hit.page
+      onPageContext(textCache.current[hit.page] ?? '')
+    },
+    [onPageContext]
+  )
+
+  const curHit = findHits.length ? findHits[Math.min(findIdx, findHits.length - 1)] : null
+  useEffect(() => {
+    if (curHit) scrollToHit(curHit)
+    // 只在命中项/序号变化时跳转
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findIdx, findHits])
+
+  // 按页分组的搜索高亮（当前命中单独一组渲染强调色）
+  const findMap = useMemo(() => {
+    const m = new Map<number, { rects: NormRect[]; cur: NormRect[] }>()
+    if (!findOpen) return m
+    for (const h of findHits) {
+      const e = m.get(h.page) ?? { rects: [], cur: [] }
+      e.rects.push(...h.rects)
+      if (curHit === h) e.cur.push(...h.rects)
+      m.set(h.page, e)
+    }
+    return m
+  }, [findOpen, findHits, curHit])
 
   useEffect(() => {
     setDoc(null)
@@ -91,6 +308,11 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     setError('')
     setHls([])
     textCache.current = {}
+    // 换文档：搜索索引作废、结果清空（搜索框保持打开状态便于连续检索新文档）
+    findIndexRef.current = null
+    setFindPhase('idle')
+    setFindHits([])
+    setFindIdx(0)
     if (!active) return
     let cancelled = false
     void (async () => {
@@ -281,11 +503,13 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     (e: React.MouseEvent) => {
       const sel = window.getSelection()
       const text = sel?.toString().trim() ?? ''
-      if (!sel || text.length < 2) return
+      if (!sel || sel.isCollapsed || text.length < 2) return
       const range = sel.getRangeAt(0)
       const rect = range.getBoundingClientRect()
       if (rect.width === 0 && rect.height === 0) return
-      onSelect(text, rect.left + rect.width / 2 - 90, rect.bottom + 6)
+      // 浮条放选区上方（页顶放不下则放下方），x 用选区左缘——居中偏移会盖住下一行文字
+      const barTop = rect.top > 54 ? rect.top - 42 : rect.bottom + 8
+      onSelect(text, rect.left, barTop)
     },
     [onSelect]
   )
@@ -355,7 +579,59 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           <button onClick={() => setZoom(1)} title="适应宽度">{Math.round(scale * 100)}%</button>
           <button onClick={() => setZoom((z) => Math.min(3, z + 0.15))}>+</button>
         </div>
+        <button
+          className={`tool-btn ${findOpen ? 'on' : ''}`}
+          title={`搜索（${isMacKey()}F）`}
+          onClick={() => (findOpen ? closeFind() : openFind())}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-3.5-3.5" />
+          </svg>
+        </button>
       </div>
+      {findOpen && (
+        <div className="pdf-searchbar">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.55 }}>
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-3.5-3.5" />
+          </svg>
+          <input
+            ref={findInputRef}
+            className="pdf-search-input"
+            placeholder="在本文档中搜索…"
+            value={findQ}
+            onChange={(e) => setFindQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                gotoHit(e.shiftKey ? -1 : 1)
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                closeFind()
+              }
+            }}
+          />
+          <span className="pdf-search-count">
+            {findPhase === 'indexing'
+              ? '建立索引…'
+              : !findQ.trim()
+                ? `${numPages || '…'} 页`
+                : findHits.length
+                  ? `${Math.min(findIdx + 1, findHits.length)} / ${findHits.length}`
+                  : findPhase === 'ready'
+                    ? '无匹配'
+                    : ''}
+          </span>
+          <button className="tool-btn" title="上一个（Shift+Enter）" disabled={!findHits.length} onClick={() => gotoHit(-1)}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6" /></svg>
+          </button>
+          <button className="tool-btn" title="下一个（Enter）" disabled={!findHits.length} onClick={() => gotoHit(1)}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+          </button>
+          <button className="tool-btn" title="关闭搜索（Esc）" onClick={closeFind}>✕</button>
+        </div>
+      )}
       <div className="viewer-scroll" ref={attachScrollEl} onMouseUp={onMouseUp} onScroll={onScroll}>
         {error && <div className="empty-viewer">PDF 打开失败：{error}</div>}
         {doc &&
@@ -367,6 +643,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
               scale={scale}
               dim={pageDims[i]}
               hls={hls.filter((h) => h.page === i + 1)}
+              find={findMap.get(i + 1) ?? null}
               onDeleteHl={onDeleteHighlight}
               registerRef={(el) => {
                 if (el) pageRefs.current.set(i + 1, el)
@@ -389,12 +666,13 @@ interface PageViewProps {
   scale: number
   dim?: { w: number; h: number }
   hls: Highlight[]
+  find: { rects: NormRect[]; cur: NormRect[] } | null
   onDeleteHl: (id: number) => void
   registerRef: (el: HTMLDivElement | null) => void
   onPageText: (n: number, text: string) => void
 }
 
-function PageView({ doc, num, scale, dim, hls, onDeleteHl, registerRef, onPageText }: PageViewProps): JSX.Element {
+function PageView({ doc, num, scale, dim, hls, find, onDeleteHl, registerRef, onPageText }: PageViewProps): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
@@ -443,12 +721,13 @@ function PageView({ doc, num, scale, dim, hls, onDeleteHl, registerRef, onPageTe
       taskRef.current = renderTask
       await renderTask.promise
       if (cancelled) return
-      // 文本层（划词的关键）
+      // 文本层（划词的关键）：includeMarkedContent 与官方 viewer 一致，
+      // 保留标记结构后选择边界更贴近可视文字，减少选到相邻区域
       const container = textRef.current!
       container.innerHTML = ''
       container.style.setProperty('--scale-factor', String(viewport.scale))
       const tl = new (pdfjsLib as any).TextLayer({
-        textContentSource: page.streamTextContent({ includeMarkedContent: false, disableNormalization: true }),
+        textContentSource: page.streamTextContent({ includeMarkedContent: true, disableNormalization: true }),
         container,
         viewport
       })
@@ -509,6 +788,17 @@ function PageView({ doc, num, scale, dim, hls, onDeleteHl, registerRef, onPageTe
           </div>
         ))}
       </div>
+      {/* 全文搜索高亮层：全部命中淡黄，当前命中强调 */}
+      {find && (
+        <div className="find-layer">
+          {find.rects.map((r, i) => (
+            <div key={`a${i}`} className="find-hl" style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` }} />
+          ))}
+          {find.cur.map((r, i) => (
+            <div key={`c${i}`} className="find-hl cur" style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` }} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

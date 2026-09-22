@@ -103,7 +103,7 @@ export default function App(): JSX.Element {
   const [indexedCount, setIndexedCount] = useState({ papers: 0, indexed: 0, chunks: 0 })
   const [pendingJump, setPendingJump] = useState<{ slug: string; page: number; snippet?: string; probe?: string } | null>(null)
   const [pageCtx, setPageCtx] = useState('')
-  const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string } | null>(null)
+  const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string; copied?: boolean } | null>(null)
   const [q, setQ] = useState('')
   const [llmChip, setLlmChip] = useState('')
   const [openMenu, setOpenMenu] = useState<string | null>(null)
@@ -271,6 +271,16 @@ export default function App(): JSX.Element {
   const doHighlight = useCallback(() => {
     setFloatBar(null)
     void viewerRef.current?.highlightSelection()
+  }, [])
+  // 复制选中文本：按钮短暂变「已复制」再收起浮条，给用户操作成功的反馈
+  const doCopy = useCallback((text: string) => {
+    void navigator.clipboard
+      .writeText(text)
+      .catch(() => {})
+      .finally(() => {
+        setFloatBar((f) => (f ? { ...f, copied: true } : f))
+        setTimeout(() => setFloatBar(null), 450)
+      })
   }, [])
   const doTranslate = useCallback((text: string) => {
     setFloatBar(null)
@@ -712,17 +722,31 @@ export default function App(): JSX.Element {
 
       {floatBar && (
         <div
-          className="float-bar"
-          style={{ left: Math.min(floatBar.x, window.innerWidth - 210), top: Math.min(floatBar.y + 8, window.innerHeight - 50) }}
+          className={`float-bar ${floatBar.copied ? 'copied' : ''}`}
+          style={{
+            left: Math.max(8, Math.min(floatBar.x, window.innerWidth - 238)),
+            top: Math.max(8, Math.min(floatBar.y, window.innerHeight - 52))
+          }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <button onClick={doHighlight}>高亮</button>
-          <button onClick={() => doTranslate(floatBar.text)}>翻译</button>
+          <button onClick={() => doCopy(floatBar.text)}>{floatBar.copied ? '已复制' : '复制'}</button>
           <button onClick={() => doExplain(floatBar.text)}>解释</button>
+          <button className="fb-accent" onClick={() => doTranslate(floatBar.text)}>翻译</button>
         </div>
       )}
       {showSettings && settings && (
-        <SettingsDialog settings={settings} indexed={indexedCount} indexInfo={indexInfo} onSave={saveSettings} onRescanned={refreshPapers} onClose={() => setShowSettings(false)} />
+        <SettingsDialog
+          settings={settings}
+          indexed={indexedCount}
+          indexInfo={indexInfo}
+          onSave={saveSettings}
+          onRescanned={refreshPapers}
+          onClose={() => setShowSettings(false)}
+          chatFs={chatFs}
+          onChatFs={changeFs}
+          onChatFsReset={resetFs}
+        />
       )}
       {importFiles !== null && settings && (
         <ImportDialog
