@@ -192,7 +192,7 @@ button { font-family: inherit; }
 }
 
 /* ============ 左栏：导航/功能区(上) + 文件树(下)，中间一条分隔线 ============ */
-.library { width: 264px; flex-shrink: 0; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+.library { width: 264px; min-width: 244px; flex-shrink: 0; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
 .lib-func { padding: 12px 12px 10px; flex-shrink: 0; display: flex; flex-direction: column; gap: 9px; border-bottom: 1px solid var(--border-lit); }
 .nav-row { display: flex; align-items: center; gap: 4px; }
 .nav-label { font-size: 12px; font-weight: 700; color: var(--text); margin-left: 6px; letter-spacing: 0.8px; text-transform: uppercase; }
@@ -222,21 +222,23 @@ button { font-family: inherit; }
 
 /* 文件区子标签（最近/分类）：分段控件 + 实底色，滚动内容不会从后面透出 */
 .lib-view-toggle {
-  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; background: var(--bg2); border-bottom: 1px solid var(--border);
+  flex-shrink: 0; display: flex; align-items: center; gap: 5px;
+  padding: 8px 8px; background: var(--bg2); border-bottom: 1px solid var(--border);
 }
-.lib-view-seg { display: flex; gap: 2px; background: var(--bg3); border-radius: 8px; padding: 2.5px; }
+.lib-view-seg { display: flex; gap: 1px; background: var(--bg3); border-radius: 8px; padding: 2px; flex-shrink: 0; }
 .lib-view-seg button {
-  display: flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--text-dim);
-  padding: 4px 13px; border-radius: 6px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; gap: 4px; border: none; background: transparent; color: var(--text-dim);
+  padding: 4px 9px; border-radius: 6px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+  white-space: nowrap; flex-shrink: 0;
   transition: background var(--speed), color var(--speed), box-shadow var(--speed);
 }
 .lib-view-seg button:hover { color: var(--text); }
 .lib-view-seg button.on { background: var(--bg); color: var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
 .lib-newcat {
-  display: flex; align-items: center; gap: 4px; border: 1px dashed var(--border-lit); background: transparent;
-  color: var(--text-dim); border-radius: 6px; padding: 3.5px 9px; font: inherit; font-size: 11px; font-weight: 600;
-  cursor: pointer; transition: color var(--speed), border-color var(--speed);
+  display: flex; align-items: center; gap: 3px; border: 1px dashed var(--border-lit); background: transparent;
+  color: var(--text-dim); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 10.5px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; flex-shrink: 0;
+  transition: color var(--speed), border-color var(--speed);
 }
 .lib-newcat:hover { color: var(--accent2); border-color: var(--accent); }
 .lib-files-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 14px; }
@@ -281,6 +283,8 @@ button { font-family: inherit; }
   transition: background var(--speed), color var(--speed), border-color var(--speed);
 }
 .cat-item:hover { background: var(--bg4); }
+.cat-item .pick-box.cat-box { margin-right: 1px; background: transparent; }
+.cat-item .pick-box.cat-box.on { background: var(--accent); }
 .cat-item.drop-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent2); }
 .cat-count { font-size: 10px; background: var(--bg); border-radius: 4px; padding: 1px 6px; color: var(--text-dim); font-family: var(--mono); }
 
@@ -643,7 +647,9 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .bubble .md-code { font-family: var(--mono); font-size: 0.92em; background: var(--bg3); border-radius: 4px; padding: 0 4px; }
 .bubble strong { font-weight: 650; }
 .bubble .md-del { text-decoration: line-through; color: var(--text-dim); }
-.bubble .md-math, .md-mathblock { font-family: Georgia, 'Times New Roman', 'Songti SC', serif; font-style: italic; }
+.md-math .katex { font-size: 1.05em; }
+.md-mathblock .katex-display { margin: 4px 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+.md-math-raw { font-family: var(--mono); font-size: 0.92em; }
 .bubble .md-mathblock { margin: 7px 0; text-align: center; user-select: text; }
 .bubble .md-quote { margin: 6px 0; padding: 2px 0 2px 10px; border-left: 2.5px solid var(--border-lit); color: var(--text-dim); }
 .bubble .md-quote .md-p { margin: 2px 0; }
@@ -652,7 +658,13 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .md-copy { border: none; background: transparent; color: var(--text-dim); font: inherit; cursor: pointer; padding: 2px 7px; border-radius: 4px; }
 .md-copy:hover { background: var(--bg3); color: var(--text); }
 .md-codeblock pre { margin: 0; padding: 9px 11px; overflow-x: auto; font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: var(--text); user-select: text; }
-.bubble .md-table { margin: 6px 0; }
+.bubble .md-table { margin: 8px 0; border-collapse: collapse; font-size: 0.94em; display: block; overflow-x: auto; }
+.bubble .md-table th, .bubble .md-table td {
+  border: 1px solid var(--border-lit); padding: 6px 10px; text-align: left;
+  line-height: 1.5; vertical-align: top;
+}
+.bubble .md-table th { background: var(--bg3); font-weight: 650; white-space: nowrap; }
+.bubble .md-table tr:nth-child(even) td { background: var(--bg2); }
 /* 字号调节控件（A−/A+）：问答面板标签行与对话输入行各一份 */
 .fs-ctl { display: inline-flex; align-items: center; gap: 1px; flex-shrink: 0; margin-left: 8px; }
 .fs-ctl button { border: none; background: transparent; color: var(--text-dim); font-family: var(--mono); font-size: 11px; padding: 3px 5px; border-radius: 5px; cursor: pointer; transition: background var(--speed), color var(--speed); }
@@ -994,41 +1006,13 @@ html[data-theme='dark'] .pick-foot { background: linear-gradient(180deg, rgba(31
 }
 .pick-btn:hover:not(:disabled) { opacity: 0.9; }
 .pick-btn:disabled { background: var(--bg4); color: var(--text-dim); cursor: default; }
-/* 对话输入框上方的检索范围 chips */
-.pick-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.pick-chips-label {
-  flex-shrink: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
-  text-transform: uppercase; color: var(--text-dim);
-}
-.pick-chip {
-  display: inline-flex; align-items: center; gap: 5px; max-width: 230px;
-  background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent2);
-  border-radius: 999px; padding: 2.5px 6px 2.5px 10px; font-size: 11px; font-weight: 500;
-}
-.pick-chip .pc-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pick-chip i {
-  cursor: pointer; font-style: normal; opacity: 0.6; flex-shrink: 0;
-  width: 15px; height: 15px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center; font-size: 9px;
-}
-.pick-chip i:hover { opacity: 1; background: rgba(0, 0, 0, 0.09); }
-html[data-theme='dark'] .pick-chip i:hover { background: rgba(255, 255, 255, 0.14); }
 .pick-clear {
   border: none; background: transparent; color: var(--text-dim); font: inherit; font-size: 11px;
   cursor: pointer; padding: 2px 7px; border-radius: 5px;
 }
 .pick-clear:hover { color: var(--text); background: var(--bg3); }
 
-/* ============ 分类头全选 / 检索范围胶囊菜单 / 状态栏设置 ============ */
-/* 分类头悬停出现的「全选」：小幽灵字按钮，全在选时点亮 */
-.cat-pick {
-  flex-shrink: 0; font-size: 10px; color: var(--text-dim); cursor: pointer;
-  border: 1px solid transparent; border-radius: 4px; padding: 1px 6px;
-  opacity: 0; transition: opacity var(--speed), color var(--speed), border-color var(--speed), background var(--speed);
-}
-.cat-item:hover .cat-pick { opacity: 1; }
-.cat-pick:hover { color: var(--accent2); border-color: var(--accent); background: var(--accent-soft); }
-.cat-pick.on { opacity: 1; color: #fff; background: var(--accent); border-color: var(--accent); }
+/* ============ 检索范围胶囊菜单 / 状态栏设置 ============ */
 
 /* 检索范围胶囊下拉（>3 篇时折叠成列表，参考已打开文献选择器） */
 .pick-pill-menu {
@@ -1062,3 +1046,26 @@ html[data-theme='dark'] .pick-chip i:hover { background: rgba(255, 255, 255, 0.1
 }
 .sb-gear:hover { background: var(--bg3); color: var(--accent2); }
 .sb-gear svg { width: 13px; height: 13px; }
+
+/* ============ 用户消息：悬停操作（复制/编辑）与行内编辑器 ============ */
+.msg.user .bubble { position: relative; padding-right: 40px; }
+.msg-acts {
+  position: absolute; right: 6px; bottom: 5px; display: inline-flex; gap: 2px;
+  opacity: 0; transition: opacity var(--speed);
+}
+.msg.user:hover .msg-acts { opacity: 1; }
+.msg-acts button {
+  width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-dim); cursor: pointer; transition: color var(--speed), border-color var(--speed), background var(--speed);
+}
+.msg-acts button:hover { color: var(--accent2); border-color: var(--accent); background: var(--accent-soft); }
+.msg-edit textarea {
+  width: 100%; min-height: 66px; resize: vertical;
+  background: var(--bg); border: 1px solid var(--accent); border-radius: 10px;
+  padding: 10px 12px; color: var(--text); outline: none; font: inherit; font-size: var(--chat-fs); line-height: 1.6;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.msg-edit-foot { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.msg-edit-foot .hint { font-size: 11px; color: var(--text-dim); }
+.msg-edit-foot .btn { padding: 5px 13px; font-size: 12px; }

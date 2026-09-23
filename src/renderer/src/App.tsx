@@ -146,6 +146,12 @@ export default function App(): JSX.Element {
     return () => mq.removeEventListener('change', apply)
   }, [settings?.theme])
 
+  // 全局字体（设置 → 通用）：拉丁字体在前、中文在后拼接回退栈，空值跳过
+  useEffect(() => {
+    const q = (s?: string): string => (s ? `"${s.replace(/["']/g, '')}", ` : '')
+    document.body.style.fontFamily = `${q(settings?.fontLatin)}${q(settings?.fontCjk)}-apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif`
+  }, [settings?.fontLatin, settings?.fontCjk])
+
   // 刷新文献与分类列表；同时把打开的标签页/引用面板里的旧 paper 对象换成最新数据
   //（手动移动/重命名后 path 变了，不同步的话下次打开会读到失效路径）；已删除的论文同步关掉标签页/引用面板
   const refreshPapers = useCallback(async (): Promise<Paper[]> => {
@@ -477,7 +483,7 @@ export default function App(): JSX.Element {
   )
 
   // 侧栏无级拖宽（宽度记忆在 localStorage）
-  const [libWidth, setLibWidth] = useState(() => Number(localStorage.getItem('pl.libW')) || 264)
+  const [libWidth, setLibWidth] = useState(() => Math.max(244, Number(localStorage.getItem('pl.libW')) || 264))
   const [sideWidth, setSideWidth] = useState(() => Number(localStorage.getItem('pl.sideW')) || 380)
   const startDrag = useCallback((which: 'lib' | 'side' | 'ref') => (e: React.MouseEvent) => {
     e.preventDefault()
@@ -488,7 +494,7 @@ export default function App(): JSX.Element {
       const dx = ev.clientX - startX
       // lib 把手在右缘（右拖变宽）；side/ref 把手在左缘（左拖变宽）
       const w = which === 'lib' ? startW + dx : startW - dx
-      const min = which === 'lib' ? 200 : 300
+      const min = which === 'lib' ? 244 : 300
       const max = which === 'lib' ? 480 : which === 'side' ? 680 : 900
       const clamped = Math.max(min, Math.min(max, w))
       if (which === 'lib') setLibWidth(clamped)

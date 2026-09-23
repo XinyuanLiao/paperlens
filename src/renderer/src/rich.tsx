@@ -1,6 +1,35 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
 import type { SourceRef } from './types'
+
+// ---------- 公式（KaTeX 渲染，失败回退原文斜体） ----------
+function texHtml(tex: string, displayMode: boolean): string | null {
+  try {
+    return katex.renderToString(tex, { displayMode, throwOnError: false, output: 'html', strict: 'ignore' })
+  } catch {
+    return null
+  }
+}
+
+function MathSpan({ tex }: { tex: string }): JSX.Element {
+  const html = texHtml(tex, false)
+  return html ? (
+    <span className="md-math" dangerouslySetInnerHTML={{ __html: html }} />
+  ) : (
+    <span className="md-math md-math-raw">{tex}</span>
+  )
+}
+
+function MathBlock({ tex }: { tex: string }): JSX.Element {
+  const html = texHtml(tex, true)
+  return html ? (
+    <div className="md-mathblock" dangerouslySetInnerHTML={{ __html: html }} />
+  ) : (
+    <div className="md-mathblock md-math-raw">{tex}</div>
+  )
+}
 
 // 引用跳转：ctx = 引用芯片所在回答里的上下文（前后文），read 模式整篇问答没有
 // snippet 时用它 + 问题做关键词定位
@@ -102,11 +131,7 @@ function inline(text: string, keyBase: string, sources: SourceRef[] | undefined,
         </code>
       )
     } else if (tok.startsWith('$')) {
-      out.push(
-        <span key={`${keyBase}-m${k++}`} className="md-math">
-          {tok.slice(1, -1)}
-        </span>
-      )
+      out.push(<MathSpan key={`${keyBase}-m${k++}`} tex={tok.slice(1, -1)} />)
     } else {
       const inner = tok.slice(1, -1)
       out.push(<em key={`${keyBase}-i${k++}`}>{depth < 2 ? inline(inner, `${keyBase}-i${k}`, sources, onJump, depth + 1) : inner}</em>)
@@ -311,11 +336,7 @@ export function renderRich(content: string, sources: SourceRef[] | undefined, on
       flushPara()
       const oneLine = /\$\$/.test(t.slice(2))
       if (oneLine) {
-        blocks.push(
-          <div key={`m${blocks.length}`} className="md-mathblock">
-            {t.slice(2).replace(/\$\$$/, '').trim()}
-          </div>
-        )
+        blocks.push(<MathBlock key={`m${blocks.length}`} tex={t.slice(2).replace(/\$\$$/, '').trim()} />)
         li++
       } else {
         const parts: string[] = [t.slice(2)]
@@ -328,11 +349,7 @@ export function renderRich(content: string, sources: SourceRef[] | undefined, on
           parts.push(lines[li].trim().replace(/\$\$$/, ''))
           li++
         }
-        blocks.push(
-          <div key={`m${blocks.length}`} className="md-mathblock">
-            {parts.join(' ').trim()}
-          </div>
-        )
+        blocks.push(<MathBlock key={`m${blocks.length}`} tex={parts.join(' ').trim()} />)
       }
       continue
     }

@@ -122,6 +122,11 @@ const api = {
     ipcRenderer.invoke('chat:append', id, role, content, sources),
   chatRename: (id: number, title: string) => ipcRenderer.invoke('chat:rename', id, title),
   chatDelete: (id: number) => ipcRenderer.invoke('chat:delete', id),
+  chatSetMessages: (id: number, msgs: Array<{ role: string; content: string; sources?: unknown }>) =>
+    ipcRenderer.invoke('chat:set-messages', id, msgs),
+
+  // 本地字体列表（设置里选全局字体用）
+  listFonts: () => ipcRenderer.invoke('fonts:list'),
 
   // 版本与更新
   appVersion: () => ipcRenderer.invoke('app:version'),

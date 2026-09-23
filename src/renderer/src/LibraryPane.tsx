@@ -468,6 +468,16 @@ export default function LibraryPane({
                   onDrop={(e) => onCatDrop(e, c)}
                   title="点击展开 / 收起；右键重命名、导出；拖文献到此移动"
                 >
+                  <span
+                    className={`pick-box cat-box ${list.length > 0 && list.every((p) => picked.has(p.id)) ? 'on' : ''}`}
+                    title={list.every((p) => picked.has(p.id)) ? '取消该分类勾选' : '全选该分类'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleCat(list)
+                    }}
+                  >
+                    ✓
+                  </span>
                   <svg
                     className={`chev ${expanded.has(c) ? 'open' : ''}`}
                     width="11"
@@ -483,16 +493,6 @@ export default function LibraryPane({
                   </svg>
                   <span className="ellipsis" style={{ flex: 1 }}>
                     {catLabel(c)}
-                  </span>
-                  <span
-                    className={`cat-pick ${list.length > 0 && list.every((p) => picked.has(p.id)) ? 'on' : ''}`}
-                    title={list.every((p) => picked.has(p.id)) ? '取消该分类勾选' : '全选该分类'}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      toggleCat(list)
-                    }}
-                  >
-                    全选
                   </span>
                   <span className="cat-count">{list.length}</span>
                 </div>

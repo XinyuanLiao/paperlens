@@ -6,6 +6,7 @@ import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPag
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
 import { importPapers, previewImport, movePaperToCategory, createCategory, deleteCategory, deletePaper, renamePaper } from './import'
 import { embed } from './embed'
+import { listLocalFonts } from './fonts'
 
 let win: BrowserWindow | null = null
 
@@ -556,6 +557,17 @@ function registerIpc(): void {
     dbmod.deleteChat(Number(id))
     return true
   })
+  // 整会话重写（问题编辑重生成后同步落库，单事务）
+  ipcMain.handle('chat:set-messages', (_e, id: number, msgs: Array<{ role: string; content: string; sources?: unknown }>) => {
+    dbmod.setChatMessages(
+      Number(id),
+      msgs.map((m) => ({ role: m.role === 'user' ? 'user' : 'assistant', content: String(m.content ?? ''), sources: m.sources }))
+    )
+    return true
+  })
+
+  // 本地字体列表（设置里选全局字体用）
+  ipcMain.handle('fonts:list', () => listLocalFonts())
 
   // ---------- 版本与更新 ----------
   ipcMain.handle('app:version', () => app.getVersion())

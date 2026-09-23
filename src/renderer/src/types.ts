@@ -35,6 +35,9 @@ export interface Settings {
   ollamaEmbedModel: string
   translateTarget: string
   theme: 'system' | 'light' | 'dark'
+  // 全局字体（空 = 跟随默认栈）
+  fontCjk?: string
+  fontLatin?: string
   setupDone?: boolean
   profiles?: ProviderProfile[]
 }
@@ -154,6 +157,8 @@ declare global {
       chatAppend: (id: number, role: string, content: string, sources?: string) => Promise<number>
       chatRename: (id: number, title: string) => Promise<boolean>
       chatDelete: (id: number) => Promise<boolean>
+      chatSetMessages: (id: number, msgs: Array<{ role: string; content: string; sources?: SourceRef[] }>) => Promise<boolean>
+      listFonts: () => Promise<string[]>
       appVersion: () => Promise<string>
       checkUpdate: () => Promise<
         | { ok: true; current: string; latest: string; url: string; notes: string; published: string }

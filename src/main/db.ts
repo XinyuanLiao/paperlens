@@ -40,6 +40,8 @@ export interface Settings {
   ollamaEmbedModel: string
   translateTarget: string
   theme: Theme
+  fontCjk: string
+  fontLatin: string
   setupDone: boolean
   models: string[]
   thinkingLevel: 'default' | 'off' | 'low' | 'medium' | 'high'
@@ -64,6 +66,8 @@ const DEFAULTS: Settings = {
   ollamaEmbedModel: 'bge-m3',
   translateTarget: '中文',
   theme: 'system',
+  fontCjk: '',
+  fontLatin: '',
   setupDone: false,
   models: [],
   thinkingLevel: 'default'
@@ -450,6 +454,23 @@ export function deleteChat(id: number): void {
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM chatmsgs WHERE chat_id=?').run(id)
     db.prepare('DELETE FROM chats WHERE id=?').run(id)
+  })
+  tx()
+}
+
+// 整会话重写（编辑问题重新生成后同步）：单事务清旧插新，updated_at 顺带刷新
+export function setChatMessages(
+  id: number,
+  msgs: Array<{ role: string; content: string; sources?: unknown }>
+): void {
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM chatmsgs WHERE chat_id=?').run(id)
+    const ins = db.prepare('INSERT INTO chatmsgs(chat_id,role,content,sources) VALUES(?,?,?,?)')
+    for (const m of msgs) {
+      if (!m.content?.trim()) continue
+      ins.run(id, m.role === 'user' ? 'user' : 'assistant', m.content, m.sources ? JSON.stringify(m.sources) : null)
+    }
+    db.prepare("UPDATE chats SET updated_at=datetime('now') WHERE id=?").run(id)
   })
   tx()
 }
