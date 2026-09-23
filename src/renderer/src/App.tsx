@@ -405,15 +405,13 @@ export default function App(): JSX.Element {
     [refreshPapers]
   )
 
-// 相对当前论文在排序列表中前后移动（而非浏览历史）
-  const navBack = useCallback(() => {
-    const idx = papers.findIndex((p) => p.id === activeId)
-    if (idx > 0) openPaperFromTree(papers[idx - 1])
-  }, [papers, activeId, openPaperFromTree])
-  const navFwd = useCallback(() => {
-    const idx = papers.findIndex((p) => p.id === activeId)
-    if (idx >= 0 && idx < papers.length - 1) openPaperFromTree(papers[idx + 1])
-  }, [papers, activeId, openPaperFromTree])
+  // 勾选文献 → 对话检索范围（跳到对话模式，输入框上方显示所选）
+  const [chatPicks, setChatPicks] = useState<Paper[]>([])
+  const addPicksToChat = useCallback((ps: Paper[]): void => {
+    if (!ps.length) return
+    setChatPicks(ps)
+    setMode('chat')
+  }, [])
 
   const saveSettings = useCallback(async (patch: Partial<Settings>) => {
     const s = await window.api.saveSettings(patch)
@@ -515,9 +513,6 @@ export default function App(): JSX.Element {
   }, [saveSettings, refreshPapers])
 
   const statusLeft = importInfo || (indexInfo ? `正在索引 ${indexInfo.done}/${indexInfo.total}` : `已索引 ${indexedCount.indexed}/${indexedCount.papers} 篇 · ${indexedCount.chunks} 块`)
-  const curIdx = papers.findIndex((p) => p.id === activeId)
-  const canBack = curIdx > 0
-  const canFwd = curIdx >= 0 && curIdx < papers.length - 1
 
   // 首次启动：走完「文献库 → LLM → 嵌入」向导才进主界面（已有文献库的老用户自动跳过）
   if (settings && !settings.setupDone && papers.length === 0) {
@@ -623,6 +618,7 @@ export default function App(): JSX.Element {
               onCycleStatus={cycleStatus}
               onAddPapers={addPapers}
               onNewChat={newChat}
+              onAddPicks={addPicksToChat}
               chats={chats}
               curChatId={curChatId}
               onOpenChat={openChat}
@@ -632,10 +628,6 @@ export default function App(): JSX.Element {
               onReindex={() => {
                 void window.api.rebuildIndex()
               }}
-              onBack={navBack}
-              onFwd={navFwd}
-              canBack={canBack}
-              canFwd={canFwd}
               onOpenPalette={() => setPaletteOpen(true)}
               mode={mode}
               onModeChange={setMode}
@@ -730,6 +722,9 @@ export default function App(): JSX.Element {
               activeChatId={curChatId}
               onChatStarted={setCurChatId}
               onChatsChanged={() => void refreshChats()}
+              picks={chatPicks}
+              onRemovePick={(id) => setChatPicks((l) => l.filter((p) => p.id !== id))}
+              onClearPicks={() => setChatPicks([])}
               fs={chatFs}
               onFs={changeFs}
             />

@@ -11,6 +11,8 @@ interface Props {
   onCycleStatus: (p: Paper) => void
   onAddPapers: () => void
   onNewChat: () => void
+  // 勾选文献 → 加入对话检索范围
+  onAddPicks: (ps: Paper[]) => void
   // 对话模式：历史会话列表与当前会话
   chats: ChatMeta[]
   curChatId: number | null
@@ -19,10 +21,6 @@ interface Props {
   onRenameChat: (id: number, title: string) => void
   onMovePaper: (id: number, cat: string) => void
   onReindex: () => void
-  onBack: () => void
-  onFwd: () => void
-  canBack: boolean
-  canFwd: boolean
   onOpenPalette: () => void
   mode: 'read' | 'chat'
   onModeChange: (m: 'read' | 'chat') => void
@@ -57,6 +55,7 @@ export default function LibraryPane({
   onCycleStatus,
   onAddPapers,
   onNewChat,
+  onAddPicks,
   chats,
   curChatId,
   onOpenChat,
@@ -64,10 +63,6 @@ export default function LibraryPane({
   onRenameChat,
   onMovePaper,
   onReindex,
-  onBack,
-  onFwd,
-  canBack,
-  canFwd,
   onOpenPalette,
   mode,
   onModeChange,
@@ -100,6 +95,16 @@ export default function LibraryPane({
       const n = new Set(s)
       if (n.has(c)) n.delete(c)
       else n.add(c)
+      return n
+    })
+
+  // 勾选文献（加入对话检索范围用）：切到对话模式不丢，加入后清空
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+  const togglePick = (id: number): void =>
+    setPicked((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
       return n
     })
 
@@ -219,20 +224,6 @@ export default function LibraryPane({
     }
   }
 
-  const navBtn = (dir: 'back' | 'fwd'): JSX.Element => (
-    <button className="icon-btn" disabled={dir === 'back' ? !canBack : !canFwd} title={dir === 'back' ? '上一篇' : '下一篇'} onClick={dir === 'back' ? onBack : onFwd}>
-      {dir === 'back' ? (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M15 18l-6-6 6-6" />
-        </svg>
-      ) : (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-      )}
-    </button>
-  )
-
   const paperRow = (p: Paper, extra?: React.ReactNode): JSX.Element => (
     <div
       key={p.id}
@@ -247,7 +238,19 @@ export default function LibraryPane({
       }}
       title="拖到分类上可移动；右键更多操作"
     >
-      <div className="t">{p.title}</div>
+      <div className="t">
+        <span
+          className={`pick-box ${picked.has(p.id) ? 'on' : ''}`}
+          title="勾选后可加入对话检索范围"
+          onClick={(e) => {
+            e.stopPropagation()
+            togglePick(p.id)
+          }}
+        >
+          ✓
+        </span>
+        <span className="pick-title">{p.title}</span>
+      </div>
       <div className="m">
         <span
           className={`status-dot status-${p.status}`}
@@ -283,28 +286,12 @@ export default function LibraryPane({
           </button>
         </div>
         {mode === 'read' ? (
-          <>
-            <div className="nav-row">
-              {navBtn('back')}
-              {navBtn('fwd')}
-              <span className="nav-label">文献</span>
-              <span style={{ flex: 1 }} />
-              <span className="cat-count">{papers.length}</span>
-            </div>
-            <button className="add-btn" onClick={onAddPapers} title="导入 PDF，AI 自动归类；也可拖入窗口">
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-              添加文献
-            </button>
-            <button className="new-chat-btn" onClick={onNewChat} title="保存当前对话并开始新对话">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 21c-4.4 0-8-3.1-8-7 0-2.2 1.2-4.2 3-5.5V4l3.2 1.8c.6-.1 1.2-.2 1.8-.2 4.4 0 8 3.1 8 7s-3.6 7-8 7z" />
-                <path d="M12 7.5v5M9.5 10h5" />
-              </svg>
-              新建对话
-            </button>
-          </>
+          <button className="add-btn" onClick={onAddPapers} title="导入 PDF，AI 自动归类；也可拖入窗口">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            添加文献
+          </button>
         ) : (
           <>
             <div className="nav-row">
@@ -486,6 +473,21 @@ export default function LibraryPane({
           )}
         </div>
           </>
+        )}
+        {/* 阅读模式底部：勾选的文献一键加入对话检索范围（无勾选 = 灰置） */}
+        {mode === 'read' && (
+          <div className="pick-foot">
+            <button
+              className="pick-btn"
+              disabled={picked.size === 0}
+              onClick={() => {
+                onAddPicks(papers.filter((p) => picked.has(p.id)))
+                setPicked(new Set())
+              }}
+            >
+              加入对话检索{picked.size > 0 ? ` · ${picked.size} 篇` : ''}
+            </button>
+          </div>
         )}
       </div>
 

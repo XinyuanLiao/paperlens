@@ -162,12 +162,11 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
         <div className={`side-tab ${tab === 'translate' ? 'active' : ''}`} onClick={() => setTab('translate')}>
           翻译
         </div>
-        <button className="side-new-chat" title="新对话：清空问答记录与上下文" onClick={reset}>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 21c-4.4 0-8-3.1-8-7 0-2.2 1.2-4.2 3-5.5V4l3.2 1.8c.6-.1 1.2-.2 1.8-.2 4.4 0 8 3.1 8 7s-3.6 7-8 7z" />
-            <path d="M12 7.5v5M9.5 10h5" />
+        <button className="side-new" title="新对话：清空问答记录与上下文" onClick={reset}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.4 0-2.8-.3-4-.9L3 21l1.9-5.5A8.5 8.5 0 1 1 21 11.5z" />
+            <path d="M12 8v7M8.5 11.5h7" />
           </svg>
-          新对话
         </button>
         <div className="fs-ctl" title={`字号（当前 ${fs}px，问答/翻译/对话共用）`}>
           <button onClick={() => onFs(-1)} title="减小字号">

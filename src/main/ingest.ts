@@ -254,13 +254,16 @@ export interface RetrievedChunk {
 // 全库模式分两层召回：段落块负责精确定位（引用带页码与原文），
 // 整篇级（每篇最优块余弦 + 标题/作者 BM25）保证"这篇论文相关"就一定出现在来源里——
 // 否则一篇强相关论文可能因为没有单块挤进前列而永远检索不到
-export async function hybridSearch(query: string, scopePaperId?: number, topK = 12, category?: string): Promise<RetrievedChunk[]> {
+export async function hybridSearch(query: string, scopePaperId?: number, topK = 12, category?: string, paperIds?: number[]): Promise<RetrievedChunk[]> {
   const db = getDb()
   let papers = db.prepare('SELECT id, slug, title FROM papers').all() as Array<{ id: number; slug: string; title: string }>
   if (category) {
     const allowed = new Set(db.prepare('SELECT id FROM papers WHERE category=?').all(category).map((r: any) => r.id))
     papers = papers.filter((p) => allowed.has(p.id))
   }
+  // 勾选文献范围（阅读模式侧栏「加入对话检索」）：只在所选论文内召回
+  const scopeSet = paperIds?.length ? new Set(paperIds) : null
+  if (scopeSet) papers = papers.filter((p) => scopeSet.has(p.id))
   const paperById = new Map(papers.map((p) => [p.id, p]))
 
   const rrf = new Map<number, number>()
@@ -280,6 +283,7 @@ export async function hybridSearch(query: string, scopePaperId?: number, topK = 
   const bestByPaper = new Map<number, { chunkId: number; max: number }>()
   for (const r of rows) {
     if (scopePaperId && r.paper_id !== scopePaperId) continue
+    if (scopeSet && !scopeSet.has(r.paper_id)) continue
     const fv = new Float32Array(r.vec.buffer, r.vec.byteOffset, r.vec.byteLength / 4)
     const s = cosf(qv, fv)
     scored.push({ id: r.id, s })
@@ -303,6 +307,7 @@ export async function hybridSearch(query: string, scopePaperId?: number, topK = 
         | undefined
       if (!c) return false
       if (scopePaperId && c.paper_id !== scopePaperId) return false
+      if (scopeSet && !scopeSet.has(c.paper_id)) return false
       if (category && c.category !== category) return false
       return true
     }

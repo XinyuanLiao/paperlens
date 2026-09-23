@@ -475,6 +475,7 @@ function registerIpc(): void {
         question?: string
         scopePaperId?: number
         category?: string
+        paperIds?: number[]
         paperTitle?: string
         history?: Array<{ role: 'user' | 'assistant'; content: string }>
       }
@@ -506,7 +507,7 @@ function registerIpc(): void {
               msgs = ragMessages(args.question!, sources.map((s, i) => ({ label: `${s.title} (p.${s.page})`, text: s.text })), paper.title, args.history)
             }
           } else {
-            sources = await hybridSearch(args.question!, undefined, 16, args.category)
+            sources = await hybridSearch(args.question!, undefined, 16, args.category, args.paperIds)
             if (sources.length === 0) {
               send(`llm:delta:${args.reqId}`, '⚠️ 检索不到相关片段（可能索引尚未建好），请先重建索引。')
               send(`llm:end:${args.reqId}`, null)

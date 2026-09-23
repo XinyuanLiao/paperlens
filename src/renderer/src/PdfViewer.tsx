@@ -149,6 +149,16 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   const [baseScale, setBaseScale] = useState(1)
   const [curPage, setCurPage] = useState(1)
   const [numPages, setNumPages] = useState(0)
+  // 已打开文献的下拉选择（替代顶部标签条）：点开列表切换/关闭
+  const [tabsOpen, setTabsOpen] = useState(false)
+  useEffect(() => {
+    if (!tabsOpen) return
+    const h = (e: MouseEvent): void => {
+      if (!(e.target as HTMLElement).closest('.tabselect')) setTabsOpen(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [tabsOpen])
 
   // 全文搜索：索引惰性构建（首次打开搜索框时取全文），同 doc 复用
   const [findOpen, setFindOpen] = useState(false)
@@ -530,32 +540,48 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
 
   return (
     <div className="pdf-pane">
-      <div className="tabbar">
-        {tabs.map((t) => (
-          <div
-            key={t.paper.id}
-            className={`tab ${t.paper.id === activeId ? 'active' : ''}`}
-            onClick={() => onActivate(t.paper.id)}
-            title={t.paper.title}
-          >
-            <span className="tab-title">{t.paper.title}</span>
-            <span
-              className="x"
-              title="关闭"
-              onClick={(e) => {
-                e.stopPropagation()
-                onCloseTab(t.paper.id)
-              }}
-            >
-              ✕
-            </span>
-          </div>
-        ))}
-      </div>
       <div className="viewer-toolbar">
-        <span className="slug" title={active.paper.title}>
+        <div
+          className="tabselect"
+          onClick={() => setTabsOpen((o) => !o)}
+          title={tabs.length > 1 ? `已打开 ${tabs.length} 篇，点击切换` : '当前文献'}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}>
+            <path d="M8 6h13M8 12h13M8 18h13" />
+            <path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
+          </svg>
           <b>{active.paper.title}</b>
-        </span>
+          {tabs.length > 1 && <span className="tabselect-n">{tabs.length}</span>}
+          <svg className={`chev ${tabsOpen ? 'open' : ''}`} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          {tabsOpen && (
+            <div className="tabselect-menu">
+              {tabs.map((t) => (
+                <div
+                  key={t.paper.id}
+                  className={`tabselect-item ${t.paper.id === activeId ? 'on' : ''}`}
+                  onClick={() => {
+                    onActivate(t.paper.id)
+                    setTabsOpen(false)
+                  }}
+                >
+                  <span className="ts-title">{t.paper.title}</span>
+                  <span
+                    className="x"
+                    title="关闭"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onCloseTab(t.paper.id)
+                    }}
+                  >
+                    ✕
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <span style={{ flex: 1 }} />
         <div className="seg" title="页面导航">
           <button onClick={() => goToPage(1)} disabled={curPage <= 1} title="首页">
@@ -732,19 +758,26 @@ function PageView({ doc, num, scale, dim, hls, find, onDeleteHl, registerRef, on
         viewport
       })
       await tl.render()
-      // 剔除页边行号：两栏正文外侧极左/极右的短纯数字（1-4 位）从文本层移除，
-      // 纵向拖选时不再把行号扫进选区（全文搜索/高亮走 getTextContent，不受影响）
+      // 选择体验三处修正：
+      // ① 移除 endOfContent（pdf.js 的「点空白全选」辅助层）——轻微向下过划就会
+      //    扩展成整页选中，我们不需要该特性；
+      // ② 剔除页边行号：两栏正文外侧极左/极右的短纯数字（1-4 位）；
+      // ③ 剔除页边的纯空白 run：透明但占位，拖选扫过会出现「莫名的选中高亮」
+      // （全文搜索/引用定位走 getTextContent，不受 DOM 清理影响）
       try {
+        container.querySelector('.endOfContent')?.remove()
         const cw = container.clientWidth || 1
         for (const el of [...container.querySelectorAll('span')] as HTMLElement[]) {
           if (el.classList.contains('markedContent')) continue
-          if (!/^\d{1,4}$/.test((el.textContent ?? '').trim())) continue
+          const txt = (el.textContent ?? '').trim()
+          const isMarginJunk = txt === '' || /^\d{1,4}$/.test(txt)
+          if (!isMarginJunk) continue
           const leftPct = parseFloat(el.style.left)
           const ratio = (!isNaN(leftPct) && el.style.left.includes('%') ? leftPct / 100 : el.offsetLeft / cw)
           if (ratio < 0.03 || ratio > 0.965) el.remove()
         }
       } catch {
-        /* 行号剔除失败不影响阅读 */
+        /* 文本层清理失败不影响阅读 */
       }
       if (cancelled) return
       const tc = await page.getTextContent()

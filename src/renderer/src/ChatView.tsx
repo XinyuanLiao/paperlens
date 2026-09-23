@@ -21,6 +21,10 @@ interface Props {
   activeChatId: number | null
   onChatStarted: (id: number) => void
   onChatsChanged: () => void
+  // 检索范围：勾选的文献（阅读模式侧栏加入）；非空时优先于 ScopePill 的分类范围
+  picks: Paper[]
+  onRemovePick: (id: number) => void
+  onClearPicks: () => void
   // 对话字号（问答/翻译/对话共用）
   fs: number
   onFs: (delta: number) => void
@@ -44,6 +48,9 @@ export default function ChatView({
   activeChatId,
   onChatStarted,
   onChatsChanged,
+  picks,
+  onRemovePick,
+  onClearPicks,
   fs,
   onFs
 }: Props): JSX.Element {
@@ -105,7 +112,13 @@ export default function ChatView({
       const chatId = cid
       void window.api.chatAppend(chatId, 'user', q)
       window.api.stream(
-        { mode: 'rag', question: q, category: scope.type === 'cat' ? scope.cat : undefined, history },
+        {
+          mode: 'rag',
+          question: q,
+          category: picks.length ? undefined : scope.type === 'cat' ? scope.cat : undefined,
+          paperIds: picks.length ? picks.map((p) => p.id) : undefined,
+          history
+        },
         {
           onDelta: (d) => {
             outRef.current += d
@@ -156,11 +169,30 @@ export default function ChatView({
     </div>
   )
 
+  // 检索范围 chips：优先显示勾选的文献（阅读模式加入），无勾选时显示 ScopePill
+  const pickChips = picks.length > 0 && (
+    <div className="pick-chips">
+      <span className="pick-chips-label">检索范围 · {picks.length} 篇</span>
+      {picks.map((p) => (
+        <span key={p.id} className="pick-chip" title={p.title}>
+          <span className="pc-t">{papers.find((x) => x.id === p.id)?.title ?? p.title}</span>
+          <i title="移除" onClick={() => onRemovePick(p.id)}>
+            ✕
+          </i>
+        </span>
+      ))}
+      <button className="pick-clear" onClick={onClearPicks}>
+        清除
+      </button>
+    </div>
+  )
+
   const inputBox = (
     <div className="hero-input">
+      {pickChips}
       <textarea
         className="hero-textarea"
-        placeholder="与全库文献对话，如：这个库里有哪些关于热建模的论文？"
+        placeholder={picks.length ? `在勾选的 ${picks.length} 篇文献中检索问答…` : '与全库文献对话，如：这个库里有哪些关于热建模的论文？'}
         value={input}
         rows={2}
         onChange={(e) => setInput(e.target.value)}
@@ -172,7 +204,7 @@ export default function ChatView({
         }}
       />
       <div className="hero-input-foot">
-        <ScopePill cats={cats} scope={scope} onChange={onScopeChange} paperCount={paperCount} catCounts={catCounts} />
+        {picks.length === 0 && <ScopePill cats={cats} scope={scope} onChange={onScopeChange} paperCount={paperCount} catCounts={catCounts} />}
         <ModelPill models={models} model={model} onChange={onChangeModel} />
         <ThinkingPill level={thinking} onChange={onChangeThinking} />
         {fsCtl}
