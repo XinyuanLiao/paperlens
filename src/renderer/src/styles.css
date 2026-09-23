@@ -164,8 +164,7 @@ html[data-theme='dark'] .main-win { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 
 
 /* 无标签页时的起始区（右侧仍可全库对话） */
 .start-pane { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); }
-.index-badge { font-size: 10px; color: var(--text-dim); font-family: var(--mono); background: var(--bg3); border-radius: 4px; padding: 1px 6px; }
-.lib-only-chip { font-size: 11px; color: var(--accent2); background: var(--accent-soft); border-radius: 4px; padding: 2px 8px; font-weight: 600; }
+.lib-only-chip { font-size: 11px; color: var(--accent2); background: var(--accent-soft); border-radius: 4px; padding: 2px 8px; font-weight: 600; white-space: nowrap; }
 
 .workspace-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-dim); }
 .workspace-empty .headline { font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: 0.5px; }
@@ -400,7 +399,7 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 .float-bar.copied button { pointer-events: none; }
 
 /* ============ 右栏：聊天/翻译 ============ */
-.side { background: var(--bg2); display: flex; flex-direction: column; }
+.side { background: var(--bg2); display: flex; flex-direction: column; min-width: 360px; }
 .side-tabs { display: flex; align-items: center; gap: 2px; padding: 0 12px 0 14px; flex-shrink: 0; }
 /* 顶栏右上操作区：新对话 + 字号，靠右成组 */
 .side-tabs-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
@@ -409,7 +408,7 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 .side-new {
   height: 26px; flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;
   padding: 0 11px; background: transparent; border: 1px solid var(--border); border-radius: 999px;
-  color: var(--text-dim); cursor: pointer; font-size: 11.5px; font-weight: 600;
+  color: var(--text-dim); cursor: pointer; font-size: 11.5px; font-weight: 600; white-space: nowrap;
   transition: background var(--speed), color var(--speed), border-color var(--speed), transform 0.1s;
 }
 .side-new:hover { color: var(--accent2); border-color: var(--accent); background: var(--accent-soft); }
@@ -448,16 +447,19 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
   width: 100%; max-width: none; background: var(--bg); border: 1px solid var(--border-lit);
   box-shadow: none; border-radius: 12px; padding: 11px 12px 9px; gap: 7px;
 }
+.chat-input-area .hero-input-foot { gap: 8px; }
 .chat-input-area .hero-textarea { min-height: 40px; max-height: 120px; }
-.rag-toggle { display: flex; gap: 8px; font-size: 11.5px; color: var(--text-dim); align-items: center; }
+.rag-toggle { display: flex; gap: 8px; font-size: 11.5px; color: var(--text-dim); align-items: center; white-space: nowrap; flex-shrink: 0; }
 .rag-toggle .seg { display: flex; background: var(--bg3); border-radius: 6px; padding: 2px; border: none; }
-.rag-toggle .seg span { padding: 3px 12px; border-radius: 5px; cursor: pointer; font-size: 11.5px; transition: background var(--speed), color var(--speed); color: var(--text-dim); }
+.rag-toggle .seg span { padding: 3px 12px; border-radius: 5px; cursor: pointer; font-size: 11.5px; transition: background var(--speed), color var(--speed); color: var(--text-dim); white-space: nowrap; }
 .rag-toggle .seg span.on { background: var(--accent); color: #fff; font-weight: 600; }
 .send-btn {
-  background: var(--accent); border: none; color: #fff; border-radius: 10px; padding: 11px 18px;
-  cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity var(--speed), transform 0.1s;
-  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--accent); border: none; color: #fff; border-radius: 8px; padding: 7px 14px;
+  cursor: pointer; font-size: 12px; font-weight: 600; transition: opacity var(--speed), transform 0.1s;
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; flex-shrink: 0;
 }
+/* 窄面板下换行时发送按钮仍靠右，不塌到左侧 */
+.hero-input-foot .send-btn { margin-left: auto; }
 .send-btn:hover:not(:disabled) { opacity: 0.88; transform: translateY(-1px); }
 .send-btn:disabled { background: var(--bg4); color: var(--text-dim); cursor: default; }
 /* 生成中：发送按钮变为停止按钮 */

@@ -248,17 +248,14 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
               ) : (
                 <span className="lib-only-chip">全库检索</span>
               )}
-              <span style={{ flex: 1 }} />
-              <span className="index-badge ellipsis" style={{ maxWidth: 130 }} title={paper?.title}>
-                {paper ? paper.slug : '未打开论文'}
-              </span>
             </div>
             {/* 输入盒与对话模式同款（hero-input）：文本区独占一行，控件与发送按钮同一行脚 */}
             <div className="hero-input">
               <textarea
                 className="hero-textarea"
                 rows={2}
-                placeholder={paper ? '问点什么…（Enter 发送，Shift+Enter 换行）' : '与全库文献对话…（Enter 发送，Shift+Enter 换行）'}
+                title="Enter 发送，Shift+Enter 换行"
+                placeholder={paper ? '问点什么…（Enter 发送）' : '与全库文献对话…（Enter 发送）'}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {

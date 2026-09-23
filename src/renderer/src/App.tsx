@@ -463,7 +463,8 @@ export default function App(): JSX.Element {
 
   // 侧栏无级拖宽（宽度记忆在 localStorage）
   const [libWidth, setLibWidth] = useState(() => Math.max(258, Number(localStorage.getItem('pl.libW')) || 264))
-  const [sideWidth, setSideWidth] = useState(() => Number(localStorage.getItem('pl.sideW')) || 380)
+  // 右侧问答栏最小 360px：再窄控件文字会被挤断行/变形
+  const [sideWidth, setSideWidth] = useState(() => Math.max(360, Number(localStorage.getItem('pl.sideW')) || 380))
   const startDrag = useCallback((which: 'lib' | 'side' | 'ref') => (e: React.MouseEvent) => {
     e.preventDefault()
     const key = which === 'lib' ? 'pl.libW' : which === 'side' ? 'pl.sideW' : 'pl.refW'
@@ -473,7 +474,7 @@ export default function App(): JSX.Element {
       const dx = ev.clientX - startX
       // lib 把手在右缘（右拖变宽）；side 把手在左缘（左拖变宽）
       const w = which === 'lib' ? startW + dx : startW - dx
-      const min = which === 'lib' ? 258 : 300
+      const min = which === 'lib' ? 258 : 360
       const max = which === 'lib' ? 480 : 680
       const clamped = Math.max(min, Math.min(max, w))
       if (which === 'lib') setLibWidth(clamped)
