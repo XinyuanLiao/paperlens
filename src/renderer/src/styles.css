@@ -193,8 +193,6 @@ button { font-family: inherit; }
 /* ============ 左栏：导航/功能区(上) + 文件树(下)，中间一条分隔线 ============ */
 .library { width: 264px; min-width: 258px; flex-shrink: 0; background: var(--bg2); display: flex; flex-direction: column; }
 .lib-func { padding: 12px 12px 10px; flex-shrink: 0; display: flex; flex-direction: column; gap: 9px; }
-.nav-row { display: flex; align-items: center; gap: 4px; }
-.nav-label { font-size: 12px; font-weight: 700; color: var(--text); margin-left: 6px; letter-spacing: 0.8px; text-transform: uppercase; }
 .add-btn {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   background: var(--accent); color: #fff; border: none; border-radius: var(--radius); padding: 8px 0;
@@ -245,7 +243,6 @@ button { font-family: inherit; }
   font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
   color: var(--text-dim); padding: 7px 9px 5px;
 }
-.nav-row .icon-btn:disabled { opacity: 0.3; }
 .icon-btn {
   width: 28px; height: 28px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; border-radius: var(--radius-sm); color: var(--text-dim); cursor: pointer;
@@ -446,17 +443,16 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 }
 .src-paper:hover { border-color: var(--accent); }
 .chat-input-area { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 9px; flex-shrink: 0; }
+/* 问答侧输入盒：与对话模式同款 hero-input 的紧凑变体 */
+.chat-input-area .hero-input {
+  width: 100%; max-width: none; background: var(--bg); border: 1px solid var(--border-lit);
+  box-shadow: none; border-radius: 12px; padding: 11px 12px 9px; gap: 7px;
+}
+.chat-input-area .hero-textarea { min-height: 40px; max-height: 120px; }
 .rag-toggle { display: flex; gap: 8px; font-size: 11.5px; color: var(--text-dim); align-items: center; }
 .rag-toggle .seg { display: flex; background: var(--bg3); border-radius: 6px; padding: 2px; border: none; }
 .rag-toggle .seg span { padding: 3px 12px; border-radius: 5px; cursor: pointer; font-size: 11.5px; transition: background var(--speed), color var(--speed); color: var(--text-dim); }
 .rag-toggle .seg span.on { background: var(--accent); color: #fff; font-weight: 600; }
-.input-row { display: flex; gap: 9px; align-items: flex-end; }
-.chat-input {
-  flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px 12px; color: var(--text); outline: none; resize: none; font-family: inherit;
-  font-size: 13px; min-height: 42px; max-height: 150px; line-height: 1.5; transition: border-color var(--speed), box-shadow var(--speed);
-}
-.chat-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .send-btn {
   background: var(--accent); border: none; color: #fff; border-radius: 10px; padding: 11px 18px;
   cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity var(--speed), transform 0.1s;
@@ -664,7 +660,6 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 :root { --chat-fs: 13px; }
 .tr-card .src-text { font-size: calc(var(--chat-fs) - 1px); }
 .tr-card .dst-text { font-size: var(--chat-fs); }
-.chat-input { font-size: var(--chat-fs); }
 .hero-textarea { font-size: var(--chat-fs); }
 .bubble .md-p { margin: 3px 0; line-height: 1.7; }
 .bubble .md-p:first-child { margin-top: 0; }
@@ -726,7 +721,6 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .pill-item:hover { background: var(--accent-soft); }
 .pill-item.on { color: var(--accent2); font-weight: 600; }
 .pill-note { font-size: 10.5px; color: var(--text-dim); padding: 5px 9px 3px; line-height: 1.5; }
-.side-controls { display: flex; align-items: center; gap: 6px; min-width: 0; }
 
 /* ============ 侧栏拖宽把手 ============ */
 .col-resizer { width: 5px; flex-shrink: 0; cursor: col-resize; background: transparent; transition: background 0.15s; position: relative; z-index: 5; }
@@ -839,7 +833,6 @@ html.mac { --tb-h: 44px; }
 .ctl-pill { white-space: nowrap; min-width: 0; width: 100%; }
 .pill-wrap { min-width: 0; }
 .ctl-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.side-controls .pill-wrap { flex: 0 1 auto; }
 .modal-head h2 { font-size: 15px; font-weight: 650; letter-spacing: 0.2px; flex: 1; }
 .modal-head .modal-x { width: 26px; height: 26px; border-radius: 7px; font-size: 12px; }
 .ref-page-slot { width: max-content; max-width: none; margin: 0 auto; }

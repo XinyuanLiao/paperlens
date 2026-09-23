@@ -568,6 +568,29 @@ function registerIpc(): void {
     dbmod.deleteChat(Number(id))
     return true
   })
+  // 导出对话为 Markdown：保存位置由用户选择，返回是否真的导出
+  ipcMain.handle('chat:export', async (_e, id: number, title: string) => {
+    const msgs = dbmod.loadChat(Number(id))
+    if (!msgs.length) throw new Error('该对话还没有内容')
+    if (!win) return false
+    const safe = String(title || '对话').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
+    const r = await dialog.showSaveDialog(win, {
+      defaultPath: `${safe}.md`,
+      filters: [
+        { name: 'Markdown', extensions: ['md'] },
+        { name: '纯文本', extensions: ['txt'] }
+      ]
+    })
+    if (r.canceled || !r.filePath) return false
+    const parts: string[] = [`# ${title || '对话'}\n`, `> 由 PaperLens 导出 · ${new Date().toLocaleString('zh-CN')}\n`]
+    for (const m of msgs) {
+      parts.push(`---\n\n**${m.role === 'user' ? '用户' : '助手'}：**\n\n${m.content}\n`)
+      const srcs = (m as { sources?: Array<{ title: string; page: number }> }).sources
+      if (srcs?.length) parts.push(`\n> 来源：${srcs.map((s) => `《${s.title}》p.${s.page}`).join('、')}\n`)
+    }
+    fs.writeFileSync(r.filePath, parts.join('\n'), 'utf8')
+    return true
+  })
   // 整会话重写（问题编辑重生成后同步落库，单事务）
   ipcMain.handle('chat:set-messages', (_e, id: number, msgs: Array<{ role: string; content: string; sources?: unknown }>) => {
     dbmod.setChatMessages(

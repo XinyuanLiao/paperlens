@@ -248,17 +248,16 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
               ) : (
                 <span className="lib-only-chip">全库检索</span>
               )}
-            </div>
-            <div className="side-controls">
-              <ModelPill models={models} model={model} onChange={onChangeModel} />
-              <ThinkingPill level={thinking} onChange={onChangeThinking} />
               <span style={{ flex: 1 }} />
-              <span className="index-badge ellipsis" style={{ maxWidth: 110 }}>
+              <span className="index-badge ellipsis" style={{ maxWidth: 130 }} title={paper?.title}>
                 {paper ? paper.slug : '未打开论文'}
               </span>
             </div>
-            <div className="input-row">              <textarea
-                className="chat-input"
+            {/* 输入盒与对话模式同款（hero-input）：文本区独占一行，控件与发送按钮同一行脚 */}
+            <div className="hero-input">
+              <textarea
+                className="hero-textarea"
+                rows={2}
                 placeholder={paper ? '问点什么…（Enter 发送，Shift+Enter 换行）' : '与全库文献对话…（Enter 发送，Shift+Enter 换行）'}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -269,24 +268,29 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
                   }
                 }}
               />
-              <button
-                className={`send-btn ${busy ? 'stop' : ''}`}
-                onClick={() => (busy ? doStop() : send())}
-                disabled={!busy && !input.trim()}
-                title={busy ? '停止生成' : '发送（Enter）'}
-              >
-                {busy ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  </svg>
-                ) : (
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21.5 3.5L2.5 10.2l7.3 2.9 2.9 7.3 8.8-16.9z" />
-                    <path d="M9.8 13.1l4.7-4.7" />
-                  </svg>
-                )}
-                {busy ? '停止' : '发送'}
-              </button>
+              <div className="hero-input-foot">
+                <ModelPill models={models} model={model} onChange={onChangeModel} />
+                <ThinkingPill level={thinking} onChange={onChangeThinking} />
+                <span style={{ flex: 1 }} />
+                <button
+                  className={`send-btn ${busy ? 'stop' : ''}`}
+                  onClick={() => (busy ? doStop() : send())}
+                  disabled={!busy && !input.trim()}
+                  title={busy ? '停止生成' : '发送（Enter）'}
+                >
+                  {busy ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                      <rect x="6" y="6" width="12" height="12" rx="2" />
+                    </svg>
+                  ) : (
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21.5 3.5L2.5 10.2l7.3 2.9 2.9 7.3 8.8-16.9z" />
+                      <path d="M9.8 13.1l4.7-4.7" />
+                    </svg>
+                  )}
+                  {busy ? '停止' : '发送'}
+                </button>
+              </div>
             </div>
           </div>
         </>

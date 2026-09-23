@@ -157,6 +157,7 @@ declare global {
       chatAppend: (id: number, role: string, content: string, sources?: string) => Promise<number>
       chatRename: (id: number, title: string) => Promise<boolean>
       chatDelete: (id: number) => Promise<boolean>
+      chatExport: (id: number, title: string) => Promise<boolean>
       chatSetMessages: (id: number, msgs: Array<{ role: string; content: string; sources?: SourceRef[] }>) => Promise<boolean>
       listFonts: () => Promise<string[]>
       appVersion: () => Promise<string>

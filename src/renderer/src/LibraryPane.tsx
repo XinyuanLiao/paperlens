@@ -221,6 +221,15 @@ export default function LibraryPane({
     }
   }
 
+  // 历史对话右键菜单（自绘菜单，与文件区右键同风格）
+  const [chatMenu, setChatMenu] = useState<{ x: number; y: number; chat: ChatMeta } | null>(null)
+  const chatMenuItems = (c: ChatMeta): CtxItem[] => [
+    { label: '导出对话…', action: () => void window.api.chatExport(c.id, c.title).catch((e) => alert(String(e))) },
+    { label: '重命名…', action: () => { setRenameChat(c); setRenameChatVal(c.title) } },
+    { sep: true, label: '' },
+    { label: '删除', danger: true, action: () => onDeleteChat(c.id) }
+  ]
+
   // 对话模式：搜索框过滤历史对话标题
   const chatKw = q.trim().toLowerCase()
   const chatFiltered = useMemo(
@@ -347,19 +356,12 @@ export default function LibraryPane({
             添加文献
           </button>
         ) : (
-          <>
-            <div className="nav-row">
-              <span className="nav-label">对话</span>
-              <span style={{ flex: 1 }} />
-              <span className="cat-count">{chats.length}</span>
-            </div>
-            <button className="add-btn" onClick={onNewChat} title="当前对话自动存入历史；开始新的全库对话">
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-              新建对话
-            </button>
-          </>
+          <button className="add-btn" onClick={onNewChat} title="当前对话自动存入历史；开始新的全库对话">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            新建对话
+          </button>
         )}
         <div className="search-wrap">
           <input
@@ -405,10 +407,9 @@ export default function LibraryPane({
                 onContextMenu={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  setRenameChat(c)
-                  setRenameChatVal(c.title)
+                  setChatMenu({ x: e.clientX, y: e.clientY, chat: c })
                 }}
-                title="点击继续该对话；右键重命名"
+                title="点击继续该对话；右键更多操作"
               >
                 <div className="t ellipsis">{c.title}</div>
                 <div className="m">
@@ -679,6 +680,9 @@ export default function LibraryPane({
 
       {catMenu && (
         <ContextMenu x={catMenu.x} y={catMenu.y} items={catMenuItems(catMenu.cat)} onClose={() => setCatMenu(null)} />
+      )}
+      {chatMenu && (
+        <ContextMenu x={chatMenu.x} y={chatMenu.y} items={chatMenuItems(chatMenu.chat)} onClose={() => setChatMenu(null)} />
       )}
       {blankMenu && (
         <ContextMenu
