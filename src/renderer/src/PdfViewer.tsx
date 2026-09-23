@@ -242,6 +242,14 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
       })
   }, [findOpen, doc, findPhase])
 
+  // 适应宽度：按「当前」阅读窗宽度重算基准比例（窗口缩放/侧栏拖宽后基准会过期）
+  const fitWidth = useCallback(() => {
+    const w = scrollRef.current?.clientWidth ?? 800
+    const base = baseVwRef.current || 612
+    setBaseScale(Math.max(0.5, Math.min(2.2, (w - 56) / base)))
+    setZoom(1)
+  }, [])
+
   // Cmd/Ctrl + -/=/0 缩放、Ctrl/Cmd+F 搜索（仅阅读模式可见时生效；chat 模式下快捷键归引用面板）
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -255,7 +263,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         setZoom((z) => Math.max(0.4, z - 0.15))
       } else if (e.key === '0') {
         e.preventDefault()
-        setZoom(1)
+        fitWidth()
       } else if (e.key.toLowerCase() === 'f') {
         e.preventDefault()
         openFind()
@@ -263,7 +271,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [visible, openFind])
+  }, [visible, openFind, fitWidth])
 
   // 关键词（防抖）→ 全部命中：逐页跑等宽匹配，按页序输出
   useEffect(() => {
@@ -478,7 +486,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
       setZoom((z) => Math.max(0.4, Math.min(3, z + delta)))
     },
     zoomReset() {
-      setZoom(1)
+      fitWidth()
     },
     removeHighlightLocal(hid: number) {
       setHls((hs) => hs.filter((h) => h.id !== hid))
@@ -561,7 +569,13 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     return (
       <div className="pdf-pane">
         <div className="empty-viewer">
-          <div className="big">📄</div>
+          <div className="big-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5l-5-5z" />
+              <path d="M14 2.5v5h5" />
+              <path d="M9 13h6M9 17h4" />
+            </svg>
+          </div>
           <div className="headline">从左侧选择一篇论文开始阅读</div>
           <div className="tip">
             选中文字即可 <span className="kbd">翻译</span> <span className="kbd">解释</span> <span className="kbd">追问</span>；右侧面板支持当前论文与全库 RAG 问答，回答自带页码引用。
@@ -635,7 +649,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         </div>
         <div className="seg" title="缩放">
           <button onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}>−</button>
-          <button onClick={() => setZoom(1)} title="适应宽度">{Math.round(scale * 100)}%</button>
+          <button onClick={fitWidth} title="适应宽度（点击自适应当前阅读窗）">{Math.round(scale * 100)}%</button>
           <button onClick={() => setZoom((z) => Math.min(3, z + 0.15))}>+</button>
         </div>
         <button

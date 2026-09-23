@@ -146,7 +146,7 @@ declare global {
       stream: (
         args: Record<string, unknown>,
         handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: SourceRef[]) => void }
-      ) => void
+      ) => () => void
       onIndexProgress: (cb: (p: { done: number; total: number; phase: string; current?: string }) => void) => () => void
       onImportProgress: (cb: (p: { done: number; total: number; current: string }) => void) => () => void
       openExternal: (url: string) => void

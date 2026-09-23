@@ -74,11 +74,11 @@ function CodeBlock({ lang, code }: { lang: string; code: string }): JSX.Element 
 
 // ---------- 行内元素：引用芯片 / 链接 / 粗体 / 斜体 / 行内码 / 删除线 / $公式$ ----------
 
-// 顺序敏感：[n] 引用 → 链接 → **粗** → ~~删~~ → `码` → $公式$ → *斜*
+// 顺序敏感：[n] 引用 → 链接 → **粗** → ~~删~~ → `码` → $公式$ / \(公式\) → *斜*
 function inline(text: string, keyBase: string, sources: SourceRef[] | undefined, onJump: Jump, depth = 0): ReactNode[] {
   const out: ReactNode[] = []
   const re =
-    /(\[(\d+)\])|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*(?=\S)[^*]*?\S\*\*)|(~~(?=\S)[^~]+~~)|(`[^`\n]+`)|(\$(?=\S)[^$\n]*\S\$)|(\*(?=[^\s*])[^*\n]*?\S\*)/g
+    /(\[(\d+)\])|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*(?=\S)[^*]*?\S\*\*)|(~~(?=\S)[^~]+~~)|(`[^`\n]+`)|(\$(?=\S)[^$\n]*\S\$)|(\\\(.+?\\\))|(\*(?=[^\s*])[^*\n]*?\S\*)/g
   let last = 0
   let k = 0
   let m: RegExpExecArray | null
@@ -132,6 +132,8 @@ function inline(text: string, keyBase: string, sources: SourceRef[] | undefined,
       )
     } else if (tok.startsWith('$')) {
       out.push(<MathSpan key={`${keyBase}-m${k++}`} tex={tok.slice(1, -1)} />)
+    } else if (tok.startsWith('\\(')) {
+      out.push(<MathSpan key={`${keyBase}-m${k++}`} tex={tok.slice(2, -2)} />)
     } else {
       const inner = tok.slice(1, -1)
       out.push(<em key={`${keyBase}-i${k++}`}>{depth < 2 ? inline(inner, `${keyBase}-i${k}`, sources, onJump, depth + 1) : inner}</em>)
@@ -354,6 +356,29 @@ export function renderRich(content: string, sources: SourceRef[] | undefined, on
       continue
     }
 
+    // LaTeX 定界符公式块 \[…\]（部分模型用这套写法）
+    if (t.startsWith('\\[')) {
+      flushPara()
+      const oneLine = /\\\]/.test(t.slice(2))
+      if (oneLine) {
+        blocks.push(<MathBlock key={`m${blocks.length}`} tex={t.slice(2).replace(/\\\]$/, '').trim()} />)
+        li++
+      } else {
+        const parts: string[] = [t.slice(2)]
+        li++
+        while (li < lines.length && !lines[li].trim().endsWith('\\]')) {
+          parts.push(lines[li])
+          li++
+        }
+        if (li < lines.length) {
+          parts.push(lines[li].trim().replace(/\\\]$/, ''))
+          li++
+        }
+        blocks.push(<MathBlock key={`m${blocks.length}`} tex={parts.join(' ').trim()} />)
+      }
+      continue
+    }
+
     // 列表
     if (LIST_RE.test(t)) {
       flushPara()
@@ -368,4 +393,44 @@ export function renderRich(content: string, sources: SourceRef[] | undefined, on
   }
   flushPara()
   return blocks
+}
+
+// ---------- 纯文本 + 公式编译（不做 markdown 结构化） ----------
+// 用于划词原文/用户引用等「原始文本」场景：只把 $…$ / $$…$$ / \(…\) / \[…\]
+// 编译成 KaTeX，其余保持原样（换行保留），避免把原文里的 * - | 等误当排版符号
+
+function mathInlineParts(line: string, keyBase: string): ReactNode[] {
+  const out: ReactNode[] = []
+  const re = /(\$(?=\S)[^$\n]*\S\$)|(\\\(.+?\\\))/g
+  let last = 0
+  let k = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(line))) {
+    if (m.index > last) out.push(line.slice(last, m.index))
+    out.push(<MathSpan key={`${keyBase}-m${k++}`} tex={m[1] ? m[1].slice(1, -1) : m[2].slice(2, -2)} />)
+    last = m.index + m[0].length
+  }
+  if (last < line.length) out.push(line.slice(last))
+  return out
+}
+
+export function renderMathText(content: string): ReactNode {
+  const nodes: ReactNode[] = []
+  const blockRe = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]/g
+  let last = 0
+  let k = 0
+  let m: RegExpExecArray | null
+  const pushText = (t: string): void => {
+    t.split('\n').forEach((ln, i) => {
+      if (i > 0) nodes.push(<br key={`br${k++}`} />)
+      nodes.push(...mathInlineParts(ln, `mt${k}`))
+    })
+  }
+  while ((m = blockRe.exec(content))) {
+    if (m.index > last) pushText(content.slice(last, m.index))
+    nodes.push(<MathBlock key={`mb${k++}`} tex={(m[1] ?? m[2]).trim()} />)
+    last = m.index + m[0].length
+  }
+  if (last < content.length) pushText(content.slice(last))
+  return nodes
 }

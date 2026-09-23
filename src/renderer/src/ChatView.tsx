@@ -101,6 +101,13 @@ export default function ChatView({
   // 正在编辑的用户消息下标与草稿
   const [editIdx, setEditIdx] = useState<number | null>(null)
   const [editText, setEditText] = useState('')
+  // 当前流式请求的中断句柄（发送按钮生成中变「停止」）
+  const stopRef = useRef<(() => void) | null>(null)
+  const doStop = (): void => {
+    stopRef.current?.()
+    stopRef.current = null
+    setBusy(false)
+  }
   const scrollBottom = () => setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' }), 50)
 
   const suggestions = useMemo(() => buildSuggestions(papers, catCounts), [papers, catCounts])
@@ -153,7 +160,7 @@ export default function ChatView({
       }
       const chatId = cid
       void window.api.chatAppend(chatId, 'user', q)
-      window.api.stream(
+      stopRef.current = window.api.stream(
         {
           mode: 'rag',
           question: q,
@@ -306,8 +313,23 @@ export default function ChatView({
         <ThinkingPill level={thinking} onChange={onChangeThinking} />
         {fsCtl}
         <span style={{ flex: 1 }} />
-        <button className="send-btn" onClick={() => send()} disabled={busy || !input.trim()}>
-          发送
+        <button
+          className={`send-btn ${busy ? 'stop' : ''}`}
+          onClick={() => (busy ? doStop() : send())}
+          disabled={!busy && !input.trim()}
+          title={busy ? '停止生成' : '发送（Enter）'}
+        >
+          {busy ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          ) : (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.5 3.5L2.5 10.2l7.3 2.9 2.9 7.3 8.8-16.9z" />
+              <path d="M9.8 13.1l4.7-4.7" />
+            </svg>
+          )}
+          {busy ? '停止' : '发送'}
         </button>
       </div>
     </div>
@@ -318,7 +340,11 @@ export default function ChatView({
       {msgs.length === 0 ? (
         <div className="chat-hero-wrap">
           <div className="chat-hero">
-            <div className="big">💬</div>
+            <div className="big-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a8 8 0 0 1-8 8H4l2.2-2.6A8 8 0 1 1 21 12z" />
+              </svg>
+            </div>
             <div className="headline">与全库文献对话</div>
             <div className="tip">跨所有论文语义检索，回答自带页码引用，点击引用直达原文</div>
           </div>

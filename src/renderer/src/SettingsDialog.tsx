@@ -36,11 +36,50 @@ const THINK_LEVELS: Array<{ id: Settings['thinkingLevel']; label: string }> = [
 ]
 
 type TabId = 'general' | 'ai' | 'kb' | 'update'
-const TABS: Array<{ id: TabId; label: string; icon: string }> = [
-  { id: 'general', label: '通用', icon: '⚙' },
-  { id: 'ai', label: 'AI 配置', icon: '✦' },
-  { id: 'kb', label: '知识库', icon: '▣' },
-  { id: 'update', label: '更新', icon: '↑' }
+const TABS: Array<{ id: TabId; label: string; icon: JSX.Element }> = [
+  {
+    id: 'general',
+    label: '通用',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h16" />
+        <circle cx="15.5" cy="6" r="1.8" />
+        <circle cx="9.5" cy="12" r="1.8" />
+        <circle cx="18" cy="18" r="1.8" />
+      </svg>
+    )
+  },
+  {
+    id: 'ai',
+    label: 'AI 配置',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3z" />
+        <path d="M18.5 15.5l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9.9-2.3z" />
+      </svg>
+    )
+  },
+  {
+    id: 'kb',
+    label: '知识库',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <ellipse cx="12" cy="5.5" rx="7.5" ry="3" />
+        <path d="M4.5 5.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6" />
+        <path d="M4.5 11.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6" />
+      </svg>
+    )
+  },
+  {
+    id: 'update',
+    label: '更新',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 16V8M8.5 11.5L12 8l3.5 3.5" />
+      </svg>
+    )
+  }
 ]
 
 function guessProvider(apiBase: string): string {
@@ -168,11 +207,12 @@ export default function SettingsDialog({
     const pf = profiles[i]
     if (!pf) return
     setLlmTests((t) => ({ ...t, [i]: '测试中…' }))
+    // 测该卡片的默认模型：正被设为全局默认的那个，否则列表首个
     const over = {
       provider: pf.provider,
       apiBase: pf.apiBase,
       apiKey: pf.apiKey,
-      model: pf.models[0] ?? form.model
+      model: pf.models.includes(form.model) ? form.model : pf.models[0] ?? form.model
     }
     await onSave(form)
     const r = await window.api.testLLM(over)
@@ -438,13 +478,21 @@ export default function SettingsDialog({
                           <label>模型（可添加多个）</label>
                           <div className="model-chips">
                             {pf.models.map((m, mi) => (
-                              <span className="model-chip" key={`${m}-${mi}`}>
+                              <span
+                                className={`model-chip ${m === form.model ? 'on' : ''}`}
+                                key={`${m}-${mi}`}
+                                title={m === form.model ? '当前默认模型' : '点击设为默认模型'}
+                                onClick={() => void switchModel(m)}
+                              >
                                 <span className="mc-name">{m}</span>
-                                {m === form.model && <span className="mc-default" title="当前默认模型">默认</span>}
+                                {m === form.model && <span className="mc-default">默认</span>}
                                 <button
                                   type="button"
                                   title="移除该模型"
-                                  onClick={() => patchPf({ models: pf.models.filter((_, x) => x !== mi) })}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    patchPf({ models: pf.models.filter((_, x) => x !== mi) })
+                                  }}
                                 >
                                   ✕
                                 </button>
@@ -549,7 +597,11 @@ export default function SettingsDialog({
               <div className="section">
                 <div className="section-title">工作区</div>
                 <div className="ws-row">
-                  <div className="ws-icon">📁</div>
+                  <div className="ws-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6.5a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-11.5z" />
+                    </svg>
+                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="ws-name">{workspaceName(form.libraryPath)}</div>
                     <div className="hint ellipsis" title={form.libraryPath}>{form.libraryPath}</div>
@@ -652,7 +704,11 @@ export default function SettingsDialog({
               <div className="section">
                 <div className="section-title">链接</div>
                 <div className="link-row" onClick={() => window.api.openExternal('https://github.com/XinyuanLiao/paperlens')}>
-                  <span className="ws-icon">🐙</span>
+                  <span className="ws-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 6L4 12l5 6M15 6l5 6-5 6" />
+                    </svg>
+                  </span>
                   <div style={{ flex: 1 }}>
                     <div className="ws-name">GitHub 仓库</div>
                     <div className="hint">XinyuanLiao/paperlens · 源码与 Issue 反馈</div>

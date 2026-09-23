@@ -77,7 +77,12 @@ export default function SetupWizard({ initial, onDone }: Props): JSX.Element {
     <div className="wizard-mask">
       <div className="wizard">
         <div className="wizard-head">
-          <div className="wizard-logo">📚</div>
+          <div className="wizard-logo">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 6c-1.8-1.6-4.2-2-8-2v14c3.8 0 6.2.4 8 2 1.8-1.6 4.2-2 8-2V4c-3.8 0-6.2.4-8 2z" />
+              <path d="M12 6v14" />
+            </svg>
+          </div>
           <div>
             <h1>欢迎使用 PaperLens</h1>
             <p>三步完成初始化</p>

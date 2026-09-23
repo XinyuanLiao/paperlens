@@ -79,7 +79,7 @@ const api = {
   testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => ipcRenderer.invoke('llm:test', over),
   testEmbed: () => ipcRenderer.invoke('embed:test'),
 
-  // 流式对话：返回 stop 不需要（请求即发即忘，以 reqId 收尾）
+  // 流式对话：返回 stop 中断句柄（主进程 abort 后照常走 onEnd 收尾）
   stream: (args: Record<string, unknown>, handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: unknown[]) => void }) => {
     const reqId = Date.now() + Math.floor(Math.random() * 1e6)
     const deltaCh = `llm:delta:${reqId}`
@@ -100,6 +100,7 @@ const api = {
     ipcRenderer.on(endCh, onEnd)
     ipcRenderer.on(srcCh, onSources)
     ipcRenderer.send('llm:stream', { reqId, ...args })
+    return () => ipcRenderer.send('llm:stop', reqId)
   },
 
   onIndexProgress: (cb: (p: unknown) => void) => {

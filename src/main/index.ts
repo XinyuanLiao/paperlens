@@ -464,7 +464,11 @@ function registerIpc(): void {
     }
   })
 
-  // LLM 流式：reqId 关联渲染端回调
+  // LLM 流式：reqId 关联渲染端回调；inflight 供「停止生成」abort 进行中的请求
+  const inflight = new Map<number, AbortController>()
+  ipcMain.on('llm:stop', (_e, reqId: number) => {
+    inflight.get(Number(reqId))?.abort()
+  })
   ipcMain.on(
     'llm:stream',
     async (
@@ -483,6 +487,8 @@ function registerIpc(): void {
         history?: Array<{ role: 'user' | 'assistant'; content: string }>
       }
     ) => {
+      const controller = new AbortController()
+      inflight.set(args.reqId, controller)
       try {
         let msgs: ChatMessage[]
         let sources: import('./ingest').RetrievedChunk[] = []
@@ -525,7 +531,7 @@ function registerIpc(): void {
           }
         } else msgs = args.messages ?? []
 
-        for await (const delta of chatStream(msgs)) send(`llm:delta:${args.reqId}`, delta)
+        for await (const delta of chatStream(msgs, { signal: controller.signal })) send(`llm:delta:${args.reqId}`, delta)
         if (args.mode === 'rag')
           send(
             `llm:sources:${args.reqId}`,
@@ -533,8 +539,11 @@ function registerIpc(): void {
           )
         send(`llm:end:${args.reqId}`, null)
       } catch (err) {
-        send(`llm:delta:${args.reqId}`, `\n\n❌ ${String(err)}`)
+        // 用户主动停止：不追加错误提示，静默收尾即可
+        if (!controller.signal.aborted) send(`llm:delta:${args.reqId}`, `\n\n❌ ${String(err)}`)
         send(`llm:end:${args.reqId}`, null)
+      } finally {
+        inflight.delete(args.reqId)
       }
     }
   )

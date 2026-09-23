@@ -42,8 +42,8 @@ function friendlyFetchError(err: unknown, apiBase: string): Error {
   return new Error(`无法连接 ${apiBase}${code ? `（${code}）` : ''}：请检查网络与 API Base 地址是否正确`)
 }
 
-// 智谱 GLM 等 OpenAI 兼容接口的 SSE 流式调用
-export async function* chatStream(messages: ChatMessage[], opts: { temperature?: number } = {}): AsyncGenerator<string> {
+// 智谱 GLM 等 OpenAI 兼容接口的 SSE 流式调用（signal 供「停止生成」中断请求）
+export async function* chatStream(messages: ChatMessage[], opts: { temperature?: number; signal?: AbortSignal } = {}): AsyncGenerator<string> {
   const s = getSettings()
   if (!s.apiKey) {
     yield '⚠️ 尚未配置 API Key：请点击左上角「设置」，在 AI 配置中填入服务商的 API Key。'
@@ -54,9 +54,11 @@ export async function* chatStream(messages: ChatMessage[], opts: { temperature?:
     resp = await fetch(`${s.apiBase}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.apiKey}` },
-      body: JSON.stringify(buildBody(s.model, messages, true, opts.temperature ?? 0.3))
+      body: JSON.stringify(buildBody(s.model, messages, true, opts.temperature ?? 0.3)),
+      signal: opts.signal
     })
   } catch (err) {
+    if (opts.signal?.aborted) throw err
     throw friendlyFetchError(err, s.apiBase)
   }
   if (!resp.ok || !resp.body) {

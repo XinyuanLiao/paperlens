@@ -631,7 +631,12 @@ export default function App(): JSX.Element {
             {tabs.length === 0 ? (
               <div className="start-pane">
                 <div className="workspace-empty">
-                  <div className="big">📚</div>
+                  <div className="big-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 6c-1.8-1.6-4.2-2-8-2v14c3.8 0 6.2.4 8 2 1.8-1.6 4.2-2 8-2V4c-3.8 0-6.2.4-8 2z" />
+                      <path d="M12 6v14" />
+                    </svg>
+                  </div>
                   <div className="headline">PaperLens</div>
                   <div className="tip">从左侧选择论文开始阅读；对话模式可与全库文献直接对话</div>
                   {papers.length === 0 && (

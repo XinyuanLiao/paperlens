@@ -78,7 +78,7 @@ export function ModelPill({ models, model, onChange }: { models: string[]; model
       open={open}
       setOpen={setOpen}
       label={model || '选择模型'}
-      title="切换模型（在设置中可填多个，逗号分隔）"
+      title="切换模型（设置中可为每个服务商添加多个模型）"
       icon={
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
           <rect x="4" y="4" width="16" height="16" rx="3" />

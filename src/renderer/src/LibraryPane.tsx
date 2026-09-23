@@ -382,6 +382,11 @@ export default function LibraryPane({
               刷新
             </button>
             <button className="mini-btn" onClick={onReindex} title="清空并重建全库索引">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <ellipse cx="12" cy="5.5" rx="7" ry="2.8" />
+                <path d="M5 5.5v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6" />
+                <path d="M5 11.5v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6" />
+              </svg>
               重建索引
             </button>
           </div>

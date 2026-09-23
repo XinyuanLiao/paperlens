@@ -1,7 +1,10 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
-import { renderRich, type Jump } from './rich'
+import { renderRich, renderMathText, type Jump } from './rich'
 import { ModelPill, ThinkingPill } from './ChatControls'
 import type { ChatMsg, Paper, SourceRef } from './types'
+
+// 翻译译文渲染不需要引用跳转
+const noopJump: Jump = () => {}
 
 export interface SideControl {
   translate: (text: string, context: string) => void
@@ -44,6 +47,14 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
   const scrollRef = useRef<HTMLDivElement>(null)
   const ctxRef = useRef('')
   const curRef = useRef<Translation | null>(null)
+  // 当前流式请求的中断句柄（发送按钮生成中变「停止」）
+  const stopRef = useRef<(() => void) | null>(null)
+
+  const doStop = (): void => {
+    stopRef.current?.()
+    stopRef.current = null
+    setBusy(false)
+  }
 
   const scrollBottom = () => setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' }), 50)
 
@@ -56,7 +67,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
       curRef.current = item
       setCtxOn(true) // 自动加入问答上下文
       setBusy(true)
-      window.api.stream(
+      stopRef.current = window.api.stream(
         { mode: 'translate', text, context: ctxRef.current.slice(0, 1800) },
         {
           onDelta: (d) => {
@@ -75,7 +86,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
       setMsgs((ms) => [...ms, { role: 'user', content: `解释一下这段话：\n「${text}」` }])
       setBusy(true)
       scrollBottom()
-      window.api.stream(
+      stopRef.current = window.api.stream(
         { mode: 'explain', text, context: ctxRef.current.slice(0, 1800) },
         {
           onDelta: (d) =>
@@ -129,7 +140,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
     setBusy(true)
     scrollBottom()
     const ctxNote = ctxTranslation ? `\n\n（参考：我刚翻译了「${ctxTranslation.src.slice(0, 120)}」→「${ctxTranslation.out.slice(0, 300)}」）` : ''
-    window.api.stream(
+    stopRef.current = window.api.stream(
       { mode: 'rag', question: q + ctxNote, scopePaperId: scope === 'paper' && paper ? paper.id : undefined, paperTitle: paper?.title, history },
       {
         onDelta: (d) =>
@@ -164,19 +175,22 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
         <div className={`side-tab ${tab === 'translate' ? 'active' : ''}`} onClick={() => setTab('translate')}>
           翻译
         </div>
-        <button className="side-new" title="新对话：清空问答记录与上下文" onClick={reset}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.4 0-2.8-.3-4-.9L3 21l1.9-5.5A8.5 8.5 0 1 1 21 11.5z" />
-            <path d="M12 8v7M8.5 11.5h7" />
-          </svg>
-        </button>
-        <div className="fs-ctl" title={`字号（当前 ${fs}px，问答/翻译/对话共用）`}>
-          <button onClick={() => onFs(-1)} title="减小字号">
-            A−
+        <div className="side-tabs-actions">
+          <button className="side-new" title="新对话：清空问答记录与上下文" onClick={reset}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.4 0-2.8-.3-4-.9L3 21l1.9-5.5A8.5 8.5 0 1 1 21 11.5z" />
+              <path d="M12 8v7M8.5 11.5h7" />
+            </svg>
+            新对话
           </button>
-          <button onClick={() => onFs(1)} title="增大字号">
-            A+
-          </button>
+          <div className="fs-ctl" title={`字号（当前 ${fs}px，问答/翻译/对话共用）`}>
+            <button onClick={() => onFs(-1)} title="减小字号">
+              A−
+            </button>
+            <button onClick={() => onFs(1)} title="增大字号">
+              A+
+            </button>
+          </div>
         </div>
       </div>
       {tab === 'chat' ? (
@@ -199,7 +213,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
             )}
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
-                <div className="bubble">{m.role === 'assistant' ? renderRich(m.content, m.sources, jumpFor(i)) : m.content}</div>
+                <div className="bubble">{m.role === 'assistant' ? renderRich(m.content, m.sources, jumpFor(i)) : renderMathText(m.content)}</div>
               </div>
             ))}
             {busy && (
@@ -255,8 +269,23 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
                   }
                 }}
               />
-              <button className="send-btn" onClick={send} disabled={busy || !input.trim()}>
-                发送
+              <button
+                className={`send-btn ${busy ? 'stop' : ''}`}
+                onClick={() => (busy ? doStop() : send())}
+                disabled={!busy && !input.trim()}
+                title={busy ? '停止生成' : '发送（Enter）'}
+              >
+                {busy ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.5 3.5L2.5 10.2l7.3 2.9 2.9 7.3 8.8-16.9z" />
+                    <path d="M9.8 13.1l4.7-4.7" />
+                  </svg>
+                )}
+                {busy ? '停止' : '发送'}
               </button>
             </div>
           </div>
@@ -282,8 +311,8 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
                   </button>
                 )}
               </div>
-              <div className="src-text">{current.src}</div>
-              <div className="dst-text">{current.out || '翻译中…'}</div>
+              <div className="src-text">{renderMathText(current.src)}</div>
+              <div className="dst-text">{renderRich(current.out || '翻译中…', undefined, noopJump)}</div>
             </div>
           )}
         </div>

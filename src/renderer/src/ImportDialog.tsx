@@ -284,7 +284,13 @@ export default function ImportDialog({ initialFiles, initialCats, hasApiKey, onB
             }}
           >
             <div className="import-drop-side">
-              <div className="import-drop-icon">📄</div>
+              <div className="import-drop-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5l-5-5z" />
+                  <path d="M14 2.5v5h5" />
+                  <path d="M12 11v6M9.5 14.5L12 17l2.5-2.5" />
+                </svg>
+              </div>
               <div>
                 <div className="import-drop-tip">{items.length > 0 || folders.length > 0 ? '继续添加 PDF' : '把 PDF 拖到这里'}</div>
                 <div className="import-drop-sub">支持多选，也可以整个文件夹</div>
@@ -334,7 +340,10 @@ export default function ImportDialog({ initialFiles, initialCats, hasApiKey, onB
               {folders.length > 0 && (
                 <div className="import-row folder">
                   <span className="import-row-name ellipsis" title={folders.join('\n')}>
-                    📁 {folders.length} 个文件夹{previewing ? '（识别中…）' : '（已展开为单篇）'}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-2px', marginRight: 5, opacity: 0.7 }}>
+                      <path d="M3 6.5a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-11.5z" />
+                    </svg>
+                    {folders.length} 个文件夹{previewing ? '（识别中…）' : '（已展开为单篇）'}
                   </span>
                 </div>
               )}
