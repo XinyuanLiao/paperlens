@@ -1046,12 +1046,13 @@ html[data-theme='dark'] .pick-foot { background: linear-gradient(180deg, rgba(31
 /* 状态栏设置入口（索引信息左侧）：小巧幽灵图标 */
 .statusbar { height: 28px; }
 .sb-gear {
-  width: 20px; height: 20px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
-  background: transparent; border: none; border-radius: 5px; color: var(--text-dim); cursor: pointer;
-  transition: background var(--speed), color var(--speed);
+  height: 20px; flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;
+  padding: 0 9px; background: var(--bg); border: 1px solid var(--border-lit); border-radius: 999px;
+  color: var(--text); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+  transition: background var(--speed), color var(--speed), border-color var(--speed);
 }
-.sb-gear:hover { background: var(--bg3); color: var(--accent2); }
-.sb-gear svg { width: 13px; height: 13px; }
+.sb-gear:hover { color: var(--accent2); border-color: var(--accent); background: var(--accent-soft); }
+.sb-gear svg { width: 12px; height: 12px; }
 
 /* ============ 用户消息：悬停操作（复制/编辑）与行内编辑器 ============ */
 .msg.user .bubble { position: relative; padding-right: 40px; }
@@ -1075,3 +1076,20 @@ html[data-theme='dark'] .pick-foot { background: linear-gradient(180deg, rgba(31
 .msg-edit-foot { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
 .msg-edit-foot .hint { font-size: 11px; color: var(--text-dim); }
 .msg-edit-foot .btn { padding: 5px 13px; font-size: 12px; }
+
+/* ============ 自绘右键菜单（替代原生菜单） ============ */
+.ctx-menu {
+  position: fixed; z-index: 3500; min-width: 200px;
+  background: var(--bg); border: 1px solid var(--border-lit); border-radius: 12px;
+  box-shadow: var(--shadow); padding: 5px; animation: pop 0.1s ease;
+}
+.ctx-item {
+  display: block; width: 100%; text-align: left;
+  border: none; background: transparent; color: var(--text); font: inherit; font-size: 12.5px;
+  padding: 7px 11px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap;
+  transition: background var(--speed), color var(--speed);
+}
+.ctx-item:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent2); }
+.ctx-item.danger { color: var(--danger); }
+.ctx-item.danger:hover:not(:disabled) { background: rgba(196, 85, 77, 0.1); color: var(--danger); }
+.ctx-item:disabled { color: var(--text-dim); opacity: 0.5; cursor: default; }

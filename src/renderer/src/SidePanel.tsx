@@ -197,7 +197,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
             )}
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
-                <div className="bubble">{m.role === 'assistant' ? renderRich(m.content, m.sources, jumpFor(i), (slug) => onJump(slug, 1)) : m.content}</div>
+                <div className="bubble">{m.role === 'assistant' ? renderRich(m.content, m.sources, jumpFor(i)) : m.content}</div>
               </div>
             ))}
             {busy && (

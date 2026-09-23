@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import ContextMenu, { type CtxItem } from './ContextMenu'
 import type { ChatMeta, Paper } from './types'
 
 interface Props {
@@ -21,6 +22,7 @@ interface Props {
   onRenameChat: (id: number, title: string) => void
   onMovePaper: (id: number, cat: string) => void
   onReindex: () => void
+  onRescan: () => void
   onOpenPalette: () => void
   mode: 'read' | 'chat'
   onModeChange: (m: 'read' | 'chat') => void
@@ -63,6 +65,7 @@ export default function LibraryPane({
   onRenameChat,
   onMovePaper,
   onReindex,
+  onRescan,
   onOpenPalette,
   mode,
   onModeChange,
@@ -138,6 +141,34 @@ export default function LibraryPane({
     const raw = e.dataTransfer.getData('text/plain')
     const id = raw.startsWith('paper:') ? parseInt(raw.slice(6)) : NaN
     if (!isNaN(id)) onMovePaper(id, c)
+  }
+
+  // 自绘右键菜单（分类 / 文件区空白处），替代原生菜单
+  const [catMenu, setCatMenu] = useState<{ x: number; y: number; cat: string } | null>(null)
+  const [blankMenu, setBlankMenu] = useState<{ x: number; y: number } | null>(null)
+  const catMenuItems = (cat: string): CtxItem[] => {
+    const count = papers.filter((p) => p.category === cat).length
+    return [
+      {
+        label: '重命名…',
+        action: () => {
+          setRenameCat(cat)
+          setRenameVal(cat)
+        }
+      },
+      { label: '导出该分类…', action: () => void window.api.categoryExport(cat) },
+      ...(count === 0
+        ? [
+            {
+              label: '删除该空分类',
+              danger: true,
+              action: () => {
+                void window.api.deleteCategory(cat).then(onPapersChanged).catch((e) => alert(String(e)))
+              }
+            } as CtxItem
+          ]
+        : [])
+    ]
   }
 
   // ---------- 弹窗：重命名 / 新建分类 / 移入新分类 / 重命名文献 ----------
@@ -333,6 +364,13 @@ export default function LibraryPane({
         </div>
         {mode === 'read' && (
           <div className="func-row">
+            <button className="mini-btn" onClick={onRescan} title="重新扫描工作区，同步新增/删除的文献">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-2.6-6.3" />
+                <path d="M21 3v6h-6" />
+              </svg>
+              刷新
+            </button>
             <button className="mini-btn" onClick={onReindex} title="清空并重建全库索引">
               重建索引
             </button>
@@ -423,7 +461,7 @@ export default function LibraryPane({
           className="lib-files-scroll"
           onContextMenu={(e) => {
             e.preventDefault()
-            window.api.blankMenu(e.clientX, e.clientY)
+            setBlankMenu({ x: e.clientX, y: e.clientY })
           }}
         >
           {searching ? (
@@ -455,7 +493,7 @@ export default function LibraryPane({
                   onContextMenu={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    window.api.categoryMenu(c, e.clientX, e.clientY)
+                    setCatMenu({ x: e.clientX, y: e.clientY, cat: c })
                   }}
                   onDragOver={(e) => {
                     if (e.dataTransfer.types.includes('text/plain')) {
@@ -622,6 +660,27 @@ export default function LibraryPane({
             </div>
           </div>
         </div>
+      )}
+
+      {catMenu && (
+        <ContextMenu x={catMenu.x} y={catMenu.y} items={catMenuItems(catMenu.cat)} onClose={() => setCatMenu(null)} />
+      )}
+      {blankMenu && (
+        <ContextMenu
+          x={blankMenu.x}
+          y={blankMenu.y}
+          onClose={() => setBlankMenu(null)}
+          items={[
+            { label: '导入 PDF 文献…', action: onAddPapers },
+            {
+              label: '新建分类…',
+              action: () => {
+                setNewCat({})
+                setNewCatVal('')
+              }
+            }
+          ]}
+        />
       )}
 
       {renameChat && (

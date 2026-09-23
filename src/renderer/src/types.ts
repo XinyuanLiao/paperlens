@@ -127,6 +127,7 @@ declare global {
       categoryMenu: (cat: string, x: number, y: number) => void
       blankMenu: (x: number, y: number) => void
       renameCategory: (from: string, to: string) => Promise<{ renamed: string; scan: { added: number; updated: number; total: number } }>
+      categoryExport: (cat: string) => Promise<void>
       renamePaper: (id: number, title: string) => Promise<{ title: string }>
       movePaper: (id: number, category: string) => Promise<{ ok: boolean; category?: string; path?: string; moved?: boolean }>
       createCategory: (name: string) => Promise<{ name: string; dir: string }>

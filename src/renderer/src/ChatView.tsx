@@ -17,8 +17,6 @@ interface Props {
   onChangeModel: (m: string) => void
   onChangeThinking: (l: string) => void
   onJump: Jump
-  // 点击回答末尾的来源文献标题：回阅读模式打开该论文
-  onOpenPaper: (slug: string) => void
   // 对话历史：当前打开的会话 id（null = 新对话）；标题由首条提问自动生成
   activeChatId: number | null
   onChatStarted: (id: number) => void
@@ -79,7 +77,6 @@ export default function ChatView({
   onChangeModel,
   onChangeThinking,
   onJump,
-  onOpenPaper,
   activeChatId,
   onChatStarted,
   onChatsChanged,
@@ -374,7 +371,7 @@ export default function ChatView({
                     </div>
                   )
                 ) : (
-                  <div className="bubble">{renderRich(m.content, m.sources, jumpFor(i), onOpenPaper)}</div>
+                  <div className="bubble">{renderRich(m.content, m.sources, jumpFor(i))}</div>
                 )}
               </div>
             ))}

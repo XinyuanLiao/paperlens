@@ -414,6 +414,8 @@ function registerIpc(): void {
     return { renamed: toSlug, scan: r }
   })
 
+  ipcMain.handle('category:export', (_e, cat: string) => exportCategory(String(cat)))
+
   async function exportCategory(cat: string): Promise<void> {
     const db = dbmod.getDb()
     const rows = db.prepare('SELECT path, slug FROM papers WHERE category=?').all(cat) as Array<{ path: string; slug: string }>

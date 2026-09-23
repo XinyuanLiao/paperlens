@@ -34,6 +34,7 @@ const api = {
   categoryMenu: (cat: string, x: number, y: number) => ipcRenderer.send('category:menu', cat, x, y),
   blankMenu: (x: number, y: number) => ipcRenderer.send('library:blank-menu', x, y),
   renameCategory: (from: string, to: string) => ipcRenderer.invoke('category:rename', from, to),
+  categoryExport: (cat: string) => ipcRenderer.invoke('category:export', cat),
   renamePaper: (id: number, title: string) => ipcRenderer.invoke('papers:rename', id, title),
   movePaper: (id: number, category: string) => ipcRenderer.invoke('papers:move', id, category),
   createCategory: (name: string) => ipcRenderer.invoke('category:create', name),

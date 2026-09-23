@@ -341,18 +341,37 @@ export function scanLibrary(libPath: string): ScanResult {
       }
     }
   }
-  // 清掉磁盘上已不存在的论文行：目录改名/手动移动后，旧路径行不清理的话
-  // 列表会新旧并存“翻倍”，且新行 indexed=0 会触发整批重新嵌入。
+  // 清掉不属于当前工作区、或磁盘上已不存在的论文行：
+  // ① 目录改名/手动移动后旧行不清理会“翻倍”；② 切换工作区后旧库的行
+  // （旧目录在磁盘上仍存在）必须删除，否则两个库的分类/文献会混在一起越积越多。
   // 按论文文件夹（slug 目录）判断存在性——iCloud/网盘占位文件只占文件本身，
   // 目录结构始终物化，不会误删未同步条目
+  const root = path.resolve(libPath)
+  const rootN = process.platform === 'win32' ? root.toLowerCase() : root
+  const underRoot = (p: string): boolean => {
+    const a = path.resolve(p)
+    const an = process.platform === 'win32' ? a.toLowerCase() : a
+    return an === rootN || an.startsWith(rootN + path.sep)
+  }
   const stale = db.prepare('SELECT id, path FROM papers').all() as Array<{ id: number; path: string }>
   const delRow = db.prepare('DELETE FROM papers WHERE id=?')
+  let removed = 0
   for (const row of stale) {
     try {
-      if (!fs.existsSync(path.dirname(row.path))) delRow.run(row.id)
+      if (!underRoot(row.path) || !fs.existsSync(path.dirname(row.path))) {
+        delRow.run(row.id)
+        removed++
+      }
     } catch {
       /* 单行 stat 失败保守跳过 */
     }
+  }
+  // 被删论文行留下的块/FTS/整篇索引一并清掉（外键级联默认关闭），
+  // 否则切换工作区后旧索引会污染新库的检索
+  if (removed > 0) {
+    db.exec('DELETE FROM chunks WHERE paper_id NOT IN (SELECT id FROM papers)')
+    db.exec('DELETE FROM chunks_fts WHERE paper_id NOT IN (SELECT id FROM papers)')
+    db.exec('DELETE FROM papers_fts WHERE rowid NOT IN (SELECT id FROM papers)')
   }
   return res
 }

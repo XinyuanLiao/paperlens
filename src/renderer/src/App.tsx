@@ -6,7 +6,6 @@ import SettingsDialog from './SettingsDialog'
 import SetupWizard from './SetupWizard'
 import CommandPalette from './CommandPalette'
 import ChatView from './ChatView'
-import RefViewer from './RefViewer'
 import ImportDialog from './ImportDialog'
 import type { ChatScope } from './ChatControls'
 import type { ChatMeta, Paper, Settings } from './types'
@@ -165,11 +164,6 @@ export default function App(): JSX.Element {
         if (fresh) next.push({ paper: fresh })
       }
       return next
-    })
-    setRefView((rv) => {
-      if (!rv) return rv
-      const fresh = ps.find((p) => p.id === rv.paper.id)
-      return fresh ? { ...rv, paper: fresh } : null
     })
     return ps
   }, [])
@@ -431,10 +425,8 @@ export default function App(): JSX.Element {
   const model = settings?.model ?? ''
   const thinking = settings?.thinkingLevel ?? 'default'
 
-  // 对话模式：检索范围与引用面板
+  // 对话模式：检索范围（点引用芯片直接跳阅读模式对应位置）
   const [chatScope, setChatScope] = useState<ChatScope>({ type: 'all', cat: '' })
-  const [refView, setRefView] = useState<{ paper: Paper; page: number; snippet?: string; probe?: string } | null>(null)
-  const [refWidth, setRefWidth] = useState(() => Number(localStorage.getItem('pl.refW')) || 460)
 
   // 对话字号（问答/翻译/对话三处共用），CSS 变量 --chat-fs 驱动，localStorage 记忆
   const [chatFs, setChatFs] = useState(() => Math.max(11, Math.min(19, Number(localStorage.getItem('pl.chatFs')) || 13)))
@@ -458,22 +450,6 @@ export default function App(): JSX.Element {
     for (const p of papers) m.set(p.category, (m.get(p.category) ?? 0) + 1)
     return m
   }, [papers])
-  // Chat 模式点引用：在右侧引用面板打开，不离开对话
-  const openCite = useCallback(
-    (slug: string, page: number, snippet?: string, probe?: string) => {
-      const p = papers.find((x) => x.slug === slug)
-      if (p) setRefView({ paper: p, page, snippet, probe })
-    },
-    [papers]
-  )
-  // Chat 模式点回答末尾的来源文献标题：回阅读模式打开该论文
-  const openPaperBySlug = useCallback(
-    (slug: string) => {
-      const p = papers.find((x) => x.slug === slug)
-      if (p) openPaperFromTree(p)
-    },
-    [papers, openPaperFromTree]
-  )
   const changeModel = useCallback(
     (m: string) => {
       // 跨供应商：该模型属于哪个配置，就同步切换到那个供应商
@@ -500,14 +476,13 @@ export default function App(): JSX.Element {
     const startW = Number(localStorage.getItem(key)) || (which === 'lib' ? 264 : which === 'side' ? 380 : 460)
     const move = (ev: MouseEvent): void => {
       const dx = ev.clientX - startX
-      // lib 把手在右缘（右拖变宽）；side/ref 把手在左缘（左拖变宽）
+      // lib 把手在右缘（右拖变宽）；side 把手在左缘（左拖变宽）
       const w = which === 'lib' ? startW + dx : startW - dx
       const min = which === 'lib' ? 258 : 300
-      const max = which === 'lib' ? 480 : which === 'side' ? 680 : 900
+      const max = which === 'lib' ? 480 : 680
       const clamped = Math.max(min, Math.min(max, w))
       if (which === 'lib') setLibWidth(clamped)
-      else if (which === 'side') setSideWidth(clamped)
-      else setRefWidth(clamped)
+      else setSideWidth(clamped)
       localStorage.setItem(key, String(clamped))
     }
     const up = (): void => {
@@ -640,6 +615,12 @@ export default function App(): JSX.Element {
               onReindex={() => {
                 void window.api.rebuildIndex()
               }}
+              onRescan={() => {
+                void (async () => {
+                  await window.api.scanLibrary()
+                  await refreshPapers()
+                })()
+              }}
               onOpenPalette={() => setPaletteOpen(true)}
               mode={mode}
               onModeChange={setMode}
@@ -730,8 +711,7 @@ export default function App(): JSX.Element {
               thinking={thinking}
               onChangeModel={changeModel}
               onChangeThinking={changeThinking}
-              onJump={openCite}
-              onOpenPaper={openPaperBySlug}
+              onJump={jumpTo}
               activeChatId={curChatId}
               onChatStarted={setCurChatId}
               onChatsChanged={() => void refreshChats()}
@@ -742,20 +722,6 @@ export default function App(): JSX.Element {
               fs={chatFs}
               onFs={changeFs}
             />
-            {refView && (
-              <>
-                <div
-                  className="col-resizer"
-                  onMouseDown={startDrag('ref')}
-                  title="拖动调节宽度，双击复位"
-                  onDoubleClick={() => {
-                    setRefWidth(460)
-                    localStorage.setItem('pl.refW', '460')
-                  }}
-                />
-                <RefViewer paper={refView.paper} page={refView.page} snippet={refView.snippet} probe={refView.probe} width={refWidth} onClose={() => setRefView(null)} />
-              </>
-            )}
           </div>
         </div>
       </div>
@@ -763,6 +729,7 @@ export default function App(): JSX.Element {
       <div className="statusbar">
         <button className="sb-gear" title="设置" onClick={() => setShowSettings(true)}>
           <GearIcon />
+          <span>设置</span>
         </button>
         <span className="ellipsis">{statusLeft}</span>
         <span style={{ flex: 1 }} />
