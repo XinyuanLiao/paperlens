@@ -35,9 +35,8 @@ export interface Settings {
   ollamaEmbedModel: string
   translateTarget: string
   theme: 'system' | 'light' | 'dark'
-  // 全局字体（空 = 跟随默认栈）
-  fontCjk?: string
-  fontLatin?: string
+  // 全局界面字体（空 = 跟随默认栈）
+  fontFamily?: string
   setupDone?: boolean
   profiles?: ProviderProfile[]
 }

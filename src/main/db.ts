@@ -40,8 +40,7 @@ export interface Settings {
   ollamaEmbedModel: string
   translateTarget: string
   theme: Theme
-  fontCjk: string
-  fontLatin: string
+  fontFamily: string
   setupDone: boolean
   models: string[]
   thinkingLevel: 'default' | 'off' | 'low' | 'medium' | 'high'
@@ -66,8 +65,7 @@ const DEFAULTS: Settings = {
   ollamaEmbedModel: 'bge-m3',
   translateTarget: '中文',
   theme: 'system',
-  fontCjk: '',
-  fontLatin: '',
+  fontFamily: '',
   setupDone: false,
   models: [],
   thinkingLevel: 'default'
@@ -178,7 +176,12 @@ export function getSettings(): Settings {
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {
-  const next = { ...getSettings(), ...patch }
+  const prev = getSettings()
+  // 切换工作区：旧库的手建空分类（extra_cats）不随扫描消失，会残留成打不开的幽灵分类
+  if (patch.libraryPath && prev.libraryPath && prev.libraryPath !== patch.libraryPath) {
+    setExtraCats([])
+  }
+  const next = { ...prev, ...patch }
   db.prepare("UPDATE meta SET value=? WHERE key='settings'").run(JSON.stringify(next))
   return next
 }

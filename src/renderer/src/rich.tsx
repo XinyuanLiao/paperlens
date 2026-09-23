@@ -220,7 +220,8 @@ function renderListLevel(nodes: LiNode[], key: string, sources: SourceRef[] | un
 
 // 支持：```代码块``` / > 引用块 / #~###### 标题 / 有序无序嵌套列表 / 表格 / --- 分割线 /
 // $$公式块$$ / 段落（单换行转 <br>）/ 行内粗斜码删链公式 / [n] 引用芯片
-export function renderRich(content: string, sources: SourceRef[] | undefined, onJump: Jump): ReactNode {
+// onOpenPaper：回答末尾「来源」文献标题可点击，跳到阅读模式打开该论文
+export function renderRich(content: string, sources: SourceRef[] | undefined, onJump: Jump, onOpenPaper?: (slug: string) => void): ReactNode {
   const blocks: ReactNode[] = []
   const lines = content.split('\n')
   let li = 0
@@ -282,7 +283,7 @@ export function renderRich(content: string, sources: SourceRef[] | undefined, on
       }
       blocks.push(
         <blockquote key={`q${blocks.length}`} className="md-quote">
-          {renderRich(q.join('\n'), sources, onJump)}
+          {renderRich(q.join('\n'), sources, onJump, onOpenPaper)}
         </blockquote>
       )
       continue
@@ -367,5 +368,26 @@ export function renderRich(content: string, sources: SourceRef[] | undefined, on
     li++
   }
   flushPara()
+
+  // 来源文献列表：按论文去重，标题可点击跳阅读模式
+  if (onOpenPaper && sources?.length) {
+    const seen = new Map<string, SourceRef>()
+    for (const s of sources) if (!seen.has(s.slug)) seen.set(s.slug, s)
+    blocks.push(
+      <div key={`srcs${blocks.length}`} className="sources">
+        <span className="src-label">来源</span>
+        {[...seen.values()].map((s) => (
+          <span
+            key={s.slug}
+            className="src-paper"
+            title={`${s.title} · 点击在阅读模式打开`}
+            onClick={() => onOpenPaper(s.slug)}
+          >
+            {s.title}
+          </span>
+        ))}
+      </div>
+    )
+  }
   return blocks
 }

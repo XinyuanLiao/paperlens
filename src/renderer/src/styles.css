@@ -76,7 +76,7 @@ body {
   height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 6px;
   width: env(titlebar-area-width, 100%);
   padding: 0 10px; -webkit-app-region: drag;
-  background: var(--bg2); border-bottom: 1px solid var(--border);
+  background: var(--bg2);
 }
 html.mac .titlebar { height: 44px; width: 100%; padding-left: 78px; }
 .tb-side { display: flex; align-items: center; gap: 4px; -webkit-app-region: no-drag; }
@@ -160,7 +160,7 @@ html.mac .titlebar { height: 44px; width: 100%; padding-left: 78px; }
 }
 html[data-theme='dark'] .main-win { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 34px rgba(0, 0, 0, 0.38); }
 .main-win .pdf-pane { flex: 1; min-width: 0; }
-.main-win .side { width: 380px; flex-shrink: 0; border-left: 1px solid var(--border); }
+.main-win .side { width: 380px; flex-shrink: 0; }
 
 /* 无标签页时的起始区（右侧仍可全库对话） */
 .start-pane { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); }
@@ -178,7 +178,7 @@ html[data-theme='dark'] .main-win { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 
 /* ============ 底部状态栏（TUI 风：等宽、安静） ============ */
 .statusbar {
   height: 25px; flex-shrink: 0; display: flex; align-items: center; gap: 10px;
-  padding: 0 12px; background: var(--bg2); border-top: 1px solid var(--border);
+  padding: 0 12px; background: var(--bg2);
   font-size: 11px; color: var(--text-dim); font-family: var(--mono);
 }
 .chip { background: var(--bg3); border-radius: 4px; padding: 1.5px 7px; cursor: default; white-space: nowrap; }
@@ -192,8 +192,8 @@ button { font-family: inherit; }
 }
 
 /* ============ 左栏：导航/功能区(上) + 文件树(下)，中间一条分隔线 ============ */
-.library { width: 264px; min-width: 244px; flex-shrink: 0; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-.lib-func { padding: 12px 12px 10px; flex-shrink: 0; display: flex; flex-direction: column; gap: 9px; border-bottom: 1px solid var(--border-lit); }
+.library { width: 264px; min-width: 258px; flex-shrink: 0; background: var(--bg2); display: flex; flex-direction: column; }
+.lib-func { padding: 12px 12px 10px; flex-shrink: 0; display: flex; flex-direction: column; gap: 9px; }
 .nav-row { display: flex; align-items: center; gap: 4px; }
 .nav-label { font-size: 12px; font-weight: 700; color: var(--text); margin-left: 6px; letter-spacing: 0.8px; text-transform: uppercase; }
 .add-btn {
@@ -222,13 +222,13 @@ button { font-family: inherit; }
 
 /* 文件区子标签（最近/分类）：分段控件 + 实底色，滚动内容不会从后面透出 */
 .lib-view-toggle {
-  flex-shrink: 0; display: flex; align-items: center; gap: 5px;
-  padding: 8px 8px; background: var(--bg2); border-bottom: 1px solid var(--border);
+  flex-shrink: 0; display: flex; align-items: center; gap: 4px;
+  padding: 8px 6px; background: var(--bg2);
 }
 .lib-view-seg { display: flex; gap: 1px; background: var(--bg3); border-radius: 8px; padding: 2px; flex-shrink: 0; }
 .lib-view-seg button {
   display: flex; align-items: center; gap: 4px; border: none; background: transparent; color: var(--text-dim);
-  padding: 4px 9px; border-radius: 6px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+  padding: 4px 8px; border-radius: 6px; font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
   white-space: nowrap; flex-shrink: 0;
   transition: background var(--speed), color var(--speed), box-shadow var(--speed);
 }
@@ -283,12 +283,12 @@ button { font-family: inherit; }
   transition: background var(--speed), color var(--speed), border-color var(--speed);
 }
 .cat-item:hover { background: var(--bg4); }
-.cat-item .pick-box.cat-box { margin-right: 1px; background: transparent; }
+.cat-item .pick-box.cat-box { margin: 0 3px 0 1px; background: transparent; }
 .cat-item .pick-box.cat-box.on { background: var(--accent); }
 .cat-item.drop-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent2); }
 .cat-count { font-size: 10px; background: var(--bg); border-radius: 4px; padding: 1px 6px; color: var(--text-dim); font-family: var(--mono); }
 
-.paper-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 12px; border-top: 1px solid var(--border); }
+.paper-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 12px; }
 .paper-item {
   padding: 8px 10px; border-radius: var(--radius); cursor: pointer; margin-bottom: 1px; position: relative;
   transition: background var(--speed);
@@ -347,7 +347,7 @@ button { font-family: inherit; }
 .tabselect-item .x:hover { opacity: 1; background: var(--bg4); }
 .viewer-toolbar {
   display: flex; align-items: center; gap: 12px; padding: 6px 14px;
-  border-bottom: 1px solid var(--border); background: var(--bg); font-size: 12px; color: var(--text-dim); flex-shrink: 0;
+  background: var(--bg); font-size: 12px; color: var(--text-dim); flex-shrink: 0;
 }
 .seg { display: inline-flex; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .seg button { background: none; border: none; color: var(--text); padding: 3px 10px; cursor: pointer; font-size: 12px; transition: background var(--speed); }
@@ -399,7 +399,7 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 
 /* ============ 右栏：聊天/翻译 ============ */
 .side { background: var(--bg2); display: flex; flex-direction: column; }
-.side-tabs { display: flex; align-items: center; padding: 0 12px 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.side-tabs { display: flex; align-items: center; padding: 0 12px 0 14px; flex-shrink: 0; }
 /* 新对话：安静的图标按钮（描边幽灵风），hover 才亮 accent */
 .side-new {
   width: 26px; height: 26px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
@@ -428,10 +428,16 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
   font-family: var(--mono);
 }
 .cite-chip:hover { background: var(--accent); color: #fff; }
-.sources { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-lit); font-size: 11px; color: var(--text-dim); user-select: text; }
-.sources .src { cursor: pointer; color: var(--accent2); }
-.sources .src:hover { text-decoration: underline; }
-.chat-input-area { border-top: 1px solid var(--border); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 9px; flex-shrink: 0; }
+/* 回答末尾的来源文献：点击标题跳到阅读模式打开该论文 */
+.sources { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); user-select: text; }
+.sources .src-label { font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; flex-shrink: 0; }
+.src-paper {
+  display: inline-block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--accent2); background: var(--accent-soft); border: 1px solid transparent; border-radius: 999px;
+  padding: 2px 10px; cursor: pointer; transition: border-color var(--speed), background var(--speed);
+}
+.src-paper:hover { border-color: var(--accent); }
+.chat-input-area { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 9px; flex-shrink: 0; }
 .rag-toggle { display: flex; gap: 8px; font-size: 11.5px; color: var(--text-dim); align-items: center; }
 .rag-toggle .seg { display: flex; background: var(--bg3); border-radius: 6px; padding: 2px; border: none; }
 .rag-toggle .seg span { padding: 3px 12px; border-radius: 5px; cursor: pointer; font-size: 11.5px; transition: background var(--speed), color var(--speed); color: var(--text-dim); }
@@ -621,7 +627,7 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 }
 .hero-suggest button:hover { border-color: var(--accent); color: var(--accent2); background: var(--accent-soft); }
 .chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 28px 12px; display: flex; flex-direction: column; gap: 22px; }
-.chat-view-input { flex-shrink: 0; margin: 0 28px; padding: 12px 0 16px; border-top: 1px solid var(--border); }
+.chat-view-input { flex-shrink: 0; margin: 0 28px; padding: 12px 0 16px; }
 .chat-view-input .hero-input { width: 100%; background: var(--bg); border: 1px solid var(--border-lit); box-shadow: none; border-radius: 14px; }
 .page-ind { padding: 3px 6px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); min-width: 52px; text-align: center; }
 
@@ -729,11 +735,11 @@ html[data-theme='dark'] .chat-wrap .chat-view { box-shadow: 0 1px 2px rgba(0, 0,
 .side-wrap { display: flex; min-width: 0; min-height: 0; flex-shrink: 0; }
 
 .ref-viewer { width: 460px; flex-shrink: 0; display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); min-height: 0; }
-.ref-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.ref-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; flex-shrink: 0; }
 .ref-tag { font-size: 10px; font-weight: 700; letter-spacing: 1px; background: var(--accent-soft); color: var(--accent2); border-radius: 4px; padding: 2px 7px; flex-shrink: 0; }
 .ref-title { flex: 1; font-size: 12px; font-weight: 600; }
 .ref-err { padding: 20px; color: var(--danger); font-size: 12px; line-height: 1.7; }
-.ref-toolbar { display: flex; align-items: center; gap: 10px; padding: 5px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.ref-toolbar { display: flex; align-items: center; gap: 10px; padding: 5px 10px; flex-shrink: 0; }
 .ref-toolbar .page-ind { min-width: 64px; text-align: center; }
 .ref-scroll { flex: 1; min-height: 0; overflow: auto; background: var(--pdf-canvas); padding: 14px 0; }
 .ref-scroll .page-wrap { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1); }
@@ -741,8 +747,8 @@ html[data-theme='dark'] .chat-wrap .chat-view { box-shadow: 0 1px 2px rgba(0, 0,
 /* 有内边距的窄弹窗（重命名/新建分类等）：统一留白节奏，动作区与内容用分隔线分开 */
 /* 有内边距的窄弹窗：.modal.modal-pad 提高特异性——设置弹窗改造引入的 `.modal{padding:0}`
    在源码顺序上覆盖裸 .modal-pad，曾导致窄弹窗内容贴边 */
-.modal.modal-pad { padding: 20px 22px 18px; display: block; }
-.modal-pad .modal-head { position: static; margin: 0 0 16px; padding: 0; background: none; border-bottom: none; border-radius: 0; }
+.modal.modal-pad { padding: 16px 18px 14px; display: block; }
+.modal-pad .modal-head { position: static; margin: 0 0 12px; padding: 0; background: none; border-bottom: none; border-radius: 0; }
 .modal-pad h2 { font-size: 15px; }
 .modal-pad .field { margin-bottom: 0; }
 .modal-pad .field label { margin-bottom: 7px; }

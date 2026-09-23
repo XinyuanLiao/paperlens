@@ -298,31 +298,18 @@ export default function SettingsDialog({
                   </div>
                   <button className="btn ghost fs-reset" onClick={onChatFsReset}>重置</button>
                 </div>
-                <div className="field-row" style={{ marginTop: 12 }}>
-                  <div className="field grow">
-                    <label>英文字体（拉丁字符）</label>
-                    <select value={form.fontLatin ?? ''} onChange={(e) => set({ fontLatin: e.target.value })}>
-                      <option value="">默认</option>
-                      {fonts.map((f) => (
-                        <option key={f} value={f}>
-                          {f}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field grow">
-                    <label>中文字体</label>
-                    <select value={form.fontCjk ?? ''} onChange={(e) => set({ fontCjk: e.target.value })}>
-                      <option value="">默认</option>
-                      {fonts.map((f) => (
-                        <option key={f} value={f}>
-                          {f}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <div className="field" style={{ marginTop: 12 }}>
+                  <label>界面字体</label>
+                  <select value={form.fontFamily ?? ''} onChange={(e) => set({ fontFamily: e.target.value })}>
+                    <option value="">默认</option>
+                    {fonts.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="hint">扫描本机已安装字体，中英文统一由所选字体渲染（缺字时回退默认）；选「默认」恢复内置字体栈。</div>
                 </div>
-                <div className="hint">扫描本机已安装字体，选择后全局生效（界面与问答）；选「默认」恢复内置字体栈。</div>
               </div>
               <div className="section">
                 <div className="section-title">翻译</div>
