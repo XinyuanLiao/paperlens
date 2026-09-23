@@ -747,13 +747,13 @@ function PageView({ doc, num, scale, dim, hls, find, onDeleteHl, registerRef, on
       taskRef.current = renderTask
       await renderTask.promise
       if (cancelled) return
-      // 文本层（划词的关键）：includeMarkedContent 与官方 viewer 一致，
-      // 保留标记结构后选择边界更贴近可视文字，减少选到相邻区域
+      // 文本层（划词的关键）：includeMarkedContent 默认 false——开启后 marked 容器嵌套
+      // 会让部分 PDF 的 span 定位错乱（选区/高亮整体漂移），不跟随官方 viewer 的非常规用法
       const container = textRef.current!
       container.innerHTML = ''
       container.style.setProperty('--scale-factor', String(viewport.scale))
       const tl = new (pdfjsLib as any).TextLayer({
-        textContentSource: page.streamTextContent({ includeMarkedContent: true, disableNormalization: true }),
+        textContentSource: page.streamTextContent({ includeMarkedContent: false, disableNormalization: true }),
         container,
         viewport
       })
