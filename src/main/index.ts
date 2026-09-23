@@ -38,7 +38,7 @@ function maybeRescan(reason: string, minIntervalMs: number): void {
 // 颜色随应用主题同步；macOS 用隐藏标题栏 + 红绿灯。
 function overlayColors(theme: string): { color: string; symbolColor: string } {
   const dark = theme === 'dark' || (theme !== 'light' && nativeTheme.shouldUseDarkColors)
-  return dark ? { color: '#211d1e', symbolColor: '#ece7e9' } : { color: '#f6f4f2', symbolColor: '#241f21' }
+  return dark ? { color: '#1f1e1d', symbolColor: '#f5f3ec' } : { color: '#f2f0e9', symbolColor: '#26231e' }
 }
 
 function createWindow(): void {
@@ -53,7 +53,7 @@ function createWindow(): void {
     y: wa.y + Math.max(0, Math.floor((wa.height - h) / 2)),
     minWidth: 1080,
     minHeight: 640,
-    backgroundColor: '#16171a',
+    backgroundColor: '#1f1e1d',
     title: 'PaperLens',
     titleBarStyle: process.platform === 'linux' ? 'default' : 'hidden',
     ...(process.platform === 'win32'
@@ -539,14 +539,20 @@ function registerIpc(): void {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
   })
 
-  // ---------- 聊天记录持久化 ----------
-  ipcMain.handle('chat:list', (_e, kind: string, paperId: number | null) => dbmod.listChat(String(kind), paperId ?? null))
-  ipcMain.handle('chat:append', (_e, kind: string, paperId: number | null, role: string, content: string, sources?: string) => {
+  // ---------- 对话历史 ----------
+  ipcMain.handle('chats:list', () => dbmod.listChats())
+  ipcMain.handle('chat:load', (_e, id: number) => dbmod.loadChat(Number(id)))
+  ipcMain.handle('chat:create', (_e, title: string) => dbmod.createChat(String(title ?? '')))
+  ipcMain.handle('chat:append', (_e, id: number, role: string, content: string, sources?: string) => {
     if (typeof content !== 'string' || !content.trim()) return 0
-    return dbmod.appendChat(String(kind), paperId ?? null, String(role), content, sources)
+    return dbmod.appendChatMsg(Number(id), String(role), content, sources)
   })
-  ipcMain.handle('chat:clear', (_e, kind: string, paperId: number | null) => {
-    dbmod.clearChat(String(kind), paperId ?? null)
+  ipcMain.handle('chat:rename', (_e, id: number, title: string) => {
+    dbmod.renameChat(Number(id), String(title ?? ''))
+    return true
+  })
+  ipcMain.handle('chat:delete', (_e, id: number) => {
+    dbmod.deleteChat(Number(id))
     return true
   })
 

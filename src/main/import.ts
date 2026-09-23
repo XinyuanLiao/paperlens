@@ -387,7 +387,6 @@ export async function deletePaper(paperId: number): Promise<void> {
     db.prepare('DELETE FROM chunks WHERE paper_id=?').run(paperId)
     db.prepare('DELETE FROM papers_fts WHERE rowid=?').run(paperId)
     db.prepare('DELETE FROM highlights WHERE paper_id=?').run(paperId)
-    db.prepare('DELETE FROM chatlog WHERE paper_id=?').run(paperId)
     db.prepare('DELETE FROM papers WHERE id=?').run(paperId)
   })
   tx()

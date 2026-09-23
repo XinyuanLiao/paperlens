@@ -732,6 +732,20 @@ function PageView({ doc, num, scale, dim, hls, find, onDeleteHl, registerRef, on
         viewport
       })
       await tl.render()
+      // 剔除页边行号：两栏正文外侧极左/极右的短纯数字（1-4 位）从文本层移除，
+      // 纵向拖选时不再把行号扫进选区（全文搜索/高亮走 getTextContent，不受影响）
+      try {
+        const cw = container.clientWidth || 1
+        for (const el of [...container.querySelectorAll('span')] as HTMLElement[]) {
+          if (el.classList.contains('markedContent')) continue
+          if (!/^\d{1,4}$/.test((el.textContent ?? '').trim())) continue
+          const leftPct = parseFloat(el.style.left)
+          const ratio = (!isNaN(leftPct) && el.style.left.includes('%') ? leftPct / 100 : el.offsetLeft / cw)
+          if (ratio < 0.03 || ratio > 0.965) el.remove()
+        }
+      } catch {
+        /* 行号剔除失败不影响阅读 */
+      }
       if (cancelled) return
       const tc = await page.getTextContent()
       const txt = (tc.items as Array<{ str: string; hasEOL?: boolean }>)

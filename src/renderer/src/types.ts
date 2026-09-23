@@ -90,6 +90,14 @@ export interface ChatMsg {
   sources?: SourceRef[]
 }
 
+// 对话历史条目（侧栏对话模式下的历史列表）
+export interface ChatMeta {
+  id: number
+  title: string
+  updated_at: string
+  n: number
+}
+
 declare global {
   interface Window {
     api: {
@@ -140,9 +148,12 @@ declare global {
       onImportProgress: (cb: (p: { done: number; total: number; current: string }) => void) => () => void
       openExternal: (url: string) => void
       syncTheme: (theme: string) => void
-      chatList: (kind: string, paperId: number | null) => Promise<ChatMsg[]>
-      chatAppend: (kind: string, paperId: number | null, role: string, content: string, sources?: string) => Promise<number>
-      chatClear: (kind: string, paperId: number | null) => Promise<boolean>
+      chatsList: () => Promise<ChatMeta[]>
+      chatLoad: (id: number) => Promise<ChatMsg[]>
+      chatCreate: (title: string) => Promise<number>
+      chatAppend: (id: number, role: string, content: string, sources?: string) => Promise<number>
+      chatRename: (id: number, title: string) => Promise<boolean>
+      chatDelete: (id: number) => Promise<boolean>
       appVersion: () => Promise<string>
       checkUpdate: () => Promise<
         | { ok: true; current: string; latest: string; url: string; notes: string; published: string }

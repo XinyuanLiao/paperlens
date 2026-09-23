@@ -9,7 +9,7 @@ import ChatView from './ChatView'
 import RefViewer from './RefViewer'
 import ImportDialog from './ImportDialog'
 import type { ChatScope } from './ChatControls'
-import type { Paper, Settings } from './types'
+import type { ChatMeta, Paper, Settings } from './types'
 
 export interface Tab {
   paper: Paper
@@ -99,7 +99,9 @@ export default function App(): JSX.Element {
   const [importFiles, setImportFiles] = useState<string[] | null>(null)
   const [importSeq, setImportSeq] = useState(0)
   const [importBusy, setImportBusy] = useState(false)
-  const [chatReset, setChatReset] = useState(0)
+  // 对话历史：列表 + 当前打开的会话（null = 新对话）
+  const [chats, setChats] = useState<ChatMeta[]>([])
+  const [curChatId, setCurChatId] = useState<number | null>(null)
   const [indexedCount, setIndexedCount] = useState({ papers: 0, indexed: 0, chunks: 0 })
   const [pendingJump, setPendingJump] = useState<{ slug: string; page: number; snippet?: string; probe?: string } | null>(null)
   const [pageCtx, setPageCtx] = useState('')
@@ -354,11 +356,41 @@ export default function App(): JSX.Element {
     [refreshPapers, openPaperFromTree]
   )
 
-  // 新建对话：切到对话模式并清空当前会话
+  // 对话历史：列表刷新（新建/追加/改名/删除后由 ChatView 回调触发；进对话模式时也刷一次）
+  const refreshChats = useCallback(async (): Promise<void> => {
+    setChats(await window.api.chatsList())
+  }, [])
+  useEffect(() => {
+    void refreshChats()
+  }, [refreshChats])
+  useEffect(() => {
+    if (mode === 'chat') void refreshChats()
+  }, [mode, refreshChats])
+
+  // 新建对话：当前会话已增量落库（自动归档），直接切换到空白新会话
   const newChat = useCallback(() => {
     setMode('chat')
-    setChatReset((k) => k + 1)
+    setCurChatId(null)
   }, [])
+  const openChat = useCallback((id: number) => {
+    setMode('chat')
+    setCurChatId(id)
+  }, [])
+  const deleteChat = useCallback(
+    async (id: number) => {
+      await window.api.chatDelete(id)
+      setCurChatId((c) => (c === id ? null : c))
+      await refreshChats()
+    },
+    [refreshChats]
+  )
+  const renameChat = useCallback(
+    async (id: number, title: string) => {
+      await window.api.chatRename(id, title)
+      await refreshChats()
+    },
+    [refreshChats]
+  )
 
   // 手动归类（拖拽 / 弹窗）：移动文件夹 + 刷新
   const movePaper = useCallback(
@@ -591,6 +623,11 @@ export default function App(): JSX.Element {
               onCycleStatus={cycleStatus}
               onAddPapers={addPapers}
               onNewChat={newChat}
+              chats={chats}
+              curChatId={curChatId}
+              onOpenChat={openChat}
+              onDeleteChat={(id) => void deleteChat(id)}
+              onRenameChat={(id, title) => void renameChat(id, title)}
               onMovePaper={(id, cat) => void movePaper(id, cat)}
               onReindex={() => {
                 void window.api.rebuildIndex()
@@ -690,7 +727,9 @@ export default function App(): JSX.Element {
               onChangeModel={changeModel}
               onChangeThinking={changeThinking}
               onJump={openCite}
-              resetKey={chatReset}
+              activeChatId={curChatId}
+              onChatStarted={setCurChatId}
+              onChatsChanged={() => void refreshChats()}
               fs={chatFs}
               onFs={changeFs}
             />

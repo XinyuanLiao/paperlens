@@ -4,9 +4,6 @@ import { buildSuggestions } from './suggest'
 import { ModelPill, ThinkingPill, ScopePill, type ChatScope } from './ChatControls'
 import type { ChatMsg, Paper, SourceRef } from './types'
 
-// 全库对话全局持久化（kind='global' 单一会话）；论文级问答在 SidePanel（kind='side' 按 paperId 分组）
-const LOG_KIND = 'global'
-
 interface Props {
   papers: Paper[]
   paperCount: number
@@ -20,7 +17,10 @@ interface Props {
   onChangeModel: (m: string) => void
   onChangeThinking: (l: string) => void
   onJump: Jump
-  resetKey: number
+  // 对话历史：当前打开的会话 id（null = 新对话）；标题由首条提问自动生成
+  activeChatId: number | null
+  onChatStarted: (id: number) => void
+  onChatsChanged: () => void
   // 对话字号（问答/翻译/对话共用）
   fs: number
   onFs: (delta: number) => void
@@ -41,7 +41,9 @@ export default function ChatView({
   onChangeModel,
   onChangeThinking,
   onJump,
-  resetKey,
+  activeChatId,
+  onChatStarted,
+  onChatsChanged,
   fs,
   onFs
 }: Props): JSX.Element {
@@ -52,33 +54,36 @@ export default function ChatView({
   // 流式累计器：onEnd 时落库完整回答
   const outRef = useRef('')
   const srcRef = useRef<SourceRef[] | undefined>(undefined)
+  // 本会话是刚在本组件里创建的：activeChatId 流回来时跳过重载（会把流式中的占位回答冲掉）
+  const selfStartedRef = useRef<number | null>(null)
   const scrollBottom = () => setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' }), 50)
 
   const suggestions = useMemo(() => buildSuggestions(papers, catCounts), [papers, catCounts])
 
-  // 挂载即恢复上次的对话记录（全局一份），停在底部
+  // 打开历史对话：载入消息停在底部；activeChatId 置 null（新建对话）只清空
   useEffect(() => {
-    void window.api.chatList(LOG_KIND, null).then((ms) => {
-      if (ms.length) {
-        setMsgs(ms)
-        setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9 }), 30)
-      }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // 侧栏「新建对话」：清空当前会话（含持久化）回到欢迎页
-  useEffect(() => {
-    if (resetKey > 0) {
-      void window.api.chatClear(LOG_KIND, null)
+    if (activeChatId == null) {
       setMsgs([])
+      return
     }
-  }, [resetKey])
+    if (selfStartedRef.current === activeChatId) {
+      selfStartedRef.current = null
+      return
+    }
+    let stale = false
+    void window.api.chatLoad(activeChatId).then((ms) => {
+      if (stale) return
+      setMsgs(ms)
+      if (ms.length) setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9 }), 30)
+    })
+    return () => {
+      stale = true
+    }
+  }, [activeChatId])
 
   const send = (raw?: string): void => {
     const q = (raw ?? input).trim()
     if (!q || busy) return
-    void window.api.chatAppend(LOG_KIND, null, 'user', q)
     // 带最近两轮问答做多轮追问（在追加本轮消息之前取历史）
     const history = msgs.slice(-4).map((m) => ({ role: m.role, content: m.content }))
     setInput('')
@@ -87,36 +92,50 @@ export default function ChatView({
     outRef.current = ''
     srcRef.current = undefined
     scrollBottom()
-    window.api.stream(
-      { mode: 'rag', question: q, category: scope.type === 'cat' ? scope.cat : undefined, history },
-      {
-        onDelta: (d) => {
-          outRef.current += d
-          setMsgs((ms) => {
-            const next = [...ms]
-            const last = next[next.length - 1]
-            if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content + d }
-            return next
-          })
-        },
-        onSources: (srcs) => {
-          srcRef.current = srcs as SourceRef[]
-          setMsgs((ms) => {
-            const next = [...ms]
-            const last = next[next.length - 1]
-            if (last?.role === 'assistant') next[next.length - 1] = { ...last, sources: srcs as SourceRef[] }
-            return next
-          })
-        },
-        onEnd: () => {
-          if (outRef.current.trim()) {
-            void window.api.chatAppend(LOG_KIND, null, 'assistant', outRef.current, srcRef.current ? JSON.stringify(srcRef.current) : undefined)
-          }
-          setBusy(false)
-          scrollBottom()
-        }
+    void (async () => {
+      // 新对话：首次提问时落 chats 行，标题取问题前 24 字
+      let cid = activeChatId
+      if (cid == null) {
+        const title = q.replace(/\s+/g, ' ').slice(0, 24) || '新对话'
+        cid = await window.api.chatCreate(title)
+        selfStartedRef.current = cid
+        onChatStarted(cid)
+        onChatsChanged()
       }
-    )
+      const chatId = cid
+      void window.api.chatAppend(chatId, 'user', q)
+      window.api.stream(
+        { mode: 'rag', question: q, category: scope.type === 'cat' ? scope.cat : undefined, history },
+        {
+          onDelta: (d) => {
+            outRef.current += d
+            setMsgs((ms) => {
+              const next = [...ms]
+              const last = next[next.length - 1]
+              if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content + d }
+              return next
+            })
+          },
+          onSources: (srcs) => {
+            srcRef.current = srcs as SourceRef[]
+            setMsgs((ms) => {
+              const next = [...ms]
+              const last = next[next.length - 1]
+              if (last?.role === 'assistant') next[next.length - 1] = { ...last, sources: srcs as SourceRef[] }
+              return next
+            })
+          },
+          onEnd: () => {
+            if (outRef.current.trim()) {
+              void window.api.chatAppend(chatId, 'assistant', outRef.current, srcRef.current ? JSON.stringify(srcRef.current) : undefined)
+            }
+            setBusy(false)
+            onChatsChanged()
+            scrollBottom()
+          }
+        }
+      )
+    })()
   }
 
   // 引用跳转带上「该轮的问题 + 芯片所在回答的局部上下文」：

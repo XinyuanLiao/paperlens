@@ -116,6 +116,9 @@ export async function extractPagesCached(pdfPath: string): Promise<string[]> {
 export async function buildIndex(send: (ev: string, payload: unknown) => void): Promise<void> {
   if (running) return
   running = true
+  // 本轮开始时的最大论文 id：结束后只对「运行期间新入库」的论文续跑，
+  // 永久失败的旧论文（如 iCloud 未同步）不会造成无限重试循环
+  let startMaxId = 0
   try {
     const db = getDb()
     const { dim } = await embed(['warmup'])
@@ -152,6 +155,7 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
       setFts.run(p.id, p.title, p.authors, p.venue, p.slug)
     }
     const total = todo.length
+    startMaxId = (db.prepare('SELECT MAX(id) AS m FROM papers').get() as { m: number | null }).m ?? 0
     send('index:progress', { done: 0, total, phase: 'indexing' })
     const insChunk = db.prepare('INSERT INTO chunks(paper_id,page,ord,text,vec) VALUES(?,?,?,?,?)')
     // rowid 显式写 chunks.id：两表主键不同步（chunks 是 AUTOINCREMENT，重建后继续累加；
@@ -223,6 +227,15 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
     send('index:progress', { done: total, total, phase: 'done' })
   } finally {
     running = false
+  }
+  // 本轮索引运行期间新入库的论文（导入触发时正在建索引会被 isIndexRunning 挡掉）：
+  // 结束后立即再排一轮，不必等 4 分钟定时重扫。只看 id > startMaxId 的新行，
+  // 避免永久失败的旧论文把续跑变成热循环
+  const pend = getDb().prepare('SELECT COUNT(*) AS n FROM papers WHERE indexed=0 AND id > ?').get(startMaxId) as { n: number }
+  if (pend.n > 0) {
+    setTimeout(() => {
+      void buildIndex(send).catch((e) => console.error('[index-requeue]', e))
+    }, 600)
   }
 }
 

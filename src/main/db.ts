@@ -103,16 +103,21 @@ export function initDb(): void {
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_hl_paper ON highlights(paper_id);
-    CREATE TABLE IF NOT EXISTS chatlog(
+    CREATE TABLE IF NOT EXISTS chats(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      kind TEXT NOT NULL,
-      paper_id INTEGER,
+      title TEXT NOT NULL DEFAULT '新对话',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS chatmsgs(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id INTEGER REFERENCES chats(id) ON DELETE CASCADE,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
       sources TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
-    CREATE INDEX IF NOT EXISTS idx_chatlog ON chatlog(kind, paper_id);
+    CREATE INDEX IF NOT EXISTS idx_chatmsgs ON chatmsgs(chat_id);
   `)
   // 迁移：papers 增加 pvec（整篇级向量：标题+作者+首页）与 opened_at（最近打开时间）
   const cols = (db.prepare('PRAGMA table_info(papers)').all() as Array<{ name: string }>).map((c) => c.name)
@@ -126,7 +131,23 @@ export function initDb(): void {
   db.exec('DELETE FROM chunks WHERE paper_id NOT IN (SELECT id FROM papers)')
   db.exec('DELETE FROM chunks_fts WHERE paper_id NOT IN (SELECT id FROM papers)')
   db.exec('DELETE FROM papers_fts WHERE rowid NOT IN (SELECT id FROM papers)')
-  db.exec('DELETE FROM chatlog WHERE paper_id IS NOT NULL AND paper_id NOT IN (SELECT id FROM papers)')
+
+  // v0.1.1 的 chatlog 迁移：global 会话转成一条历史对话（论文问答按新需求不再持久化，直接丢弃）
+  if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chatlog'").get()) {
+    const rows = db.prepare("SELECT role, content, sources FROM chatlog WHERE kind='global' ORDER BY id").all() as Array<{
+      role: string
+      content: string
+      sources: string | null
+    }>
+    if (rows.length) {
+      const first = rows.find((r) => r.role === 'user')
+      const title = (first?.content ?? '导入的对话').replace(/\s+/g, ' ').slice(0, 24) || '导入的对话'
+      const cid = Number(db.prepare('INSERT INTO chats(title) VALUES(?)').run(title).lastInsertRowid)
+      const ins = db.prepare('INSERT INTO chatmsgs(chat_id,role,content,sources) VALUES(?,?,?,?)')
+      for (const r of rows) ins.run(cid, r.role === 'user' ? 'user' : 'assistant', r.content, r.sources)
+    }
+    db.exec('DROP TABLE chatlog')
+  }
 
   const st = db.prepare("SELECT value FROM meta WHERE key='settings'")
   if (!st.get()) {
@@ -367,18 +388,33 @@ export function listCategoryNames(): string[] {
   return [...new Set([...fromPapers, ...getExtraCats()])].sort((a, b) => a.localeCompare(b))
 }
 
-// ---------- 聊天记录持久化 ----------
-// kind='global'：ChatView 全库对话（全局一份）；kind='side'：SidePanel 论文问答（按论文分组，
-// paper_id=NULL 表示未打开论文时的全库问答会话，与 global 分开存）
-export interface ChatLogMsg {
+// ---------- 对话历史（全库对话按会话持久化；论文问答面板不落库） ----------
+export interface ChatMeta {
+  id: number
+  title: string
+  updated_at: string
+  n: number
+}
+
+export interface ChatMsg {
   role: 'user' | 'assistant'
   content: string
   sources?: Array<{ n: number; slug: string; title: string; page: number; snippet?: string }>
 }
 
-export function listChat(kind: string, paperId: number | null): ChatLogMsg[] {
+export function listChats(): ChatMeta[] {
+  return db
+    .prepare(
+      `SELECT c.id, c.title, c.updated_at, COUNT(m.id) AS n
+       FROM chats c LEFT JOIN chatmsgs m ON m.chat_id=c.id
+       GROUP BY c.id ORDER BY COALESCE(c.updated_at, c.created_at) DESC, c.id DESC`
+    )
+    .all() as ChatMeta[]
+}
+
+export function loadChat(id: number): ChatMsg[] {
   return (
-    db.prepare('SELECT role, content, sources FROM chatlog WHERE kind=? AND paper_id IS ? ORDER BY id').all(kind, paperId) as Array<{
+    db.prepare('SELECT role, content, sources FROM chatmsgs WHERE chat_id=? ORDER BY id').all(id) as Array<{
       role: string
       content: string
       sources: string | null
@@ -390,17 +426,30 @@ export function listChat(kind: string, paperId: number | null): ChatLogMsg[] {
   }))
 }
 
-export function appendChat(kind: string, paperId: number | null, role: string, content: string, sources?: string): number {
-  const r = db.prepare('INSERT INTO chatlog(kind,paper_id,role,content,sources) VALUES(?,?,?,?,?)').run(
-    kind,
-    paperId,
+export function createChat(title: string): number {
+  const r = db.prepare('INSERT INTO chats(title) VALUES(?)').run(title.slice(0, 60) || '新对话')
+  return Number(r.lastInsertRowid)
+}
+
+export function appendChatMsg(id: number, role: string, content: string, sources?: string): number {
+  const r = db.prepare('INSERT INTO chatmsgs(chat_id,role,content,sources) VALUES(?,?,?,?)').run(
+    id,
     role === 'user' ? 'user' : 'assistant',
     content,
     sources ?? null
   )
+  db.prepare("UPDATE chats SET updated_at=datetime('now') WHERE id=?").run(id)
   return Number(r.lastInsertRowid)
 }
 
-export function clearChat(kind: string, paperId: number | null): void {
-  db.prepare('DELETE FROM chatlog WHERE kind=? AND paper_id IS ?').run(kind, paperId)
+export function renameChat(id: number, title: string): void {
+  db.prepare('UPDATE chats SET title=? WHERE id=?').run(title.slice(0, 60) || '新对话', id)
+}
+
+export function deleteChat(id: number): void {
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM chatmsgs WHERE chat_id=?').run(id)
+    db.prepare('DELETE FROM chats WHERE id=?').run(id)
+  })
+  tx()
 }

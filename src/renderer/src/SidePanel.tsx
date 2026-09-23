@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { renderRich, type Jump } from './rich'
 import { ModelPill, ThinkingPill } from './ChatControls'
 import type { ChatMsg, Paper, SourceRef } from './types'
@@ -44,24 +44,8 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
   const scrollRef = useRef<HTMLDivElement>(null)
   const ctxRef = useRef('')
   const curRef = useRef<Translation | null>(null)
-  // 论文问答按论文持久化：paper_id 分组；未打开论文时的全库问答归入 NULL 会话
-  const paperIdRef = useRef<number | null>(null)
-  // 流式累计器：onEnd 时落库完整回答（避免从 state 读半截内容）
-  const outRef = useRef('')
-  const srcRef = useRef<SourceRef[] | undefined>(undefined)
 
   const scrollBottom = () => setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' }), 50)
-
-  // 切换论文（含首次挂载）：载入该论文的历史问答，直接停在底部
-  useEffect(() => {
-    const pid = paper?.id ?? null
-    paperIdRef.current = pid
-    void window.api.chatList('side', pid).then((ms) => {
-      if (paperIdRef.current !== pid) return
-      setMsgs(ms)
-      if (ms.length) setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9 }), 30)
-    })
-  }, [paper?.id])
 
   useImperativeHandle(ref, () => ({
     translate(text: string, context: string) {
@@ -87,34 +71,22 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
     },
     explain(text: string, context: string) {
       ctxRef.current = context || pageContext
-      const pid = paperIdRef.current
-      const ask = `解释一下这段话：\n「${text.slice(0, 500)}」`
-      void window.api.chatAppend('side', pid, 'user', ask)
       setTab('chat')
-      setMsgs((ms) => [...ms, { role: 'user', content: ask }])
+      setMsgs((ms) => [...ms, { role: 'user', content: `解释一下这段话：\n「${text.slice(0, 500)}」` }])
       setBusy(true)
-      outRef.current = ''
-      srcRef.current = undefined
       scrollBottom()
       window.api.stream(
         { mode: 'explain', text, context: ctxRef.current.slice(0, 1800) },
         {
-          onDelta: (d) => {
-            outRef.current += d
-            if (paperIdRef.current !== pid) return // 已切到别的论文：照常落库，UI 不再追加
+          onDelta: (d) =>
             setMsgs((ms) => {
               const next = [...ms]
               const last = next[next.length - 1]
               if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content + d }
               else next.push({ role: 'assistant', content: d })
               return next
-            })
-          },
-          onEnd: () => {
-            if (outRef.current.trim()) void window.api.chatAppend('side', pid, 'assistant', outRef.current)
-            // busy 无条件释放：即使已切到别的论文，也不能让输入区永久卡死
-            setBusy(false)
-          }
+            }),
+          onEnd: () => setBusy(false)
         }
       )
       scrollBottom()
@@ -135,9 +107,8 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
     return (slug, page, snippet, ctx) => onJump(slug, page, snippet, [q, ctx].filter(Boolean).join('\n'))
   }
 
-  // 新对话：清空当前论文的问答记录（含持久化）、翻译卡片与问答上下文
+  // 新对话：清空问答记录、翻译卡片与问答上下文（论文问答不持久化，仅当前会话内保留）
   const reset = (): void => {
-    void window.api.chatClear('side', paperIdRef.current)
     setMsgs([])
     setCurrent(null)
     setCtxOn(false)
@@ -148,48 +119,34 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
   const send = () => {
     const q = input.trim()
     if (!q || busy) return
-    const pid = paperIdRef.current
-    void window.api.chatAppend('side', pid, 'user', q)
     // 带最近两轮问答做多轮追问（在追加本轮消息之前取历史）
     const history = msgs.slice(-4).map((m) => ({ role: m.role, content: m.content }))
     setInput('')
     setTab('chat')
     setMsgs((ms) => [...ms, { role: 'user', content: q }, { role: 'assistant', content: '' }])
     setBusy(true)
-    outRef.current = ''
-    srcRef.current = undefined
     scrollBottom()
     const ctxNote = ctxTranslation ? `\n\n（参考：我刚翻译了「${ctxTranslation.src.slice(0, 120)}」→「${ctxTranslation.out.slice(0, 300)}」）` : ''
     window.api.stream(
       { mode: 'rag', question: q + ctxNote, scopePaperId: scope === 'paper' && paper ? paper.id : undefined, paperTitle: paper?.title, history },
       {
-        onDelta: (d) => {
-          outRef.current += d
-          if (paperIdRef.current !== pid) return
+        onDelta: (d) =>
           setMsgs((ms) => {
             const next = [...ms]
             const last = next[next.length - 1]
             if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content + d }
             return next
-          })
-        },
-        onSources: (srcs) => {
-          srcRef.current = srcs as SourceRef[]
-          if (paperIdRef.current !== pid) return
+          }),
+        onSources: (srcs) =>
           setMsgs((ms) => {
             const next = [...ms]
             const last = next[next.length - 1]
             if (last?.role === 'assistant') next[next.length - 1] = { ...last, sources: srcs as SourceRef[] }
             return next
-          })
-        },
+          }),
         onEnd: () => {
-          if (outRef.current.trim()) {
-            void window.api.chatAppend('side', pid, 'assistant', outRef.current, srcRef.current ? JSON.stringify(srcRef.current) : undefined)
-          }
-          // busy 无条件释放（见 explain 同款注释）
           setBusy(false)
-          if (paperIdRef.current === pid) scrollBottom()
+          scrollBottom()
         }
       }
     )

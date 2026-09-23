@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Paper } from './types'
+import type { ChatMeta, Paper } from './types'
 
 interface Props {
   papers: Paper[]
@@ -11,6 +11,12 @@ interface Props {
   onCycleStatus: (p: Paper) => void
   onAddPapers: () => void
   onNewChat: () => void
+  // 对话模式：历史会话列表与当前会话
+  chats: ChatMeta[]
+  curChatId: number | null
+  onOpenChat: (id: number) => void
+  onDeleteChat: (id: number) => void
+  onRenameChat: (id: number, title: string) => void
   onMovePaper: (id: number, cat: string) => void
   onReindex: () => void
   onBack: () => void
@@ -51,6 +57,11 @@ export default function LibraryPane({
   onCycleStatus,
   onAddPapers,
   onNewChat,
+  chats,
+  curChatId,
+  onOpenChat,
+  onDeleteChat,
+  onRenameChat,
   onMovePaper,
   onReindex,
   onBack,
@@ -141,6 +152,30 @@ export default function LibraryPane({
       setRenamingPaper(false)
     }
   }
+
+  // 历史对话重命名（右键触发）
+  const [renameChat, setRenameChat] = useState<ChatMeta | null>(null)
+  const [renameChatVal, setRenameChatVal] = useState('')
+  const [renamingChat, setRenamingChat] = useState(false)
+  const doRenameChat = async (): Promise<void> => {
+    if (!renameChat || !renameChatVal.trim() || renamingChat) return
+    setRenamingChat(true)
+    try {
+      onRenameChat(renameChat.id, renameChatVal.trim())
+      setRenameChat(null)
+    } catch (e) {
+      alert(String(e))
+    } finally {
+      setRenamingChat(false)
+    }
+  }
+
+  // 对话模式：搜索框过滤历史对话标题
+  const chatKw = q.trim().toLowerCase()
+  const chatFiltered = useMemo(
+    () => (chatKw ? chats.filter((c) => c.title.toLowerCase().includes(chatKw)) : chats),
+    [chats, chatKw]
+  )
 
   const [newCat, setNewCat] = useState<null | { paper?: Paper }>(null) // paper 存在 = 移动这篇并新建
   const [newCatVal, setNewCatVal] = useState('')
@@ -247,39 +282,105 @@ export default function LibraryPane({
             对话
           </button>
         </div>
-        <div className="nav-row">
-          {navBtn('back')}
-          {navBtn('fwd')}
-          <span className="nav-label">文献</span>
-          <span style={{ flex: 1 }} />
-          <span className="cat-count">{papers.length}</span>
-        </div>
-        <button className="add-btn" onClick={onAddPapers} title="导入 PDF，AI 自动归类；也可拖入窗口">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-          添加文献
-        </button>
-        <button className="new-chat-btn" onClick={onNewChat} title="清空并开始新的全库对话">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 21c-4.4 0-8-3.1-8-7 0-2.2 1.2-4.2 3-5.5V4l3.2 1.8c.6-.1 1.2-.2 1.8-.2 4.4 0 8 3.1 8 7s-3.6 7-8 7z" />
-            <path d="M12 7.5v5M9.5 10h5" />
-          </svg>
-          新建对话
-        </button>
+        {mode === 'read' ? (
+          <>
+            <div className="nav-row">
+              {navBtn('back')}
+              {navBtn('fwd')}
+              <span className="nav-label">文献</span>
+              <span style={{ flex: 1 }} />
+              <span className="cat-count">{papers.length}</span>
+            </div>
+            <button className="add-btn" onClick={onAddPapers} title="导入 PDF，AI 自动归类；也可拖入窗口">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              添加文献
+            </button>
+            <button className="new-chat-btn" onClick={onNewChat} title="保存当前对话并开始新对话">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 21c-4.4 0-8-3.1-8-7 0-2.2 1.2-4.2 3-5.5V4l3.2 1.8c.6-.1 1.2-.2 1.8-.2 4.4 0 8 3.1 8 7s-3.6 7-8 7z" />
+                <path d="M12 7.5v5M9.5 10h5" />
+              </svg>
+              新建对话
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="nav-row">
+              <span className="nav-label">对话</span>
+              <span style={{ flex: 1 }} />
+              <span className="cat-count">{chats.length}</span>
+            </div>
+            <button className="add-btn" onClick={onNewChat} title="当前对话自动存入历史；开始新的全库对话">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              新建对话
+            </button>
+          </>
+        )}
         <div className="search-wrap">
-          <input className="searchbox" placeholder="搜索" value={q} onChange={(e) => onSetQ(e.target.value)} />
+          <input
+            className="searchbox"
+            placeholder={mode === 'chat' ? '搜索对话' : '搜索'}
+            value={q}
+            onChange={(e) => onSetQ(e.target.value)}
+          />
           <button className="kbd-hint" title="命令面板（搜索文献 / 执行命令）" onClick={onOpenPalette}>
             {/Mac/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}
           </button>
         </div>
-        <div className="func-row">
-          <button className="mini-btn" onClick={onReindex} title="清空并重建全库索引">
-            重建索引
-          </button>
-        </div>
+        {mode === 'read' && (
+          <div className="func-row">
+            <button className="mini-btn" onClick={onReindex} title="清空并重建全库索引">
+              重建索引
+            </button>
+          </div>
+        )}
       </div>
       <div className="lib-files">
+        {/* 对话模式：文件区整个变为历史对话列表 */}
+        {mode === 'chat' ? (
+          <div className="lib-files-scroll">
+            <div className="lib-section">历史对话 · {chatFiltered.length}</div>
+            {chatFiltered.map((c) => (
+              <div
+                key={c.id}
+                className={`chat-item ${c.id === curChatId ? 'active' : ''}`}
+                onClick={() => onOpenChat(c.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setRenameChat(c)
+                  setRenameChatVal(c.title)
+                }}
+                title="点击继续该对话；右键重命名"
+              >
+                <div className="t ellipsis">{c.title}</div>
+                <div className="m">
+                  <span>{relTime(c.updated_at)}</span>
+                  <span>{c.n} 条</span>
+                  <span style={{ flex: 1 }} />
+                  <button
+                    className="chat-x"
+                    title="删除该对话"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDeleteChat(c.id)
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+            {chatFiltered.length === 0 && (
+              <div className="tree-empty">{chatKw ? '没有匹配的对话' : '还没有历史对话；提问后自动保存，点上方「新建对话」可开启新话题'}</div>
+            )}
+          </div>
+        ) : (
+          <>
         {/* 文件区子标签：不透明背景，滚动内容不会从后面穿过去 */}
         {!searching && (
           <div className="lib-view-toggle">
@@ -384,6 +485,8 @@ export default function LibraryPane({
             ))
           )}
         </div>
+          </>
+        )}
       </div>
 
       {renameCat && (
@@ -482,6 +585,40 @@ export default function LibraryPane({
               </button>
               <button className="btn" onClick={() => void doCreateCat()} disabled={creating || !newCatVal.trim()}>
                 {newCat.paper ? '移入' : '创建'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {renameChat && (
+        <div className="modal-mask" onMouseDown={() => setRenameChat(null)}>
+          <div className="modal modal-pad" style={{ width: 440 }} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>重命名对话</h2>
+              <button className="modal-x" title="取消" onClick={() => setRenameChat(null)}>
+                ✕
+              </button>
+            </div>
+            <div className="field">
+              <label>话题名称</label>
+              <input
+                autoFocus
+                value={renameChatVal}
+                onChange={(e) => setRenameChatVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void doRenameChat()
+                }}
+              />
+              <div className="hint">只改列表里显示的名字，对话内容不受影响。</div>
+            </div>
+            <div className="modal-actions">
+              <span style={{ flex: 1 }} />
+              <button className="btn ghost" onClick={() => setRenameChat(null)}>
+                取消
+              </button>
+              <button className="btn" onClick={() => void doRenameChat()} disabled={renamingChat || !renameChatVal.trim()}>
+                保存
               </button>
             </div>
           </div>

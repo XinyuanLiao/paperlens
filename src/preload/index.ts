@@ -114,11 +114,14 @@ const api = {
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
   syncTheme: (theme: string) => ipcRenderer.send('ui:theme', theme),
 
-  // 聊天记录持久化（kind: 'global' = 全库对话一份；'side' = 论文问答按 paperId 分组）
-  chatList: (kind: string, paperId: number | null) => ipcRenderer.invoke('chat:list', kind, paperId),
-  chatAppend: (kind: string, paperId: number | null, role: string, content: string, sources?: string) =>
-    ipcRenderer.invoke('chat:append', kind, paperId, role, content, sources),
-  chatClear: (kind: string, paperId: number | null) => ipcRenderer.invoke('chat:clear', kind, paperId),
+  // 对话历史（全库对话按会话持久化）
+  chatsList: () => ipcRenderer.invoke('chats:list'),
+  chatLoad: (id: number) => ipcRenderer.invoke('chat:load', id),
+  chatCreate: (title: string) => ipcRenderer.invoke('chat:create', title),
+  chatAppend: (id: number, role: string, content: string, sources?: string) =>
+    ipcRenderer.invoke('chat:append', id, role, content, sources),
+  chatRename: (id: number, title: string) => ipcRenderer.invoke('chat:rename', id, title),
+  chatDelete: (id: number) => ipcRenderer.invoke('chat:delete', id),
 
   // 版本与更新
   appVersion: () => ipcRenderer.invoke('app:version'),
