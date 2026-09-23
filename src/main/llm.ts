@@ -19,7 +19,7 @@ function applyThinking(body: Record<string, unknown>, provider: string, level: T
   } else if (provider === 'openai') {
     body.reasoning_effort = level === 'high' ? 'high' : level === 'medium' ? 'medium' : 'low'
   }
-  // deepseek / moonshot / custom：无通用思考参数，交给模型选择（如 deepseek-reasoner）
+  // deepseek / moonshot / mimo / custom：无通用思考参数，交给模型选择（如 deepseek-reasoner）
 }
 
 function buildBody(model: string, messages: ChatMessage[], stream: boolean, temperature?: number, provider?: string): Record<string, unknown> {
@@ -46,7 +46,7 @@ function friendlyFetchError(err: unknown, apiBase: string): Error {
 export async function* chatStream(messages: ChatMessage[], opts: { temperature?: number } = {}): AsyncGenerator<string> {
   const s = getSettings()
   if (!s.apiKey) {
-    yield '⚠️ 尚未配置 API Key：请点击左下角「设置」，填入智谱开放平台的 API Key。'
+    yield '⚠️ 尚未配置 API Key：请点击左上角「设置」，在 AI 配置中填入服务商的 API Key。'
     return
   }
   let resp: Response

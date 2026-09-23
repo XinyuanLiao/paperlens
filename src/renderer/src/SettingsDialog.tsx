@@ -14,13 +14,15 @@ interface Props {
   onChatFsReset: () => void
 }
 
-const PRESETS: Array<{ id: string; label: string; base: string; model: string }> = [
-  { id: 'zhipu', label: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.5-air' },
-  { id: 'deepseek', label: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-  { id: 'qwen', label: '通义千问 Qwen', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-  { id: 'moonshot', label: 'Kimi 月之暗面', base: 'https://api.moonshot.cn/v1', model: 'kimi-k2-0711-preview' },
-  { id: 'openai', label: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  { id: 'custom', label: '自定义 / 其他兼容服务', base: '', model: '' }
+// models = 该服务商的常用模型建议（模型输入框的 datalist 候选，均可自由增删）
+const PRESETS: Array<{ id: string; label: string; base: string; model: string; models: string[] }> = [
+  { id: 'mimo', label: '小米 MiMo', base: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.6-flash', models: ['mimo-v2.6-flash', 'mimo-v2.6-pro', 'mimo-v2.6', 'mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2-flash', 'mimo-v2-pro'] },
+  { id: 'zhipu', label: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.5-air', models: ['glm-4.5-air', 'glm-4.5', 'glm-4-plus'] },
+  { id: 'deepseek', label: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', models: ['deepseek-chat', 'deepseek-reasoner'] },
+  { id: 'qwen', label: '通义千问 Qwen', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', models: ['qwen-plus', 'qwen-max', 'qwen-turbo'] },
+  { id: 'moonshot', label: 'Kimi 月之暗面', base: 'https://api.moonshot.cn/v1', model: 'kimi-k2-0711-preview', models: ['kimi-k2-0711-preview', 'kimi-latest', 'moonshot-v1-128k'] },
+  { id: 'openai', label: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'o4-mini'] },
+  { id: 'custom', label: '自定义 / 其他兼容服务', base: '', model: '', models: [] }
 ]
 
 const LANGS = ['中文', 'English', '日本語', '한국어', 'Français', 'Deutsch', 'Español', 'Русский', 'Português', 'Italiano']
@@ -372,6 +374,18 @@ export default function SettingsDialog({
                     saveProfiles(next)
                     setProfiles(next)
                   }
+                  const presetId = pf.provider === 'custom' ? 'custom' : guessProvider(pf.apiBase)
+                  const suggestions = PRESETS.find((p) => p.id === presetId)?.models ?? []
+                  // 添加模型：支持逗号/换行批量粘贴，去重
+                  const addModels = (raw: string): void => {
+                    const names = raw
+                      .split(/[,，\n]/)
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                    const merged = [...pf.models]
+                    for (const n of names) if (!merged.includes(n)) merged.push(n)
+                    if (merged.length !== pf.models.length) patchPf({ models: merged })
+                  }
                   return (
                     <div className={`profile-card ${isActive ? 'active' : ''} ${isOpen ? '' : 'collapsed'}`} key={i}>
                       <div
@@ -421,19 +435,51 @@ export default function SettingsDialog({
                           <input type="password" value={pf.apiKey} onChange={(e) => patchPf({ apiKey: e.target.value })} placeholder="sk-…" />
                         </div>
                         <div className="field">
-                          <label>模型（逗号分隔）</label>
-                          <input
-                            value={pf.models.join(', ')}
-                            onChange={(e) =>
-                              patchPf({
-                                models: e.target.value
-                                  .split(/[,，]/)
-                                  .map((s) => s.trim())
-                                  .filter(Boolean)
-                              })
-                            }
-                            placeholder="deepseek-chat, deepseek-reasoner"
-                          />
+                          <label>模型（可添加多个）</label>
+                          <div className="model-chips">
+                            {pf.models.map((m, mi) => (
+                              <span className="model-chip" key={`${m}-${mi}`}>
+                                <span className="mc-name">{m}</span>
+                                {m === form.model && <span className="mc-default" title="当前默认模型">默认</span>}
+                                <button
+                                  type="button"
+                                  title="移除该模型"
+                                  onClick={() => patchPf({ models: pf.models.filter((_, x) => x !== mi) })}
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            ))}
+                            <input
+                              className="model-add"
+                              list={`model-sug-${i}`}
+                              placeholder={pf.models.length ? '添加模型，回车确认…' : '输入模型名，回车添加'}
+                              onKeyDown={(e) => {
+                                const el = e.currentTarget
+                                if (e.key === 'Enter' || e.key === ',') {
+                                  e.preventDefault()
+                                  addModels(el.value)
+                                  el.value = ''
+                                } else if (e.key === 'Backspace' && !el.value && pf.models.length) {
+                                  patchPf({ models: pf.models.slice(0, -1) })
+                                }
+                              }}
+                              onBlur={(e) => {
+                                if (e.target.value.trim()) {
+                                  addModels(e.target.value)
+                                  e.target.value = ''
+                                }
+                              }}
+                            />
+                            <datalist id={`model-sug-${i}`}>
+                              {suggestions
+                                .filter((s) => !pf.models.includes(s))
+                                .map((s) => (
+                                  <option key={s} value={s} />
+                                ))}
+                            </datalist>
+                          </div>
+                          <div className="hint">同一服务商可挂多个模型，输入框有常用模型建议；逗号/换行批量粘贴也可以。</div>
                         </div>
                         <div className="profile-foot">
                           {isActive ? (

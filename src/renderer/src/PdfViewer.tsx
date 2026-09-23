@@ -131,6 +131,39 @@ interface PageTextMap {
 
 const isMacKey = (): string => (/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl')
 
+// PDF 文本层选区整理：浏览器按 span 抽文本，会在行末/换行处多插换行（如
+// 「are bound to\nplay」）。规则：行末连字符断词只删换行（control-\noriented →
+// control-oriented，真连字符与断词无法区分，保守保留连字符）；换行两侧都是 CJK
+// 直接合并，其余补空格；压缩连续空白
+function normalizeSelText(raw: string): string {
+  const isCjk = (ch: string): boolean => {
+    const c = ch.codePointAt(0) ?? 0
+    return (
+      (c >= 0x3000 && c <= 0x303f) || // CJK 标点
+      (c >= 0x3400 && c <= 0x9fff) || // 汉字
+      (c >= 0xf900 && c <= 0xfaff) || // 兼容汉字
+      (c >= 0xff00 && c <= 0xffef) || // 全角字符
+      (c >= 0x3040 && c <= 0x30ff) || // 假名
+      (c >= 0xac00 && c <= 0xd7af) // 谚文
+    )
+  }
+  let out = ''
+  const s = raw.replace(/\r\n?/g, '\n')
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (ch !== '\n') {
+      out += ch
+      continue
+    }
+    if (out.endsWith('-')) continue
+    const prev = out.slice(-1)
+    const next = s[i + 1] ?? ''
+    if (prev && next && isCjk(prev) && isCjk(next)) continue
+    out += ' '
+  }
+  return out.replace(/[ \t]{2,}/g, ' ').trim()
+}
+
 const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   { tabs, activeId, onActivate, onCloseTab, pendingJump, onJumped, onPageContext, onSelect, onDeleteHighlight, visible },
   ref
@@ -432,7 +465,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         h: r.height / wrapRect.height
       }))
     if (rects.length === 0) return
-    const text = sel.toString()
+    const text = normalizeSelText(sel.toString())
     const id = await window.api.addHighlight(active.paper.id, pageNum, rects, text)
     setHls((hs) => [...hs, { id, page: pageNum, rects, text }])
     sel.removeAllRanges()
@@ -512,7 +545,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   const onMouseUp = useCallback(
     (e: React.MouseEvent) => {
       const sel = window.getSelection()
-      const text = sel?.toString().trim() ?? ''
+      const text = normalizeSelText(sel?.toString() ?? '')
       if (!sel || sel.isCollapsed || text.length < 2) return
       const range = sel.getRangeAt(0)
       const rect = range.getBoundingClientRect()

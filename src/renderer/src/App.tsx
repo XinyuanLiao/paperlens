@@ -26,12 +26,6 @@ const PanelIcon = (): JSX.Element => (
     <path d="M15 4v16" />
   </svg>
 )
-const GearIcon = (): JSX.Element => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="3.2" />
-    <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.12-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09A1.7 1.7 0 0 0 10.13 3V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z" />
-  </svg>
-)
 
 type MenuItem = { label: string; hint?: string; action?: () => void; sep?: boolean }
 
@@ -74,6 +68,7 @@ const MenuBar = ({ menus, openMenu, setOpenMenu }: { menus: Array<{ name: string
 )
 
 const PROVIDER_LABEL: Record<string, string> = {
+  mimo: '小米 MiMo',
   zhipu: '智谱',
   deepseek: 'DeepSeek',
   qwen: '通义',
@@ -622,6 +617,7 @@ export default function App(): JSX.Element {
                 })()
               }}
               onOpenPalette={() => setPaletteOpen(true)}
+              onOpenSettings={() => setShowSettings(true)}
               mode={mode}
               onModeChange={setMode}
               onPapersChanged={refreshPapers}
@@ -727,10 +723,6 @@ export default function App(): JSX.Element {
       </div>
 
       <div className="statusbar">
-        <button className="sb-gear" title="设置" onClick={() => setShowSettings(true)}>
-          <GearIcon />
-          <span>设置</span>
-        </button>
         <span className="ellipsis">{statusLeft}</span>
         <span style={{ flex: 1 }} />
         <span className="chip" title={llmChip} onClick={() => void refreshLlmChip()}>

@@ -72,7 +72,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
     explain(text: string, context: string) {
       ctxRef.current = context || pageContext
       setTab('chat')
-      setMsgs((ms) => [...ms, { role: 'user', content: `解释一下这段话：\n「${text.slice(0, 500)}」` }])
+      setMsgs((ms) => [...ms, { role: 'user', content: `解释一下这段话：\n「${text}」` }])
       setBusy(true)
       scrollBottom()
       window.api.stream(
@@ -93,7 +93,9 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
     },
     quote(text: string) {
       setTab('chat')
-      setInput((v) => (v ? v + '\n' : '') + `关于这段内容：「${text.slice(0, 300)}」\n`)
+      // 追问预填保留原文（上限 2000 字防输入框被超长选区撑爆），可手动编辑
+      const q = text.length > 2000 ? `${text.slice(0, 2000)}……` : text
+      setInput((v) => (v ? v + '\n' : '') + `关于这段内容：「${q}」\n`)
     },
     reset
   }))
@@ -280,10 +282,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
                   </button>
                 )}
               </div>
-              <div className="src-text">
-                {current.src.slice(0, 400)}
-                {current.src.length > 400 ? '…' : ''}
-              </div>
+              <div className="src-text">{current.src}</div>
               <div className="dst-text">{current.out || '翻译中…'}</div>
             </div>
           )}
