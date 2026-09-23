@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { renderRich, renderMathText, type Jump } from './rich'
-import { ModelPill, ThinkingPill } from './ChatControls'
+import { ModelPill, ThinkingToggle } from './ChatControls'
 import type { ChatMsg, Paper, SourceRef } from './types'
 
 // 翻译译文渲染不需要引用跳转
@@ -19,9 +19,9 @@ interface Props {
   onJump: Jump
   models: string[]
   model: string
-  thinking: string
+  thinkingOn: boolean
   onChangeModel: (m: string) => void
-  onChangeThinking: (l: string) => void
+  onChangeThinkingOn: (v: boolean) => void
   width: number
   // 对话字号（问答/翻译/对话共用）
   fs: number
@@ -34,7 +34,7 @@ interface Translation {
 }
 
 const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
-  { paper, pageContext, onJump, models, model, thinking, onChangeModel, onChangeThinking, width, fs, onFs },
+  { paper, pageContext, onJump, models, model, thinkingOn, onChangeModel, onChangeThinkingOn, width, fs, onFs },
   ref
 ): JSX.Element {
   const [tab, setTab] = useState<'chat' | 'translate'>('chat')
@@ -267,7 +267,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
               />
               <div className="hero-input-foot">
                 <ModelPill models={models} model={model} onChange={onChangeModel} />
-                <ThinkingPill level={thinking} onChange={onChangeThinking} />
+                <ThinkingToggle on={thinkingOn} onChange={onChangeThinkingOn} />
                 <span style={{ flex: 1 }} />
                 <button
                   className={`send-btn ${busy ? 'stop' : ''}`}

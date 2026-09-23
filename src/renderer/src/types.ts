@@ -28,7 +28,8 @@ export interface Settings {
   apiKey: string
   model: string
   models?: string[]
-  thinkingLevel?: 'default' | 'off' | 'low' | 'medium' | 'high'
+  // 思考开关二态（旧版 default/low/medium/high 读取时自动迁移为 on）
+  thinkingLevel?: 'off' | 'on'
   provider: string
   embedProvider: 'local' | 'zhipu' | 'ollama'
   ollamaUrl: string

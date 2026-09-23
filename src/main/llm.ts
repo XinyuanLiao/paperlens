@@ -5,19 +5,14 @@ export interface ChatMessage {
   content: string
 }
 
-export type ThinkingLevel = 'default' | 'off' | 'low' | 'medium' | 'high'
-
-// 思考等级 → 各服务商参数映射；不支持的服务商保持默认（思考行为由模型自身决定）
-function applyThinking(body: Record<string, unknown>, provider: string, level: ThinkingLevel): void {
-  if (!level || level === 'default') return
-  const off = level === 'off'
+// 思考开关 → 各服务商参数映射；不支持的服务商保持默认（思考行为由模型自身决定）
+function applyThinking(body: Record<string, unknown>, provider: string, on: boolean): void {
   if (provider === 'zhipu') {
-    body.thinking = { type: off ? 'disabled' : 'enabled' }
+    body.thinking = { type: on ? 'enabled' : 'disabled' }
   } else if (provider === 'qwen') {
-    body.enable_thinking = !off
-    if (!off) body.thinking_budget = level === 'high' ? 38912 : level === 'medium' ? 8192 : 2048
+    body.enable_thinking = on
   } else if (provider === 'openai') {
-    body.reasoning_effort = level === 'high' ? 'high' : level === 'medium' ? 'medium' : 'low'
+    body.reasoning_effort = on ? 'medium' : 'low'
   }
   // deepseek / moonshot / mimo / custom：无通用思考参数，交给模型选择（如 deepseek-reasoner）
 }
@@ -25,7 +20,7 @@ function applyThinking(body: Record<string, unknown>, provider: string, level: T
 function buildBody(model: string, messages: ChatMessage[], stream: boolean, temperature?: number, provider?: string): Record<string, unknown> {
   const s = getSettings()
   const body: Record<string, unknown> = { model, messages, stream, temperature: temperature ?? 0.3 }
-  applyThinking(body, provider ?? s.provider, (s.thinkingLevel ?? 'default') as ThinkingLevel)
+  applyThinking(body, provider ?? s.provider, s.thinkingLevel !== 'off')
   return body
 }
 

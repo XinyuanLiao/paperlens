@@ -418,7 +418,7 @@ export default function App(): JSX.Element {
   const profiles = settings?.profiles ?? []
   const models = profiles.length ? profiles.flatMap((p) => p.models) : settings?.models?.length ? settings.models : settings?.model ? [settings.model] : []
   const model = settings?.model ?? ''
-  const thinking = settings?.thinkingLevel ?? 'default'
+  const thinkingOn = (settings?.thinkingLevel ?? 'on') !== 'off'
 
   // 对话模式：检索范围（点引用芯片直接跳阅读模式对应位置）
   const [chatScope, setChatScope] = useState<ChatScope>({ type: 'all', cat: '' })
@@ -454,9 +454,9 @@ export default function App(): JSX.Element {
     },
     [profiles, saveSettings]
   )
-  const changeThinking = useCallback(
-    (l: string) => {
-      void saveSettings({ thinkingLevel: l as Settings['thinkingLevel'] })
+  const changeThinkingOn = useCallback(
+    (v: boolean) => {
+      void saveSettings({ thinkingLevel: v ? 'on' : 'off' })
     },
     [saveSettings]
   )
@@ -691,9 +691,9 @@ export default function App(): JSX.Element {
                 onJump={jumpTo}
                 models={models}
                 model={model}
-                thinking={thinking}
+                thinkingOn={thinkingOn}
                 onChangeModel={changeModel}
-                onChangeThinking={changeThinking}
+                onChangeThinkingOn={changeThinkingOn}
                 fs={chatFs}
                 onFs={changeFs}
               />
@@ -710,9 +710,9 @@ export default function App(): JSX.Element {
               onScopeChange={setChatScope}
               models={models}
               model={model}
-              thinking={thinking}
+              thinkingOn={thinkingOn}
               onChangeModel={changeModel}
-              onChangeThinking={changeThinking}
+              onChangeThinkingOn={changeThinkingOn}
               onJump={jumpTo}
               activeChatId={curChatId}
               onChatStarted={setCurChatId}

@@ -43,7 +43,7 @@ export interface Settings {
   fontFamily: string
   setupDone: boolean
   models: string[]
-  thinkingLevel: 'default' | 'off' | 'low' | 'medium' | 'high'
+  thinkingLevel: 'off' | 'on'
   profiles?: ProviderProfile[]
 }
 
@@ -68,7 +68,7 @@ const DEFAULTS: Settings = {
   fontFamily: '',
   setupDone: false,
   models: [],
-  thinkingLevel: 'default'
+  thinkingLevel: 'on'
 }
 
 let db: Database.Database
@@ -172,7 +172,10 @@ export function initDb(): void {
 
 export function getSettings(): Settings {
   const row = db.prepare("SELECT value FROM meta WHERE key='settings'").get() as { value: string }
-  return { ...DEFAULTS, ...JSON.parse(row.value) }
+  const s = { ...DEFAULTS, ...JSON.parse(row.value) } as Settings & { thinkingLevel?: string }
+  // 旧版思考分级（default/low/medium/high）迁移到开/关二态：仅显式 off 才关
+  s.thinkingLevel = s.thinkingLevel === 'off' ? 'off' : 'on'
+  return s as Settings
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {

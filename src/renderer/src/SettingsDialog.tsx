@@ -27,14 +27,6 @@ const PRESETS: Array<{ id: string; label: string; base: string; model: string; m
 
 const LANGS = ['中文', 'English', '日本語', '한국어', 'Français', 'Deutsch', 'Español', 'Русский', 'Português', 'Italiano']
 
-const THINK_LEVELS: Array<{ id: Settings['thinkingLevel']; label: string }> = [
-  { id: 'default', label: '默认（跟随模型）' },
-  { id: 'off', label: '关闭' },
-  { id: 'low', label: '低' },
-  { id: 'medium', label: '中' },
-  { id: 'high', label: '高' }
-]
-
 type TabId = 'general' | 'ai' | 'kb' | 'update'
 const TABS: Array<{ id: TabId; label: string; icon: JSX.Element }> = [
   {
@@ -390,16 +382,6 @@ export default function SettingsDialog({
                     )}
                     {/* 不属于任何配置的模型保持可选 */}
                     {form.model && !allModels.some((x) => x.m === form.model) && <option value={form.model}>{form.model}</option>}
-                  </select>
-                </div>
-                <div className="field">
-                  <label>思考等级</label>
-                  <select value={form.thinkingLevel ?? 'default'} onChange={(e) => set({ thinkingLevel: e.target.value as Settings['thinkingLevel'] })}>
-                    {THINK_LEVELS.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.label}
-                      </option>
-                    ))}
                   </select>
                 </div>
               </div>

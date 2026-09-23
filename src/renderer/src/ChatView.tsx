@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderRich, type Jump } from './rich'
 import { buildSuggestions } from './suggest'
-import { ModelPill, ThinkingPill, ScopePill, type ChatScope } from './ChatControls'
+import { ModelPill, ThinkingToggle, ScopePill, type ChatScope } from './ChatControls'
 import type { ChatMsg, Paper, SourceRef } from './types'
 
 interface Props {
@@ -13,9 +13,9 @@ interface Props {
   onScopeChange: (s: ChatScope) => void
   models: string[]
   model: string
-  thinking: string
+  thinkingOn: boolean
   onChangeModel: (m: string) => void
-  onChangeThinking: (l: string) => void
+  onChangeThinkingOn: (v: boolean) => void
   onJump: Jump
   // 对话历史：当前打开的会话 id（null = 新对话）；标题由首条提问自动生成
   activeChatId: number | null
@@ -73,9 +73,9 @@ export default function ChatView({
   onScopeChange,
   models,
   model,
-  thinking,
+  thinkingOn,
   onChangeModel,
-  onChangeThinking,
+  onChangeThinkingOn,
   onJump,
   activeChatId,
   onChatStarted,
@@ -310,7 +310,7 @@ export default function ChatView({
         {picks.length === 0 && <ScopePill cats={cats} scope={scope} onChange={onScopeChange} paperCount={paperCount} catCounts={catCounts} />}
         {pickPill}
         <ModelPill models={models} model={model} onChange={onChangeModel} />
-        <ThinkingPill level={thinking} onChange={onChangeThinking} />
+        <ThinkingToggle on={thinkingOn} onChange={onChangeThinkingOn} />
         {fsCtl}
         <span style={{ flex: 1 }} />
         <button

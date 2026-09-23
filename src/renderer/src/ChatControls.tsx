@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { catLabel } from './LibraryPane'
 
-const THINK_LABEL: Record<string, string> = { default: '默认', off: '关闭', low: '低', medium: '中', high: '高' }
-const THINK_ORDER = ['default', 'off', 'low', 'medium', 'high']
-
 const Caret = (): JSX.Element => (
   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
     <path d="M6 9l6 6 6-6" />
@@ -16,7 +13,7 @@ const ChipCheck = (): JSX.Element => (
   </svg>
 )
 
-// 胶囊基座：空间不足时自动退化为纯图标（带迟滞防抖动），高度恒定
+// 胶囊基座：空间不足时名称截断显示（tooltip 看全称），高度恒定
 function Pill({
   icon,
   label,
@@ -33,23 +30,6 @@ function Pill({
   children: React.ReactNode
 }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
-  const [iconOnly, setIconOnly] = useState(false)
-  const neededRef = useRef(0)
-  useEffect(() => {
-    const el = btnRef.current
-    if (!el) return
-    const ro = new ResizeObserver(() => {
-      if (iconOnly) {
-        if (el.clientWidth > neededRef.current + 12) setIconOnly(false)
-      } else if (el.scrollWidth > el.clientWidth + 1) {
-        neededRef.current = el.scrollWidth
-        setIconOnly(true)
-      }
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [iconOnly])
   // 点击空白处关闭下拉
   useEffect(() => {
     if (!open) return
@@ -61,9 +41,9 @@ function Pill({
   }, [open, setOpen])
   return (
     <div className="pill-wrap" ref={ref}>
-      <button ref={btnRef} className={`ctl-pill ${open ? 'on' : ''}`} title={`${label} · ${title ?? ''}`} onClick={() => setOpen(!open)}>
+      <button className={`ctl-pill ${open ? 'on' : ''}`} title={`${label} · ${title ?? ''}`} onClick={() => setOpen(!open)}>
         {icon}
-        {!iconOnly && <span className="ctl-label">{label}</span>}
+        <span className="ctl-label">{label}</span>
         <Caret />
       </button>
       {open && <div className="pill-menu up">{children}</div>}
@@ -106,36 +86,19 @@ export function ModelPill({ models, model, onChange }: { models: string[]; model
   )
 }
 
-export function ThinkingPill({ level, onChange }: { level: string; onChange: (l: string) => void }): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const cur = THINK_LABEL[level] ?? '默认'
+// 思考开关：纯图标切换，亮 = 开启、暗 = 关闭
+export function ThinkingToggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }): JSX.Element {
   return (
-    <Pill
-      open={open}
-      setOpen={setOpen}
-      label={`思考·${cur}`}
-      title="思考等级（按服务商映射；不支持的服务商由模型决定）"
-      icon={
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 3v2M5.6 5.6l1.4 1.4M3 12h2M5.6 18.4l1.4-1.4M12 21v-2M18.4 18.4L17 17M21 12h-2M18.4 5.6L17 7" />
-          <circle cx="12" cy="12" r="3.4" />
-        </svg>
-      }
+    <button
+      className={`think-toggle ${on ? 'on' : ''}`}
+      title={on ? '思考已开启（点击关闭）' : '思考已关闭（点击开启）'}
+      onClick={() => onChange(!on)}
     >
-      {THINK_ORDER.map((l) => (
-        <button
-          key={l}
-          className={`pill-item ${l === level ? 'on' : ''}`}
-          onClick={() => {
-            onChange(l)
-            setOpen(false)
-          }}
-        >
-          <span>思考·{THINK_LABEL[l]}</span>
-          {l === level && <ChipCheck />}
-        </button>
-      ))}
-    </Pill>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3v2M5.6 5.6l1.4 1.4M3 12h2M5.6 18.4l1.4-1.4M12 21v-2M18.4 18.4L17 17M21 12h-2M18.4 5.6L17 7" />
+        <circle cx="12" cy="12" r="3.4" />
+      </svg>
+    </button>
   )
 }
 
