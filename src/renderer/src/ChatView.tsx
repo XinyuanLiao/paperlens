@@ -25,6 +25,8 @@ interface Props {
   picks: Paper[]
   onRemovePick: (id: number) => void
   onClearPicks: () => void
+  // 回阅读模式重新勾选（勾选状态保留）
+  onRepick: () => void
   // 对话字号（问答/翻译/对话共用）
   fs: number
   onFs: (delta: number) => void
@@ -51,6 +53,7 @@ export default function ChatView({
   picks,
   onRemovePick,
   onClearPicks,
+  onRepick,
   fs,
   onFs
 }: Props): JSX.Element {
@@ -169,21 +172,75 @@ export default function ChatView({
     </div>
   )
 
-  // 检索范围 chips：优先显示勾选的文献（阅读模式加入），无勾选时显示 ScopePill
-  const pickChips = picks.length > 0 && (
+  // 检索范围展示：≤3 篇用输入框上方 chips；更多折叠成胶囊下拉（参考已打开文献列表）。
+  // 无论多少篇，原分类范围选择器都让位给「重选」入口——随时回阅读模式调整勾选
+  const [pickMenuOpen, setPickMenuOpen] = useState(false)
+  const pickMenuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!pickMenuOpen) return
+    const h = (e: MouseEvent): void => {
+      if (!pickMenuRef.current?.contains(e.target as Node)) setPickMenuOpen(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [pickMenuOpen])
+
+  const pickTitle = (id: number, fallback: string): string => papers.find((x) => x.id === id)?.title ?? fallback
+
+  const pickChips = picks.length > 0 && picks.length <= 3 && (
     <div className="pick-chips">
       <span className="pick-chips-label">检索范围 · {picks.length} 篇</span>
       {picks.map((p) => (
         <span key={p.id} className="pick-chip" title={p.title}>
-          <span className="pc-t">{papers.find((x) => x.id === p.id)?.title ?? p.title}</span>
+          <span className="pc-t">{pickTitle(p.id, p.title)}</span>
           <i title="移除" onClick={() => onRemovePick(p.id)}>
             ✕
           </i>
         </span>
       ))}
+      <button className="pick-clear" onClick={onRepick} title="回到阅读模式调整勾选">
+        重选
+      </button>
       <button className="pick-clear" onClick={onClearPicks}>
         清除
       </button>
+    </div>
+  )
+
+  const pickPill = picks.length > 3 && (
+    <div className="pill-wrap" ref={pickMenuRef}>
+      <button className={`ctl-pill ${pickMenuOpen ? 'on' : ''}`} onClick={() => setPickMenuOpen((o) => !o)} title="勾选的检索范围（点击管理）">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 11.5a5 5 0 1 1 5 5c-1 0-1.8-.2-2.6-.6L7 17l1.1-3.2A5 5 0 0 1 9 11.5z" />
+        </svg>
+        <span className="ctl-label">检索范围 · {picks.length} 篇</span>
+      </button>
+      {pickMenuOpen && (
+        <div className="pick-pill-menu">
+          {picks.map((p) => (
+            <div key={p.id} className="pick-pill-item" title={p.title}>
+              <span className="ellipsis">{pickTitle(p.id, p.title)}</span>
+              <i
+                title="移除"
+                onClick={() => {
+                  onRemovePick(p.id)
+                  if (picks.length <= 1) setPickMenuOpen(false)
+                }}
+              >
+                ✕
+              </i>
+            </div>
+          ))}
+          <div className="pick-pill-foot">
+            <button className="pick-clear" onClick={onRepick}>
+              重选
+            </button>
+            <button className="pick-clear" onClick={onClearPicks}>
+              清除全部
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 
@@ -205,6 +262,15 @@ export default function ChatView({
       />
       <div className="hero-input-foot">
         {picks.length === 0 && <ScopePill cats={cats} scope={scope} onChange={onScopeChange} paperCount={paperCount} catCounts={catCounts} />}
+        {picks.length > 0 && picks.length <= 3 && (
+          <button className="ctl-pill" title="回到阅读模式调整勾选" onClick={onRepick}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 11.5a5 5 0 1 1 5 5c-1 0-1.8-.2-2.6-.6L7 17l1.1-3.2A5 5 0 0 1 9 11.5z" />
+            </svg>
+            <span className="ctl-label">已选 {picks.length} 篇 · 重选</span>
+          </button>
+        )}
+        {pickPill}
         <ModelPill models={models} model={model} onChange={onChangeModel} />
         <ThinkingPill level={thinking} onChange={onChangeThinking} />
         {fsCtl}

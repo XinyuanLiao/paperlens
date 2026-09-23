@@ -975,11 +975,17 @@ html[data-theme='dark'] .find-hl { background: rgba(255, 205, 0, 0.26); }
 }
 .pick-box:hover { border-color: var(--accent); }
 .pick-box.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-/* 文件区底部：加入检索按钮（无勾选 = 灰置不可用） */
+/* 文件区底部：加入检索按钮（无勾选 = 灰置不可用）。
+   与列表的过渡用半透明渐变（不是硬分割线）：按钮区上缘向透明过渡，
+   列表内容可从渐变下方滚过；渐变区自身穿透鼠标事件 */
 .pick-foot {
-  flex-shrink: 0; display: flex; padding: 9px 10px 10px;
-  background: var(--bg2); border-top: 1px solid var(--border);
+  flex-shrink: 0; display: flex; position: relative; z-index: 3;
+  margin-top: -30px; padding: 30px 10px 10px;
+  background: linear-gradient(180deg, rgba(242, 240, 233, 0) 0%, var(--bg2) 52%);
+  border-top: none; pointer-events: none;
 }
+html[data-theme='dark'] .pick-foot { background: linear-gradient(180deg, rgba(31, 30, 29, 0) 0%, var(--bg2) 52%); }
+.pick-foot .pick-btn { pointer-events: auto; }
 .pick-btn {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px;
   border: none; border-radius: var(--radius); padding: 8px 0; cursor: pointer;
@@ -1012,3 +1018,47 @@ html[data-theme='dark'] .pick-chip i:hover { background: rgba(255, 255, 255, 0.1
   cursor: pointer; padding: 2px 7px; border-radius: 5px;
 }
 .pick-clear:hover { color: var(--text); background: var(--bg3); }
+
+/* ============ 分类头全选 / 检索范围胶囊菜单 / 状态栏设置 ============ */
+/* 分类头悬停出现的「全选」：小幽灵字按钮，全在选时点亮 */
+.cat-pick {
+  flex-shrink: 0; font-size: 10px; color: var(--text-dim); cursor: pointer;
+  border: 1px solid transparent; border-radius: 4px; padding: 1px 6px;
+  opacity: 0; transition: opacity var(--speed), color var(--speed), border-color var(--speed), background var(--speed);
+}
+.cat-item:hover .cat-pick { opacity: 1; }
+.cat-pick:hover { color: var(--accent2); border-color: var(--accent); background: var(--accent-soft); }
+.cat-pick.on { opacity: 1; color: #fff; background: var(--accent); border-color: var(--accent); }
+
+/* 检索范围胶囊下拉（>3 篇时折叠成列表，参考已打开文献选择器） */
+.pick-pill-menu {
+  position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 80; min-width: 280px; max-width: 420px;
+  background: var(--bg); border: 1px solid var(--border-lit); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 5px; animation: pop 0.1s ease;
+}
+.pick-pill-item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 7px;
+  font-size: 12px; color: var(--text);
+}
+.pick-pill-item span { flex: 1; min-width: 0; }
+.pick-pill-item i {
+  cursor: pointer; font-style: normal; opacity: 0.5; flex-shrink: 0;
+  width: 16px; height: 16px; border-radius: 4px;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 10px;
+}
+.pick-pill-item i:hover { opacity: 1; background: var(--bg3); color: var(--danger); }
+.pick-pill-menu .pick-pill-item:hover { background: var(--bg2); }
+.pick-pill-foot {
+  display: flex; justify-content: flex-end; gap: 4px;
+  border-top: 1px solid var(--border); margin-top: 4px; padding: 5px 6px 3px;
+}
+
+/* 状态栏设置入口（索引信息左侧）：小巧幽灵图标 */
+.statusbar { height: 28px; }
+.sb-gear {
+  width: 20px; height: 20px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none; border-radius: 5px; color: var(--text-dim); cursor: pointer;
+  transition: background var(--speed), color var(--speed);
+}
+.sb-gear:hover { background: var(--bg3); color: var(--accent2); }
+.sb-gear svg { width: 13px; height: 13px; }

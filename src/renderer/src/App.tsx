@@ -92,7 +92,8 @@ export default function App(): JSX.Element {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showLib, setShowLib] = useState(true)
-  const [showSide, setShowSide] = useState(true)
+  // 右侧问答面板默认收起：阅读空间优先，顶栏/视图菜单可再打开
+  const [showSide, setShowSide] = useState(false)
   const [indexInfo, setIndexInfo] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [importInfo, setImportInfo] = useState('')
   const [cats, setCats] = useState<string[]>([])
@@ -598,9 +599,6 @@ export default function App(): JSX.Element {
               <PanelIcon />
             </button>
           )}
-          <button className="icon-btn" title="设置" onClick={() => setShowSettings(true)}>
-            <GearIcon />
-          </button>
         </div>
       </div>
 
@@ -725,6 +723,7 @@ export default function App(): JSX.Element {
               picks={chatPicks}
               onRemovePick={(id) => setChatPicks((l) => l.filter((p) => p.id !== id))}
               onClearPicks={() => setChatPicks([])}
+              onRepick={() => setMode('read')}
               fs={chatFs}
               onFs={changeFs}
             />
@@ -747,6 +746,9 @@ export default function App(): JSX.Element {
       </div>
 
       <div className="statusbar">
+        <button className="sb-gear" title="设置" onClick={() => setShowSettings(true)}>
+          <GearIcon />
+        </button>
         <span className="ellipsis">{statusLeft}</span>
         <span style={{ flex: 1 }} />
         <span className="chip" title={llmChip} onClick={() => void refreshLlmChip()}>

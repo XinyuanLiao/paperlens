@@ -98,13 +98,26 @@ export default function LibraryPane({
       return n
     })
 
-  // 勾选文献（加入对话检索范围用）：切到对话模式不丢，加入后清空
+  // 勾选文献（加入对话检索范围用）：切到对话模式不丢，加入后保留（便于回阅读模式增删重选）
   const [picked, setPicked] = useState<Set<number>>(new Set())
   const togglePick = (id: number): void =>
     setPicked((s) => {
       const n = new Set(s)
       if (n.has(id)) n.delete(id)
       else n.add(id)
+      return n
+    })
+  const allPicked = papers.length > 0 && papers.every((p) => picked.has(p.id))
+  const toggleAll = (): void => setPicked(allPicked ? new Set() : new Set(papers.map((p) => p.id)))
+  // 分类头全选：全在选则清掉，否则补齐
+  const toggleCat = (list: Paper[]): void =>
+    setPicked((s) => {
+      const n = new Set(s)
+      const all = list.every((p) => n.has(p.id))
+      for (const p of list) {
+        if (all) n.delete(p.id)
+        else n.add(p.id)
+      }
       return n
     })
 
@@ -387,6 +400,17 @@ export default function LibraryPane({
               </button>
             </div>
             <span style={{ flex: 1 }} />
+            <button
+              className="lib-newcat"
+              title={allPicked ? '取消全库勾选' : '全选本库全部文献'}
+              onClick={toggleAll}
+            >
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="2" width="12" height="12" rx="3" stroke="currentColor" strokeWidth="1.8" />
+                {allPicked && <path d="M5 8.2 7 10.2 11 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />}
+              </svg>
+              {allPicked ? '取消全选' : '全选'}
+            </button>
             <button className="lib-newcat" title="新建分类" onClick={() => { setNewCat({}); setNewCatVal('') }}>
               <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
                 <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
@@ -460,6 +484,16 @@ export default function LibraryPane({
                   <span className="ellipsis" style={{ flex: 1 }}>
                     {catLabel(c)}
                   </span>
+                  <span
+                    className={`cat-pick ${list.length > 0 && list.every((p) => picked.has(p.id)) ? 'on' : ''}`}
+                    title={list.every((p) => picked.has(p.id)) ? '取消该分类勾选' : '全选该分类'}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleCat(list)
+                    }}
+                  >
+                    全选
+                  </span>
                   <span className="cat-count">{list.length}</span>
                 </div>
                 {expanded.has(c) && (
@@ -480,10 +514,7 @@ export default function LibraryPane({
             <button
               className="pick-btn"
               disabled={picked.size === 0}
-              onClick={() => {
-                onAddPicks(papers.filter((p) => picked.has(p.id)))
-                setPicked(new Set())
-              }}
+              onClick={() => onAddPicks(papers.filter((p) => picked.has(p.id)))}
             >
               加入对话检索{picked.size > 0 ? ` · ${picked.size} 篇` : ''}
             </button>
