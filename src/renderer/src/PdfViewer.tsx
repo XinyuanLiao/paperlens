@@ -399,7 +399,8 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           return
         }
         setPageDims(metas)
-        baseVwRef.current = metas[0]?.w ?? 612
+        // 适应宽度按「最宽页」计算：混排尺寸的 PDF（横版插页等）在 100% 时也不会溢出横向滚动
+        baseVwRef.current = metas.reduce((m, x) => Math.max(m, x.w), 0) || 612
         const w = scrollRef.current?.clientWidth ?? 800
         setBaseScale(Math.max(0.5, Math.min(2.2, (w - 56) / baseVwRef.current)))
         setDoc(d)
@@ -417,6 +418,22 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   }, [active?.paper.id])
 
   const scale = baseScale * zoom
+
+  // 横向滚动按需开启：最宽页放得下时禁止横滚（消除 fit 状态下右侧空白可滑的问题）。
+  // ResizeObserver 盯容器本身：窗口缩放、侧栏拖宽都会触发重算
+  const [xScroll, setXScroll] = useState(false)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !pageDims.length) return
+    const check = (): void => {
+      const maxW = pageDims.reduce((m, d) => Math.max(m, d.w), 0)
+      setXScroll(maxW * scale > el.clientWidth - 56 + 2)
+    }
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [scale, pageDims])
 
   // 只滚动 .viewer-scroll 自身：scrollIntoView 会连带滚动 overflow:hidden 的祖先
   // （.shell/.workspace），把标题栏顶出窗口外。长距离跳页用瞬时滚动（平滑滚动
@@ -705,7 +722,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           <button className="tool-btn" title="关闭搜索（Esc）" onClick={closeFind}>✕</button>
         </div>
       )}
-      <div className="viewer-scroll" ref={attachScrollEl} onMouseUp={onMouseUp} onScroll={onScroll}>
+      <div className={`viewer-scroll ${xScroll ? 'x-auto' : ''}`} ref={attachScrollEl} onMouseUp={onMouseUp} onScroll={onScroll}>
         {error && <div className="empty-viewer">PDF 打开失败：{error}</div>}
         {doc &&
           Array.from({ length: numPages }, (_, i) => (

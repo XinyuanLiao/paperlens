@@ -10,7 +10,7 @@ export function isIndexRunning(): boolean {
 }
 
 // 分块算法版本：改动分块逻辑时递增，buildIndex 检测到旧版本索引会自动清空重建
-const CHUNK_VERSION = 2
+const CHUNK_VERSION = 3
 
 // 库是否需要（重新）索引：有待索引论文、分块算法版本落后，或整篇级向量/标题索引缺失
 export function indexNeedsRebuild(): boolean {
@@ -61,6 +61,27 @@ function chunkText(text: string): string[] {
   return out
 }
 
+// 参考文献/致谢/作者简介等尾部章节标题：这些页是引文清单与作者信息，
+// 进入 RAG 会污染检索片段（且引用跳转会落在奇怪的页面），从索引起点剔除
+const BACK_MATTER_RE = /^(?:\d+(?:\.\d+)*\.?\s+)?(?:references(?:\s+cited)?|bibliography|acknowledg?ments?|biograph(?:y|ies)|author biographies?|参考文献|致谢|作者简介)\s*$/i
+
+// 尾部章节裁剪：命中标题起（同页只留标题前的正文，后续页清空）；
+// 保持数组长度不变，页码/总页数语义不受影响
+function stripBackMatter(pages: string[]): string[] {
+  for (let p = 0; p < pages.length; p++) {
+    const lines = pages[p].split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trim()
+      if (t.length > 48 || !BACK_MATTER_RE.test(t)) continue
+      const out = pages.slice()
+      out[p] = lines.slice(0, i).join('\n').trim()
+      for (let q = p + 1; q < out.length; q++) out[q] = ''
+      return out
+    }
+  }
+  return pages
+}
+
 export async function extractPages(pdfPath: string, maxPages = Infinity): Promise<string[]> {
   const { app } = await import('electron')
   const assetRoot = app.isPackaged ? path.join(process.resourcesPath, 'app.asar') : app.getAppPath()
@@ -94,7 +115,7 @@ export async function extractPages(pdfPath: string, maxPages = Infinity): Promis
     if (line.trim()) lines.push(line.trim())
     pages.push(lines.join('\n'))
   }
-  return pages
+  return stripBackMatter(pages)
 }
 
 // 带缓存的整文抽取（问答整篇模式用；按 mtime 失效）
@@ -131,23 +152,24 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
     db.prepare("INSERT INTO meta(key,value) VALUES('embed_dim',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(dim))
     db.prepare("INSERT INTO meta(key,value) VALUES('chunk_v',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(CHUNK_VERSION))
 
-    const todo = db.prepare('SELECT id, path, slug, title, authors, venue FROM papers WHERE indexed=0 ORDER BY id').all() as Array<{
+    const todo = db.prepare('SELECT id, path, slug, title, authors, venue, category FROM papers WHERE indexed=0 ORDER BY id').all() as Array<{
       id: number
       path: string
       slug: string
       title: string
       authors: string
       venue: string
+      category: string
     }>
     const setPvec = db.prepare('UPDATE papers SET pvec=? WHERE id=?')
     const setFts = db.prepare('INSERT OR REPLACE INTO papers_fts(rowid,title,authors,venue,slug) VALUES(?,?,?,?,?)')
     const paperVec = async (
-      p: { id: number; slug: string; title: string; authors: string; venue: string },
+      p: { id: number; slug: string; title: string; authors: string; venue: string; category: string },
       firstPage: string
     ): Promise<void> => {
-      // 整篇级向量：标题/作者/出处 + 首页文本。查询匹配论文主题但没有任何单块强命中时，靠它把论文捞回来
+      // 整篇级向量：标题/作者/出处/分类 + 首页文本。查询匹配论文主题但没有任何单块强命中时，靠它把论文捞回来
       const meta =
-        `Title: ${p.title}\nAuthors: ${p.authors}\nVenue: ${p.venue}\n\n` +
+        `Title: ${p.title}\nAuthors: ${p.authors}\nVenue: ${p.venue}\nCategory: ${catLabel(p.category)}\n\n` +
         firstPage.replace(/\s+/g, ' ').slice(0, 1400)
       const { vectors } = await embed([meta])
       const buf = Buffer.from(new Float32Array(vectors[0]).buffer)
@@ -164,7 +186,7 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
     const mark = db.prepare('UPDATE papers SET indexed=1, n_pages=? WHERE id=?')
 
     for (let t = 0; t < todo.length; t++) {
-      const { id, path, slug } = todo[t]
+      const { id, path, slug, category } = todo[t]
       try {
         const pages = await extractPages(path)
         const jobs: Array<{ page: number; ord: number; text: string }> = []
@@ -174,7 +196,8 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
         }
         for (let i = 0; i < jobs.length; i += 16) {
           const batch = jobs.slice(i, i + 16)
-          const { vectors } = await embed(batch.map((b) => b.text))
+          // 嵌入文本带分类前缀（库内检索「某分类下的文献」靠它命中），库内仍存干净原文
+          const { vectors } = await embed(batch.map((b) => `【分类：${catLabel(category)}】${b.text}`))
           const tx = db.transaction(() => {
             for (let j = 0; j < batch.length; j++) {
               const v = vectors[j]
@@ -199,10 +222,10 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
     // 升级路径：正文块已是最新、但整篇级向量/标题索引缺失的老论文，只补首页抽取
     const left = db
       .prepare(
-        `SELECT id, path, slug, title, authors, venue FROM papers p
+        `SELECT id, path, slug, title, authors, venue, category FROM papers p
          WHERE pvec IS NULL OR p.id NOT IN (SELECT rowid FROM papers_fts) ORDER BY id`
       )
-      .all() as Array<{ id: number; path: string; slug: string; title: string; authors: string; venue: string }>
+      .all() as Array<{ id: number; path: string; slug: string; title: string; authors: string; venue: string; category: string }>
     for (let t = 0; t < left.length; t++) {
       const p = left[t]
       try {
@@ -243,6 +266,8 @@ export interface RetrievedChunk {
   paperId: number
   slug: string
   title: string
+  category: string
+  year: number | null
   page: number
   text: string
   score: number
@@ -250,13 +275,18 @@ export interface RetrievedChunk {
   snippet: string
 }
 
+// 分类显示名：inbox 是「未分类」的内部目录名
+const catLabel = (c: string): string => (c === 'inbox' ? '未分类' : c)
+
 // 混合检索：向量余弦 + FTS5(trigram) BM25，RRF 融合；scopePaperId / category 过滤范围。
 // 全库模式分两层召回：段落块负责精确定位（引用带页码与原文），
 // 整篇级（每篇最优块余弦 + 标题/作者 BM25）保证"这篇论文相关"就一定出现在来源里——
 // 否则一篇强相关论文可能因为没有单块挤进前列而永远检索不到
 export async function hybridSearch(query: string, scopePaperId?: number, topK = 12, category?: string, paperIds?: number[]): Promise<RetrievedChunk[]> {
   const db = getDb()
-  let papers = db.prepare('SELECT id, slug, title FROM papers').all() as Array<{ id: number; slug: string; title: string }>
+  let papers = db
+    .prepare('SELECT id, slug, title, category, year FROM papers')
+    .all() as Array<{ id: number; slug: string; title: string; category: string; year: number | null }>
   if (category) {
     const allowed = new Set(db.prepare('SELECT id FROM papers WHERE category=?').all(category).map((r: any) => r.id))
     papers = papers.filter((p) => allowed.has(p.id))
@@ -321,7 +351,15 @@ export async function hybridSearch(query: string, scopePaperId?: number, topK = 
   const top = [...rrf.entries()].sort((a, b) => b[1] - a[1]).slice(0, topK * 3)
   const getChunk = db.prepare('SELECT paper_id, page, ord, text FROM chunks WHERE id=?')
   const getNeighbor = db.prepare('SELECT text FROM chunks WHERE paper_id=? AND page=? AND ord=? AND id<>?')
-  const makeSource = (id: number, pid: number, page: number, ord: number, text: string, s: number, paper: { slug: string; title: string }): RetrievedChunk => {
+  const makeSource = (
+    id: number,
+    pid: number,
+    page: number,
+    ord: number,
+    text: string,
+    s: number,
+    paper: { slug: string; title: string; category: string; year: number | null }
+  ): RetrievedChunk => {
     // 上下文扩展：并入相邻块，让每个来源不只是孤立片段
     let full = text
     for (const [pg, od, pre] of [
@@ -335,7 +373,17 @@ export async function hybridSearch(query: string, scopePaperId?: number, topK = 
 ${full}` : `${full}
 ${n.text}`
     }
-    return { paperId: pid, slug: paper.slug, title: paper.title, page, text: full, score: s, snippet: text.slice(0, 600) }
+    return {
+      paperId: pid,
+      slug: paper.slug,
+      title: paper.title,
+      category: paper.category,
+      year: paper.year,
+      page,
+      text: full,
+      score: s,
+      snippet: text.slice(0, 600)
+    }
   }
   const pick = (id: number, s: number): RetrievedChunk | null => {
     const c = getChunk.get(id) as { paper_id: number; page: number; ord: number; text: string } | undefined
@@ -411,7 +459,17 @@ ${n.text}`
       // 没有正文块的论文（抽取曾失败）：至少以元数据来源出现，保证"检索不到"不会因缺块发生
       const p = paperById.get(c.pid)
       if (p && c.s > 0.3) {
-        out.push({ paperId: c.pid, slug: p.slug, title: p.title, page: 1, text: `${p.title}（正文索引缺失，仅元数据命中）`, score: c.s, snippet: '' })
+        out.push({
+          paperId: c.pid,
+          slug: p.slug,
+          title: p.title,
+          category: p.category,
+          year: p.year,
+          page: 1,
+          text: `${p.title}（正文索引缺失，仅元数据命中）`,
+          score: c.s,
+          snippet: ''
+        })
       }
     }
   }

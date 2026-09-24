@@ -464,6 +464,27 @@ function registerIpc(): void {
     }
   })
 
+  // 文献库概况：各分类篇数 + 代表文献标题，供回答分类/数量/方向类问题
+  const buildLibStats = (): string => {
+    const db = dbmod.getDb()
+    const cats = db.prepare('SELECT category, COUNT(*) AS n FROM papers GROUP BY category ORDER BY n DESC').all() as Array<{
+      category: string
+      n: number
+    }>
+    const total = cats.reduce((a, c) => a + c.n, 0)
+    const lines = [`共 ${total} 篇文献，${cats.length} 个分类：`]
+    for (const c of cats) {
+      const titles = db.prepare('SELECT title FROM papers WHERE category=? ORDER BY id DESC LIMIT 8').all(c.category) as Array<{
+        title: string
+      }>
+      const label = c.category === 'inbox' ? '未分类' : c.category
+      lines.push(`- ${label}：${c.n} 篇${titles.length ? `。代表文献：${titles.map((t) => `《${t.title}》`).join('、')}` : ''}`)
+    }
+    return lines.join('\n')
+  }
+  const srcLabel = (s: { title: string; category: string; year: number | null; page: number }): string =>
+    `《${s.title}》（${s.category === 'inbox' ? '未分类' : s.category}${s.year ? ` · ${s.year}` : ''}）p.${s.page}`
+
   // LLM 流式：reqId 关联渲染端回调；inflight 供「停止生成」abort 进行中的请求
   const inflight = new Map<number, AbortController>()
   ipcMain.on('llm:stop', (_e, reqId: number) => {
@@ -499,8 +520,10 @@ function registerIpc(): void {
             // 整篇模式：完整论文正文进提示词（按页标记，引用为 [页码]）
             const paper = dbmod
               .getDb()
-              .prepare('SELECT id, slug, title, path FROM papers WHERE id=?')
-              .get(args.scopePaperId) as { id: number; slug: string; title: string; path: string } | undefined
+              .prepare('SELECT id, slug, title, path, category, year FROM papers WHERE id=?')
+              .get(args.scopePaperId) as
+              | { id: number; slug: string; title: string; path: string; category: string; year: number | null }
+              | undefined
             if (!paper) throw new Error('论文不存在')
             let pages: string[] = []
             try {
@@ -509,11 +532,27 @@ function registerIpc(): void {
               pages = []
             }
             if (pages.length > 0) {
-              sources = pages.map((t, i) => ({ paperId: paper.id, slug: paper.slug, title: paper.title, page: i + 1, text: t, score: 1, snippet: '' }))
-              msgs = paperFullMessages(args.question!, pages, paper.title, undefined, args.history)
+              sources = pages.map((t, i) => ({
+                paperId: paper.id,
+                slug: paper.slug,
+                title: paper.title,
+                category: paper.category,
+                year: paper.year,
+                page: i + 1,
+                text: t,
+                score: 1,
+                snippet: ''
+              }))
+              msgs = paperFullMessages(args.question!, pages, paper.title, undefined, args.history, paper.category)
             } else {
               sources = await hybridSearch(args.question!, args.scopePaperId, 10, args.category)
-              msgs = ragMessages(args.question!, sources.map((s, i) => ({ label: `${s.title} (p.${s.page})`, text: s.text })), paper.title, args.history)
+              msgs = ragMessages(
+                args.question!,
+                sources.map((s) => ({ label: srcLabel(s), text: s.text })),
+                paper.title,
+                args.history,
+                buildLibStats()
+              )
             }
           } else {
             sources = await hybridSearch(args.question!, undefined, 16, args.category, args.paperIds)
@@ -524,9 +563,10 @@ function registerIpc(): void {
             }
             msgs = ragMessages(
               args.question!,
-              sources.map((s, i) => ({ label: `${s.title} (p.${s.page})`, text: s.text })),
+              sources.map((s) => ({ label: srcLabel(s), text: s.text })),
               args.paperTitle,
-              args.history
+              args.history,
+              buildLibStats()
             )
           }
         } else msgs = args.messages ?? []

@@ -347,7 +347,9 @@ button { font-family: inherit; }
 .seg { display: inline-flex; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .seg button { background: none; border: none; color: var(--text); padding: 3px 10px; cursor: pointer; font-size: 12px; transition: background var(--speed); }
 .seg button:hover { background: var(--bg3); }
-.viewer-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 0 70px; background: var(--pdf-canvas); }
+/* 横向滚动只在页面确实比内容区宽时开启：否则滚动区会出现右侧空白/可空滑 */
+.viewer-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 28px 70px; background: var(--pdf-canvas); }
+.viewer-scroll.x-auto { overflow-x: auto; }
 /* PDF 页面外画布区：灰色 + 页间留白，突出纸张本身的边界 */
 .page-wrap {
   position: relative; margin: 0 auto 20px; border-radius: 3px; background: #fff;

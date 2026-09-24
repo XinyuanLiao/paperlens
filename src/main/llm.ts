@@ -189,12 +189,14 @@ export function paperFullMessages(
   pages: string[],
   title: string,
   budget = 120000,
-  history?: Array<{ role: 'user' | 'assistant'; content: string }>
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  category?: string
 ): ChatMessage[] {
   const parts: string[] = []
   let used = 0
   let truncated = false
   for (let i = 0; i < pages.length; i++) {
+    if (!pages[i].trim()) continue // 参考文献/作者简介等尾部章节裁剪后为空页
     const block = `【第 ${i + 1} 页】
 ${pages[i]}`
     if (used + block.length > budget) {
@@ -211,7 +213,7 @@ ${pages[i]}`
     {
       role: 'system',
       content:
-        `你是严谨的学术问答助手。以下是论文《${title}》的完整正文（按页标记）。规则：` +
+        `你是严谨的学术问答助手。以下是论文《${title}》（分类：${category ?? '未分类'}）的完整正文（按页标记，已省略参考文献与作者简介页）。规则：` +
         '1）仅依据该论文内容回答；2）回答详尽具体，提取方法、实验设置、数值结论等细节，按主题分点组织；' +
         '3）每个关键论断后标注页码引用，格式为 [页码]，如 [5] 表示第 5 页；' +
         '4）论文未覆盖的问题明确说明，不要编造；5）中文回答，专业术语首次出现给英文原文。' +
@@ -226,7 +228,8 @@ export function ragMessages(
   question: string,
   sources: Array<{ label: string; text: string }>,
   paperTitle?: string,
-  history?: Array<{ role: 'user' | 'assistant'; content: string }>
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  libStats?: string
 ): ChatMessage[] {
   const ctx = sources.map((s, i) => `[${i + 1}] ${s.label}\n${s.text}`).join('\n\n')
   // 多轮：带最近两轮问答（ assistant 内容截断，避免上下文膨胀）
@@ -237,16 +240,20 @@ export function ragMessages(
     {
       role: 'system',
       content:
-        '你是严谨的学术问答助手。仅依据提供的文献片段回答问题：' +
+        '你是严谨的学术问答助手。仅依据提供的文献片段与文献库概况回答问题：' +
         '1）回答要详尽具体：提取片段中的方法名、模型/数据集、实验条件、数值结论等细节，不要只给笼统概括；' +
         '2）结构化输出：按主题分点或使用小标题，适合对比的问题用 markdown 表格呈现；' +
         '3）每个关键论断后紧跟来源编号，如 [1][3]，编号必须与片段标号一一对应，严禁张冠李戴，也不要把引用集中堆在段末；' +
-        '4）不得引入片段之外的论文名称；不同文献观点有差异时明确指出并分别标注来源；' +
-        '5）片段不足以回答时明确说"库内文献未覆盖该问题"，不要编造；' +
-        '6）回答用中文，专业术语首次出现给英文原文。' +
+        '4）不得引入片段与文献库概况之外的论文名称；不同文献观点有差异时明确指出并分别标注来源；' +
+        '5）分类归属、各分类篇数、覆盖方向等库级问题以【文献库概况】为准（结合片段内容归纳方向），不要因片段中没有出现分类名就拒绝回答；' +
+        '6）片段与概况都不足以回答时明确说"库内文献未覆盖该问题"，不要编造；' +
+        '7）回答用中文，专业术语首次出现给英文原文。' +
         (paperTitle ? `当前讨论的论文是《${paperTitle}》，优先使用与其相关的片段。` : '当前是跨全库检索模式。')
     },
     ...hist,
-    { role: 'user', content: `【检索到的文献片段】\n${ctx}\n\n【问题】\n${question}` }
+    {
+      role: 'user',
+      content: `【检索到的文献片段】\n${ctx}\n\n${libStats ? `【文献库概况】\n${libStats}\n\n` : ''}【问题】\n${question}`
+    }
   ]
 }
