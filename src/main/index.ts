@@ -5,13 +5,12 @@ import * as dbmod from './db'
 import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPagesCached } from './ingest'
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
 import { importPapers, previewImport, movePaperToCategory, createCategory, deleteCategory, deletePaper, renamePaper } from './import'
+import { embed } from './embed'
 import { listLocalFonts } from './fonts'
 import { preprocessQuery } from './query'
 import { warmRerank, testRerank } from './rerank'
 import { verifyAnswer, shouldSkipVerify, skippedReport } from './verify'
 import { testMarker } from './marker'
-import { ensureLlamaRuntime, onRuntimeStatus, shutdownLlama, llamaStatus, testLlamaRuntime } from './llamacpp'
-import { ensureMarkerEnv, onMarkerEnvStatus, markerEnvStatus, markerEnvReady } from './markerEnv'
 
 let win: BrowserWindow | null = null
 
@@ -23,16 +22,8 @@ function send(ev: string, payload: unknown): void {
 // 启动 / dock 重新激活 / 窗口聚焦（节流）/ 定时，都会扫描一遍；有变化才通知界面刷新
 let lastScanAt = 0
 
-// 索引入队：marker 引擎在沙盒未配置时先自动配置（CUDA/MPS 环境），完成/失败后再索引——
-// 保证首轮就走 marker 结构化分块；配置失败自动落内置引擎
 function queueIndex(): void {
-  const s = dbmod.getSettings()
-  const pending = (): void => {
-    if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
-  }
-  if (s.pdfEngine === 'marker' && !s.markerCmd.trim() && !markerEnvReady()) {
-    void ensureMarkerEnv().finally(pending)
-  } else pending()
+  if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
 }
 
 function rescanLibrary(reason: string): void {
@@ -44,9 +35,8 @@ function rescanLibrary(reason: string): void {
     console.log(`[scan:${reason}] 新增 ${r.added} 更新 ${r.updated} 共 ${r.total}`)
     if (r.added > 0 || r.updated > 0) send('papers:changed', { ids: [] })
     queueIndex()
-    // 重排序模型预热 + 向量引擎安装（均幂等，已就绪直接返回）
+    // 重排序模型预热（首次自动下载，已就绪直接返回）
     warmRerank()
-    void ensureLlamaRuntime()
   } catch (e) {
     console.error('[scan]', e)
   }
@@ -135,7 +125,6 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
-app.on('before-quit', () => shutdownLlama())
 
 function registerIpc(): void {
   ipcMain.handle('settings:get', () => dbmod.getSettings())
@@ -475,18 +464,17 @@ function registerIpc(): void {
 
   // 连接测试：over = 渲染端当前编辑值（先保存再测会读到旧全局配置，正确 key 也测不过）
   ipcMain.handle('llm:test', (_e, over?: import('./llm').LlmEndpoint) => testLLM(over))
-  ipcMain.handle('embed:test', () => testLlamaRuntime())
+  ipcMain.handle('embed:test', async () => {
+    try {
+      const { dim } = await embed(['connection test'])
+      return { ok: true, dim }
+    } catch (err) {
+      return { ok: false, error: String(err).slice(0, 300) }
+    }
+  })
   // marker CLI 探测 / 本地重排序测试（含 GPU→CPU 设备报告）
   ipcMain.handle('marker:test', () => testMarker())
   ipcMain.handle('rerank:test', () => testRerank())
-  // AI 运行时（向量引擎 llama.cpp / marker 沙盒）：状态查询 + 手动触发安装，进度经 runtime:progress 推送
-  ipcMain.handle('runtime:status', () => ({ llama: llamaStatus(), marker: markerEnvStatus() }))
-  ipcMain.on('runtime:ensure', (_e, kind: string) => {
-    if (kind === 'llama') void ensureLlamaRuntime(true)
-    else if (kind === 'marker') void ensureMarkerEnv(true).finally(queueIndex)
-  })
-  onRuntimeStatus((st) => send('runtime:progress', { kind: 'llama', ...st }))
-  onMarkerEnvStatus((st) => send('runtime:progress', { kind: 'marker', ...st }))
 
   // 文献库概况：各分类篇数 + 代表文献标题，供回答分类/数量/方向类问题
   const buildLibStats = (): string => {

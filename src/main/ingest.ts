@@ -16,16 +16,23 @@ export function isIndexRunning(): boolean {
 // 分块算法版本：改动分块逻辑时递增，buildIndex 检测到旧版本索引会自动清空重建
 // v3：裁参考文献 + 分类前缀嵌入；v4：marker 结构化三层分块；v5：块目标 512→1024 token、重叠 128
 const CHUNK_VERSION = 5
-// 仅 CPU 可用时的轻量重排候选数（完整策略用设置里的 rerankCandidates）
+// 精排候选数（固定）：GPU = 40；仅 CPU 轻量 = 24
+const RERANK_CANDIDATES = 40
 const LITE_CANDIDATES = 24
 
-// 库是否需要（重新）索引：有待索引论文、分块算法版本落后，或整篇级向量/标题索引缺失
+// 库是否需要（重新）索引：有待索引论文、分块算法/嵌入模型/解析引擎版本落后，或整篇级向量/标题索引缺失
 export function indexNeedsRebuild(): boolean {
   const db = getDb()
   const pending = db.prepare('SELECT COUNT(*) AS n FROM papers WHERE indexed=0').get() as { n: number }
   if (pending.n > 0) return true
   const v = db.prepare("SELECT value FROM meta WHERE key='chunk_v'").get() as { value: string } | undefined
   if (!v || v.value !== String(CHUNK_VERSION)) return true
+  // 嵌入模型 / 解析引擎切换同样使旧索引不可比（写在 buildIndex 里的清库条件要靠这里触发）
+  const m = db.prepare("SELECT value FROM meta WHERE key='embed_model'").get() as { value: string } | undefined
+  if (m?.value !== EMBED_MODEL_ID) return true
+  const engine = getSettings().pdfEngine === 'marker' ? 'marker' : 'builtin'
+  const e = db.prepare("SELECT value FROM meta WHERE key='pdf_engine'").get() as { value: string } | undefined
+  if (e?.value !== engine) return true
   const noPvec = db.prepare('SELECT COUNT(*) AS n FROM papers WHERE pvec IS NULL').get() as { n: number }
   if (noPvec.n > 0) return true
   const noFts = db
@@ -284,7 +291,6 @@ export async function hybridSearch(
   paperIds?: number[]
 ): Promise<RetrievedChunk[]> {
   const db = getDb()
-  const s = getSettings()
   let papers = db
     .prepare('SELECT id, slug, title, category, year FROM papers')
     .all() as Array<{ id: number; slug: string; title: string; category: string; year: number | null }>
@@ -384,11 +390,11 @@ export async function hybridSearch(
     .sort((a, b) => b.s - a.s)
 
   // 精排：融合 top-N 候选 → 交叉编码器逐对打分 → 按分数重排。
-  // GPU 可用 = 完整策略（候选数可配 + 单篇上限 4 + 补齐）；仅 CPU 可用 = 轻量策略（固定 24 候选直取，
-  // CPU 跑大批交叉编码器太慢）。关闭/失败/超时按融合序兜底
+  // GPU 可用 = 完整策略（40 候选 + 单篇上限 4 + 补齐）；仅 CPU = 轻量（24 候选直取）。
+  // 关闭/失败/超时按融合序兜底
   let ordered = boosted
   const lite = rerankDevice() === 'cpu'
-  const candN = lite ? LITE_CANDIDATES : Math.min(Math.max(s.rerankCandidates ?? 40, 10), 100)
+  const candN = lite ? LITE_CANDIDATES : RERANK_CANDIDATES
   if (rerankEnabled() && boosted.length > 1) {
     const cands = boosted.slice(0, candN)
     const ph = cands.map(() => '?').join(',')

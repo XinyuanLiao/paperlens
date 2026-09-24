@@ -150,10 +150,8 @@ export default function SetupWizard({ initial, onDone }: Props): JSX.Element {
 
           {step === 2 && (
             <>
-              <div className="hint" style={{ marginTop: 0, lineHeight: 1.9 }}>
-                向量引擎（llama.cpp + BAAI/bge-m3）与 marker 解析环境会在首次使用时<b>自动下载配置</b>：
-                <br />
-                Windows 用 CUDA / macOS 用 Metal·MPS / 低端配置自动落 CPU，无需手动安装。
+              <div className="hint" style={{ marginTop: 0 }}>
+                向量模型（BAAI/bge-m3）首次使用时自动下载，无需配置。
               </div>
               <div className="wizard-actions">
                 <button className="btn ghost" onClick={() => void testEmbed()}>

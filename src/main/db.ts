@@ -43,19 +43,15 @@ export interface Settings {
   thinkingLevel: 'off' | 'on'
   profiles?: ProviderProfile[]
   // ---- RAG 管线 ----
-  // PDF 解析引擎：marker（Python，结构感知）优先，逐篇失败自动回退内置 pdfjs。
-  // markerCmd 留空 = 用自动配置的沙盒环境（markerEnv），填了则优先手动命令
+  // PDF 解析引擎：marker（结构化分块，需本机 marker 命令）优先，失败逐篇回退内置 pdfjs
   pdfEngine: 'builtin' | 'marker'
   markerCmd: string
-  // 重排序开关（本地 ONNX bge-reranker-v2-m3）：GPU 可用时走完整策略（候选数可配），
-  // 仅 CPU 可用时自动轻量化（固定 24 候选直取）
+  // 重排序（本地 ONNX bge-reranker-v2-m3）：GPU 完整策略，仅 CPU 自动轻量
   rerankProvider: 'off' | 'local'
-  rerankCandidates: number
   // 查询预处理（术语扩展/意图识别/指代消解）与回答后校验（引用/事实/逻辑）
   queryRewrite: boolean
   answerVerify: boolean
-  // 嵌入固定为内置 BAAI/bge-m3（随安装包分发），加速设备自动选择（CUDA/DirectML/GPU→CPU），
-  // 均无需设置；旧版本的 embedProvider/ollama*/gpuEnabled 等字段读取时自动忽略
+  // 嵌入固定为本地 BAAI/bge-m3（首次自动下载），无需配置
 }
 
 // 默认文献库：跟随平台放到「文档」目录（开发态 app 未 ready 前不能调 getPath，惰性求值）
@@ -77,10 +73,9 @@ const DEFAULTS: Settings = {
   setupDone: false,
   models: [],
   thinkingLevel: 'on',
-  pdfEngine: 'marker',
+  pdfEngine: 'builtin',
   markerCmd: '',
   rerankProvider: 'local',
-  rerankCandidates: 40,
   queryRewrite: true,
   answerVerify: true
 }

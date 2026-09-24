@@ -38,12 +38,10 @@ export interface Settings {
   setupDone?: boolean
   profiles?: ProviderProfile[]
   // ---- RAG 管线 ----
-  // 嵌入 = llama.cpp + bge-m3（安装时自动下载）；marker = 自动配置的 CUDA/MPS 沙盒（markerCmd 留空）。
-  // 加速设备自动选择，均无需手动配置
+  // 嵌入固定为本地 BAAI/bge-m3（自动下载），无需配置
   pdfEngine?: 'builtin' | 'marker'
   markerCmd?: string
   rerankProvider?: 'off' | 'local'
-  rerankCandidates?: number
   queryRewrite?: boolean
   answerVerify?: boolean
 }
@@ -168,16 +166,9 @@ declare global {
       onImportRequest: (cb: () => void) => () => void
       onImportFile: (cb: (o: ImportOutcome) => void) => () => void
       testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; quota?: string; error?: string }>
-      testEmbed: () => Promise<{ ok: boolean; device?: string; dim?: number; error?: string }>
+      testEmbed: () => Promise<{ ok: boolean; dim?: number; error?: string }>
       testMarker: () => Promise<{ ok: boolean; version?: string; error?: string }>
-      testRerank: () => Promise<{ ok: boolean; device?: string; latencyMs?: number; scores?: number[]; error?: string }>
-      // AI 运行时（llama.cpp 向量引擎 / marker 沙盒）：状态 + 手动安装 + 进度事件
-      runtimeStatus: () => Promise<{
-        llama: { state: string; detail: string; device: string; pct?: number }
-        marker: { state: string; detail: string; pct?: number }
-      }>
-      runtimeEnsure: (kind: 'llama' | 'marker') => void
-      onRuntimeProgress: (cb: (p: { kind: 'llama' | 'marker'; state: string; detail: string; pct?: number; device?: string }) => void) => () => void
+      testRerank: () => Promise<{ ok: boolean; device?: string; scores?: number[]; error?: string }>
       stream: (
         args: Record<string, unknown>,
         handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: SourceRef[]) => void; onVerify?: (v: VerifyReport) => void }

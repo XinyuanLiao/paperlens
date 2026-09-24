@@ -80,14 +80,6 @@ const api = {
   testEmbed: () => ipcRenderer.invoke('embed:test'),
   testMarker: () => ipcRenderer.invoke('marker:test'),
   testRerank: () => ipcRenderer.invoke('rerank:test'),
-  // AI 运行时（llama.cpp 向量引擎 / marker 沙盒）：状态 + 手动安装 + 进度事件
-  runtimeStatus: () => ipcRenderer.invoke('runtime:status'),
-  runtimeEnsure: (kind: 'llama' | 'marker') => ipcRenderer.send('runtime:ensure', kind),
-  onRuntimeProgress: (cb: (p: { kind: 'llama' | 'marker'; state: string; detail: string; pct?: number; device?: string }) => void) => {
-    const h = (_e: unknown, p: unknown) => cb(p as never)
-    ipcRenderer.on('runtime:progress', h)
-    return () => ipcRenderer.removeListener('runtime:progress', h)
-  },
 
   // 流式对话：返回 stop 中断句柄（主进程 abort 后照常走 onEnd 收尾）
   stream: (

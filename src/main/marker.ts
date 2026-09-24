@@ -3,7 +3,6 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getSettings } from './db'
-import { markerBin } from './markerEnv'
 
 // marker（datalab-to/marker，Python）把 PDF 转成结构化 markdown：
 // 多栏/公式/表格的还原质量远高于内置 pdfjs 抽取，但需要本机 Python 环境。
@@ -37,9 +36,9 @@ function resolveCmd(cmd: string): string {
   return `${cmd}.exe`
 }
 
-// 设置页「测试」按钮：探测 marker 可用性（手动命令 > 自动配置的沙盒 > PATH）
+// 设置页「测试」按钮：探测 marker 可用性（设置里的命令，缺省找 PATH）
 export async function testMarker(): Promise<{ ok: boolean; version?: string; error?: string }> {
-  const cmd = resolveCmd(markerBin(getSettings().markerCmd))
+  const cmd = resolveCmd(getSettings().markerCmd || 'marker_single')
   try {
     const out = await new Promise<string>((resolve, reject) => {
       const p = spawn(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
@@ -80,7 +79,7 @@ function killTree(pid: number): void {
 export async function runMarker(pdfPath: string): Promise<string | null> {
   const { app } = await import('electron')
   const s = getSettings()
-  const cmd = resolveCmd(markerBin(s.markerCmd))
+  const cmd = resolveCmd(s.markerCmd || 'marker_single')
   let st: fs.Stats
   try {
     st = fs.statSync(pdfPath)

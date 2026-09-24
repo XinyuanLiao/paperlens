@@ -134,31 +134,6 @@ export default function SettingsDialog({
   const [embedTest, setEmbedTest] = useState('')
   const [markerTest, setMarkerTest] = useState('')
   const [rerankTest, setRerankTest] = useState('')
-  // AI 运行时状态（llama.cpp 向量引擎 / marker 沙盒），进度事件实时刷新
-  const [rtLlama, setRtLlama] = useState<{ state: string; detail: string; device: string; pct?: number }>({ state: 'need', detail: '', device: '' })
-  const [rtMarker, setRtMarker] = useState<{ state: string; detail: string; pct?: number }>({ state: 'need', detail: '' })
-  useEffect(() => {
-    void window.api.runtimeStatus().then((r) => {
-      setRtLlama(r.llama)
-      setRtMarker(r.marker)
-    })
-    return window.api.onRuntimeProgress((p) => {
-      if (p.kind === 'llama') setRtLlama({ state: p.state, detail: p.detail, device: p.device ?? '', pct: p.pct })
-      else setRtMarker({ state: p.state, detail: p.detail, pct: p.pct })
-    })
-  }, [])
-  const rtLabel = (st: { state: string; pct?: number }): string =>
-    st.state === 'ready'
-      ? '✓ 已就绪'
-      : st.state === 'running'
-        ? '✓ 运行中'
-        : st.state === 'downloading'
-          ? `下载中${st.pct != null ? ` ${st.pct}%` : '…'}`
-          : st.state === 'installing'
-            ? '配置中…'
-            : st.state === 'error'
-              ? '✗ 出错'
-              : '未安装'
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
   // 本地字体列表（设置打开时枚举一次）
@@ -247,7 +222,7 @@ export default function SettingsDialog({
     setEmbedTest('测试中…')
     await onSave(form)
     const r = await window.api.testEmbed()
-    setEmbedTest(r.ok ? `✓ ${r.device ?? ''} · ${r.dim} 维` : `✗ ${r.error ?? '失败'}`)
+    setEmbedTest(r.ok ? `✓ ${r.dim} 维` : `✗ ${r.error ?? '失败'}`)
   }
 
   const testMarkerCmd = async (): Promise<void> => {
@@ -258,12 +233,12 @@ export default function SettingsDialog({
   }
 
   const testRerankModel = async (): Promise<void> => {
-    setRerankTest('测试中（首次需下载模型）…')
+    setRerankTest('测试中…')
     await onSave(form)
     const r = await window.api.testRerank()
     if (r.ok) {
       const [rel, irr] = r.scores ?? []
-      setRerankTest(`✓ ${r.device} · 相关 ${rel?.toFixed(3)} / 无关 ${irr?.toFixed(3)}`)
+      setRerankTest(`✓ 相关 ${rel?.toFixed(3)} / 无关 ${irr?.toFixed(3)}`)
     } else {
       setRerankTest(`✗ ${r.error ?? '失败'}`)
     }
@@ -641,21 +616,28 @@ export default function SettingsDialog({
               </div>
 
               <div className="section">
-                <div className="section-title">向量引擎（llama.cpp + BAAI/bge-m3）</div>
-                <div className="hint" style={{ marginTop: 0 }}>
-                  安装时自动下载，已就绪则直接调用。加速设备自动选择：Windows CUDA、macOS Metal、低端配置 CPU。
+                <div className="section-title">PDF 解析</div>
+                <div className="field-row">
+                  <div className="field grow">
+                    <label>引擎</label>
+                    <select value={form.pdfEngine ?? 'builtin'} onChange={(e) => set({ pdfEngine: e.target.value as Settings['pdfEngine'] })}>
+                      <option value="builtin">内置（默认）</option>
+                      <option value="marker">marker（结构化分块）</option>
+                    </select>
+                  </div>
+                  {form.pdfEngine === 'marker' && (
+                    <div className="field grow">
+                      <label>marker 命令</label>
+                      <input value={form.markerCmd ?? ''} onChange={(e) => set({ markerCmd: e.target.value })} placeholder="marker_single.exe 完整路径" />
+                    </div>
+                  )}
                 </div>
                 <div className="test-row">
-                  <span className="test-result">
-                    {rtLabel(rtLlama)}
-                    {rtLlama.device ? ` · ${rtLlama.device}` : ''}
-                    {rtLlama.state === 'downloading' && rtLlama.detail ? `（${rtLlama.detail}）` : ''}
-                    {rtLlama.state === 'error' && rtLlama.detail ? `：${rtLlama.detail}` : ''}
-                  </span>
-                  <span style={{ flex: 1 }} />
-                  <button className="btn ghost" onClick={() => window.api.runtimeEnsure('llama')} disabled={rtLlama.state === 'downloading'}>
-                    {rtLlama.state === 'ready' || rtLlama.state === 'running' ? '重新下载' : '立即下载'}
+                  <button className="btn ghost" onClick={() => void testMarkerCmd()} disabled={busy}>
+                    测试 marker
                   </button>
+                  <span className="test-result">{markerTest}</span>
+                  <span style={{ flex: 1 }} />
                   <button className="btn ghost" onClick={() => void testEmbed()} disabled={busy}>
                     测试嵌入
                   </button>
@@ -664,93 +646,37 @@ export default function SettingsDialog({
               </div>
 
               <div className="section">
-                <div className="section-title">PDF 解析引擎</div>
+                <div className="section-title">检索增强</div>
                 <div className="field-row">
                   <div className="field grow">
-                    <label>引擎</label>
-                    <select value={form.pdfEngine ?? 'marker'} onChange={(e) => set({ pdfEngine: e.target.value as Settings['pdfEngine'] })}>
-                      <option value="marker">marker（结构化分块）</option>
-                      <option value="builtin">内置 pdfjs（快速，无章节结构）</option>
+                    <label>重排序</label>
+                    <select value={form.rerankProvider ?? 'local'} onChange={(e) => set({ rerankProvider: e.target.value as Settings['rerankProvider'] })}>
+                      <option value="local">开</option>
+                      <option value="off">关</option>
                     </select>
-                    <div className="hint">marker 失败自动逐篇回退。切换引擎会触发全库重建（解析结果有缓存）。</div>
+                  </div>
+                  <div className="field grow">
+                    <label>查询预处理</label>
+                    <select value={form.queryRewrite === false ? 'off' : 'on'} onChange={(e) => set({ queryRewrite: e.target.value === 'on' })}>
+                      <option value="on">开</option>
+                      <option value="off">关</option>
+                    </select>
+                  </div>
+                  <div className="field grow">
+                    <label>回答校验</label>
+                    <select value={form.answerVerify === false ? 'off' : 'on'} onChange={(e) => set({ answerVerify: e.target.value === 'on' })}>
+                      <option value="on">开</option>
+                      <option value="off">关</option>
+                    </select>
                   </div>
                 </div>
                 <div className="test-row">
-                  <span className="test-result">
-                    解析环境：{rtLabel(rtMarker)}
-                    {rtMarker.state === 'downloading' && rtMarker.detail ? `（${rtMarker.detail}）` : ''}
-                    {rtMarker.state === 'error' && rtMarker.detail ? `：${rtMarker.detail}` : ''}
-                  </span>
+                  <button className="btn ghost" onClick={() => void testRerankModel()} disabled={busy}>
+                    测试重排序
+                  </button>
+                  <span className="test-result">{rerankTest}</span>
                   <span style={{ flex: 1 }} />
-                  <button
-                    className="btn ghost"
-                    onClick={() => window.api.runtimeEnsure('marker')}
-                    disabled={rtMarker.state === 'installing' || rtMarker.state === 'downloading'}
-                  >
-                    {rtMarker.state === 'ready' ? '重建环境' : '配置解析环境'}
-                  </button>
-                  <button className="btn ghost" onClick={() => void testMarkerCmd()} disabled={busy}>
-                    测试 marker
-                  </button>
-                  <span className="test-result">{markerTest}</span>
-                </div>
-                <div className="hint">
-                  自动配置独立 Python 沙盒（内置 CUDA 版 PyTorch，macOS 用 MPS），首次约数分钟并下载 2-3GB 依赖。
-                </div>
-                <div className="field" style={{ marginTop: 8 }}>
-                  <label>手动指定 marker 命令（可选，留空用自动配置的环境）</label>
-                  <input value={form.markerCmd ?? ''} onChange={(e) => set({ markerCmd: e.target.value })} placeholder="留空 = 自动" />
-                </div>
-              </div>
-
-              <div className="section">
-                <div className="section-title">RAG 检索管线</div>
-                <div className="field-row" style={{ marginTop: 0 }}>
-                  <div className="field grow">
-                    <label>重排序（bge-reranker-v2-m3 精排）</label>
-                    <select value={form.rerankProvider ?? 'local'} onChange={(e) => set({ rerankProvider: e.target.value as Settings['rerankProvider'] })}>
-                      <option value="local">开启（默认）</option>
-                      <option value="off">关闭</option>
-                    </select>
-                    <div className="hint">GPU 可用走完整策略；仅 CPU 时自动轻量化。首次使用自动下载模型。</div>
-                  </div>
-                  <div className="field grow">
-                    <label>重排候选数（GPU 完整策略 10-100）</label>
-                    <input
-                      type="number"
-                      min={10}
-                      max={100}
-                      value={form.rerankCandidates ?? 40}
-                      onChange={(e) => set({ rerankCandidates: Math.min(100, Math.max(10, parseInt(e.target.value, 10) || 40)) })}
-                    />
-                    <div className="hint">建议 40-100（GPU）；CPU 时固定 24 不受此值影响。</div>
-                  </div>
-                </div>
-                {(form.rerankProvider ?? 'local') === 'local' && (
-                  <div className="test-row">
-                    <button className="btn ghost" onClick={() => void testRerankModel()} disabled={busy}>
-                      测试重排序
-                    </button>
-                    <span className="test-result">{rerankTest}</span>
-                  </div>
-                )}
-                <div className="field-row" style={{ marginTop: 12 }}>
-                  <div className="field grow">
-                    <label>查询预处理（术语扩展 / 指代消解）</label>
-                    <select value={form.queryRewrite === false ? 'off' : 'on'} onChange={(e) => set({ queryRewrite: e.target.value === 'on' })}>
-                      <option value="on">开启（默认）</option>
-                      <option value="off">关闭</option>
-                    </select>
-                    <div className="hint">检索前用 AI 改写查询，改善缩写与追问类问题的召回（约 1-3s，超时自动跳过）。</div>
-                  </div>
-                  <div className="field grow">
-                    <label>回答后校验（引用 / 事实 / 逻辑）</label>
-                    <select value={form.answerVerify === false ? 'off' : 'on'} onChange={(e) => set({ answerVerify: e.target.value === 'on' })}>
-                      <option value="on">开启（默认）</option>
-                      <option value="off">关闭</option>
-                    </select>
-                    <div className="hint">回答完成后自动核对引用编号与来源一致性，问题清单显示在答案下方。</div>
-                  </div>
+                  <span className="hint">嵌入与重排模型首次使用自动下载。</span>
                 </div>
               </div>
 
