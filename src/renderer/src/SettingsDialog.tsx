@@ -132,7 +132,6 @@ export default function SettingsDialog({
   })
   const [llmTests, setLlmTests] = useState<Record<number, string>>({})
   const [embedTest, setEmbedTest] = useState('')
-  const [markerTest, setMarkerTest] = useState('')
   const [rerankTest, setRerankTest] = useState('')
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
@@ -223,13 +222,6 @@ export default function SettingsDialog({
     await onSave(form)
     const r = await window.api.testEmbed()
     setEmbedTest(r.ok ? `✓ ${r.dim} 维` : `✗ ${r.error ?? '失败'}`)
-  }
-
-  const testMarkerCmd = async (): Promise<void> => {
-    setMarkerTest('测试中…')
-    await onSave(form)
-    const r = await window.api.testMarker()
-    setMarkerTest(r.ok ? `✓ ${r.version ?? 'marker 可用'}` : `✗ ${r.error ?? '不可用'}（索引将回退内置解析）`)
   }
 
   const testRerankModel = async (): Promise<void> => {
@@ -616,32 +608,24 @@ export default function SettingsDialog({
               </div>
 
               <div className="section">
-                <div className="section-title">PDF 解析</div>
+                <div className="section-title">嵌入（Ollama）</div>
                 <div className="field-row">
                   <div className="field grow">
-                    <label>引擎</label>
-                    <select value={form.pdfEngine ?? 'builtin'} onChange={(e) => set({ pdfEngine: e.target.value as Settings['pdfEngine'] })}>
-                      <option value="builtin">内置（默认）</option>
-                      <option value="marker">marker（结构化分块）</option>
-                    </select>
+                    <label>服务地址</label>
+                    <input value={form.ollamaUrl ?? ''} onChange={(e) => set({ ollamaUrl: e.target.value })} placeholder="http://127.0.0.1:11434" />
                   </div>
-                  {form.pdfEngine === 'marker' && (
-                    <div className="field grow">
-                      <label>marker 命令</label>
-                      <input value={form.markerCmd ?? ''} onChange={(e) => set({ markerCmd: e.target.value })} placeholder="marker_single.exe 完整路径" />
-                    </div>
-                  )}
+                  <div className="field grow">
+                    <label>模型</label>
+                    <input value={form.ollamaEmbedModel ?? ''} onChange={(e) => set({ ollamaEmbedModel: e.target.value })} placeholder="qwen3-embedding:0.6b" />
+                  </div>
                 </div>
                 <div className="test-row">
-                  <button className="btn ghost" onClick={() => void testMarkerCmd()} disabled={busy}>
-                    测试 marker
-                  </button>
-                  <span className="test-result">{markerTest}</span>
-                  <span style={{ flex: 1 }} />
                   <button className="btn ghost" onClick={() => void testEmbed()} disabled={busy}>
                     测试嵌入
                   </button>
                   <span className="test-result">{embedTest}</span>
+                  <span style={{ flex: 1 }} />
+                  <span className="hint">模型由 Ollama 管理，先 ollama pull。</span>
                 </div>
               </div>
 
@@ -676,7 +660,7 @@ export default function SettingsDialog({
                   </button>
                   <span className="test-result">{rerankTest}</span>
                   <span style={{ flex: 1 }} />
-                  <span className="hint">嵌入与重排模型首次使用自动下载。</span>
+                  <span className="hint">重排模型首次使用自动下载。</span>
                 </div>
               </div>
 
@@ -685,6 +669,7 @@ export default function SettingsDialog({
                 <div className="hint" style={{ marginTop: 0 }}>
                   已索引 {indexed.indexed}/{indexed.papers} 篇 · {indexed.chunks} 个文本块
                   {indexInfo ? ` · 正在处理 ${indexInfo.current ?? ''} (${indexInfo.done}/${indexInfo.total})` : ''}
+                  · PDF 结构化解析（liteparse，无 OCR）内置
                 </div>
                 <div style={{ marginTop: 8 }}>
                   <button className="btn ghost" onClick={rebuild} disabled={busy}>

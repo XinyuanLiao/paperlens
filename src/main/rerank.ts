@@ -2,13 +2,15 @@ import path from 'node:path'
 import { getSettings } from './db'
 import { deviceLabel, tfDeviceChain, type TfDevice } from './device'
 
-// 本地重排序：bge-reranker-v2-m3（ONNX），transformers.js 在主进程推理。
+// 本地重排序：bge-reranker-base（小体积 278M，XLM-R 多语，ONNX），transformers.js 在主进程推理。
 // 策略极简：候选打乱无关——调用方给 N 个候选，这里返回每对 (query, doc) 的 sigmoid 分数，
 // 由调用方按分数取 top-K。加速设备自动选择（cuda/dml/gpu 优先，CPU 兜底；GPU 用 fp16、CPU 用 q8）。
 // 注意不能用 text-classification pipeline：单 logit 交叉编码器会被 softmax 归一成恒 1.0，
 // 必须手动取 logits 过 sigmoid。
 
-const RERANK_MODEL = 'onnx-community/bge-reranker-v2-m3-ONNX'
+// 小体积重排模型：bge-reranker-base（278M，XLM-R 多语，中英查询均可），
+// 比 v2-m3（568M）小一半，CPU/GPU 都更快
+const RERANK_MODEL = 'Xenova/bge-reranker-base'
 const SCORE_WAIT_MS = 8000 // 单次检索里重排的等待预算（不含首次模型加载）
 const MAX_DOC_CHARS = 1200 // 文档侧截断（重排对长文不敏感，省时省显存）
 
@@ -35,7 +37,8 @@ export function rerankDevice(): TfDevice | null {
 }
 
 // GPU 设备用 fp16（快且省显存），CPU 用 q8（省内存）；逐级尝试失败落下一设备
-const dtypeFor = (d: TfDevice): 'fp16' | 'q8' => (d === 'cpu' ? 'q8' : 'fp16')
+// GPU 用 fp16，CPU 用 int8（Xenova 转换版提供的量化文件名）
+const dtypeFor = (d: TfDevice): 'fp16' | 'int8' => (d === 'cpu' ? 'int8' : 'fp16')
 
 async function loadModel(): Promise<Loaded | null> {
   process.env.HF_ENDPOINT ||= 'https://hf-mirror.com' // 国内镜像
@@ -48,7 +51,7 @@ async function loadModel(): Promise<Loaded | null> {
       const model = await AutoModel.from_pretrained(RERANK_MODEL, { dtype: dtypeFor(device), device })
       const tokenizer = await AutoTokenizer.from_pretrained(RERANK_MODEL)
       loadedModel = { model, tokenizer, device }
-      console.log(`[rerank] bge-reranker-v2-m3 就绪 · ${deviceLabel(device)}`)
+      console.log(`[rerank] bge-reranker-base 就绪 · ${deviceLabel(device)}`)
       return loadedModel
     } catch (err) {
       console.warn(`[rerank] ${device} 不可用，尝试下一设备：`, String(err).slice(0, 160))

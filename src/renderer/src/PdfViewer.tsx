@@ -123,6 +123,8 @@ interface Props {
   onDeleteHighlight: (id: number) => void
   // 面板常驻但 chat 模式下隐藏：隐藏时全局缩放快捷键不生效（让位给引用面板）
   visible: boolean
+  // 侧栏开合/拖宽信号：递增时 PDF 重新适应阅读窗宽度
+  fitSignal?: number
 }
 
 interface PageTextMap {
@@ -165,7 +167,7 @@ function normalizeSelText(raw: string): string {
 }
 
 const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
-  { tabs, activeId, onActivate, onCloseTab, pendingJump, onJumped, onPageContext, onSelect, onDeleteHighlight, visible },
+  { tabs, activeId, onActivate, onCloseTab, pendingJump, onJumped, onPageContext, onSelect, onDeleteHighlight, visible, fitSignal },
   ref
 ): JSX.Element {
   const active = tabs.find((t) => t.paper.id === activeId) ?? null
@@ -249,6 +251,12 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     setBaseScale(Math.max(0.5, Math.min(2.2, (w - 56) / base)))
     setZoom(1)
   }, [])
+
+  // 侧栏开合/拖宽信号：PDF 随阅读窗对应缩放（App 侧已防抖，等过渡动画结束）
+  useEffect(() => {
+    if (!fitSignal || !visible || !scrollRef.current) return
+    fitWidth()
+  }, [fitSignal, visible, fitWidth])
 
   // Cmd/Ctrl + -/=/0 缩放、Ctrl/Cmd+F 搜索（仅阅读模式可见时生效；chat 模式下快捷键归引用面板）
   useEffect(() => {

@@ -43,10 +43,10 @@ export interface Settings {
   thinkingLevel: 'off' | 'on'
   profiles?: ProviderProfile[]
   // ---- RAG 管线 ----
-  // PDF 解析引擎：marker（结构化分块，需本机 marker 命令）优先，失败逐篇回退内置 pdfjs
-  pdfEngine: 'builtin' | 'marker'
-  markerCmd: string
-  // 重排序（本地 ONNX bge-reranker-v2-m3）：GPU 完整策略，仅 CPU 自动轻量
+  // 嵌入由 Ollama 管理（ollama pull 对应模型即可）
+  ollamaUrl: string
+  ollamaEmbedModel: string
+  // 重排序（本地 ONNX bge-reranker-base）：GPU 完整策略，仅 CPU 自动轻量
   rerankProvider: 'off' | 'local'
   // 查询预处理（术语扩展/意图识别/指代消解）与回答后校验（引用/事实/逻辑）
   queryRewrite: boolean
@@ -73,8 +73,8 @@ const DEFAULTS: Settings = {
   setupDone: false,
   models: [],
   thinkingLevel: 'on',
-  pdfEngine: 'builtin',
-  markerCmd: '',
+  ollamaUrl: 'http://127.0.0.1:11434',
+  ollamaEmbedModel: 'qwen3-embedding:0.6b',
   rerankProvider: 'local',
   queryRewrite: true,
   answerVerify: true

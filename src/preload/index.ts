@@ -78,7 +78,6 @@ const api = {
   },
   testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => ipcRenderer.invoke('llm:test', over),
   testEmbed: () => ipcRenderer.invoke('embed:test'),
-  testMarker: () => ipcRenderer.invoke('marker:test'),
   testRerank: () => ipcRenderer.invoke('rerank:test'),
 
   // 流式对话：返回 stop 中断句柄（主进程 abort 后照常走 onEnd 收尾）

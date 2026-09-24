@@ -59,6 +59,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.5.0",
+    "@llamaindex/liteparse": "^2.14.7",
     "better-sqlite3": "^11.9.0",
     "katex": "^0.18.7",
     "pdfjs-dist": "^4.10.38",

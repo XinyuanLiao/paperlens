@@ -1,11 +1,134 @@
-import type { MdBlock } from './marker'
-import { alignBlocksToPages } from './marker'
-
 // 三层结构化分块（v5）：
-// 第一层按章节（marker 标题），第二层章节内按段落聚合，第三层超长段落按句切分并带论点句前缀。
+// 第一层按章节（liteparse 标题），第二层章节内按段落聚合，第三层超长段落按句切分并带论点句前缀。
 // 目标块 ~1024 token（CJK≈1 token/字、拉丁≈4 字符/token 估算；512 不足以覆盖完整段落，2026-09-24 调大），
 // 相邻块 128 token 重叠。重叠与论点前缀只进「嵌入文本」：BM25 与引用跳转用的库内 text 保持干净原文，
 // 避免重叠内容稀释 trigram 命中、也让 snippet 精确对应真实段落。
+
+export interface MdBlock {
+  text: string
+  sectionNo: string
+  sectionTitle: string
+  kind: 'body' | 'abstract' | 'caption'
+  // liteparse 逐页输出，页码天然已知（引用跳转依赖）
+  page: number
+}
+
+// ---------- liteparse 逐页 markdown → 结构块 ----------
+
+// 尾部章节（参考文献/致谢/作者简介）：块直接丢弃，不进索引
+const BACK_MATTER_HEADING =
+  /^(?:references?(?:\s+cited)?|bibliography|acknowledg?ments?|author\s+biographies?|biograph(?:y|ies)|参考文献|致\s*谢|作者简介)/i
+const APPENDIX_HEADING = /^(?:appendix|appendices|supplementary|附\s*录)/i
+const ABSTRACT_HEADING = /^(?:abstract|summary|摘\s*要)\b/i
+const CAPTION_RE = /^(?:figure|fig\.|table|图|表)\s*\d+/i
+// 章节编号：阿拉伯（3.2 / 3.2.1）、罗马（III.）、中文（第三章）
+const NUM_ARABIC = /^(\d+(?:\.\d+)*)[.)]?\s+(.*)$/
+const NUM_ROMAN = /^(ix|iv|v?i{1,3})\.\s+(.*)$/i
+const NUM_CN = /^第([一二三四五六七八九十百\d]+)章\s*(.*)$/
+
+// 把 liteparse 的逐页 markdown 解析为带章节元数据+页码的顺序块。
+// 章节状态跨页延续（同章多页不重置），页边界 flush（跨页段落自然断开，不丢内容）
+export function parseMdBlockPages(pagesMd: Array<{ page: number; md: string }>): MdBlock[] {
+  const blocks: MdBlock[] = []
+  let sectionNo = ''
+  let sectionTitle = ''
+  let kind: MdBlock['kind'] = 'body'
+  let skipping = false
+  let inFront = true // 首个标题之前的内容（题名/作者/关键词）整体视为摘要区
+  let buf: string[] = []
+  let fenceBuf: string[] | null = null // 公式/代码围栏：整块保留原始换行
+  let curPage = pagesMd[0]?.page ?? 0
+
+  const flush = (): void => {
+    const text = buf.join(' ').replace(/\s+/g, ' ').trim()
+    buf = []
+    if (!text || skipping) return
+    blocks.push({
+      text,
+      sectionNo,
+      sectionTitle,
+      kind: CAPTION_RE.test(text) && kind === 'body' ? 'caption' : kind,
+      page: curPage
+    })
+  }
+
+  for (const { page, md } of pagesMd) {
+    // 页码先更新再解析：块入栈时拿到的是自己所在页（晚更新会让第二页起整体差一）
+    flush() // 上一页残尾按上一页结算
+    curPage = page
+    for (const rawLine of md.split('\n')) {
+      const line = rawLine.trimEnd()
+      if (/^(```|~~~)/.test(line.trim())) {
+        if (fenceBuf) {
+          fenceBuf.push(line.trim())
+          const text = fenceBuf.join('\n').trim()
+          if (text && !skipping) {
+            blocks.push({ text, sectionNo, sectionTitle, kind: kind === 'abstract' ? 'abstract' : 'body', page })
+          }
+          fenceBuf = null
+        } else {
+          flush()
+          fenceBuf = [line.trim()]
+        }
+        continue
+      }
+      if (fenceBuf) {
+        fenceBuf.push(line)
+        continue
+      }
+      const hm = line.match(/^(#{1,6})\s+(.*)$/)
+      if (hm) {
+        flush()
+        const title = hm[2].replace(/[*_`#]/g, '').trim()
+        if (BACK_MATTER_HEADING.test(title)) {
+          skipping = true
+          continue
+        }
+        if (APPENDIX_HEADING.test(title)) {
+          skipping = false
+          sectionNo = 'Appendix'
+          sectionTitle = title
+          kind = 'body'
+          inFront = false
+          continue
+        }
+        skipping = false
+        inFront = false
+        const am = title.match(NUM_ARABIC)
+        const rm = title.match(NUM_ROMAN)
+        const cm = title.match(NUM_CN)
+        if (am) {
+          sectionNo = am[1]
+          sectionTitle = am[2].trim()
+        } else if (rm) {
+          sectionNo = rm[1].toUpperCase()
+          sectionTitle = rm[2].trim()
+        } else if (cm) {
+          sectionNo = cm[1]
+          sectionTitle = cm[2].trim() || `第${cm[1]}章`
+        } else {
+          sectionNo = ''
+          sectionTitle = title
+        }
+        kind = ABSTRACT_HEADING.test(title) ? 'abstract' : 'body'
+        continue
+      }
+      if (!line.trim()) {
+        flush()
+        continue
+      }
+      // 图片/纯链接行没有检索价值，直接跳过
+      if (/^!\[[^\]]*\]\([^)]*\)$/.test(line.trim())) continue
+      if (inFront) kind = 'abstract'
+      buf.push(line.trim())
+    }
+    // 页边界 flush：跨页段落断开属正常（下一页重新聚合成自己的块）
+    flush()
+    curPage = page
+  }
+  flush()
+  return blocks.filter((b) => b.text.length > 8)
+}
 
 export interface ChunkJob {
   page: number
@@ -177,8 +300,7 @@ function toJobs(raw: RawChunk[]): ChunkJob[] {
 }
 
 // marker 路径：markdown 结构块 → 三层分块；caption 独立小块，参考文献已在解析层剔除
-export function chunkMdBlocks(blocks: MdBlock[], pages: string[]): ChunkJob[] {
-  const aligned = alignBlocksToPages(blocks, pages)
+export function chunkMdBlocks(blocks: MdBlock[]): ChunkJob[] {
   const raw: RawChunk[] = []
   let group: Unit[] = []
   let groupMeta: SectionMeta | null = null
@@ -187,7 +309,8 @@ export function chunkMdBlocks(blocks: MdBlock[], pages: string[]): ChunkJob[] {
     group = []
     groupMeta = null
   }
-  for (const { block, page } of aligned) {
+  for (const block of blocks) {
+    const page = block.page
     const meta: SectionMeta = { sectionNo: block.sectionNo, sectionTitle: block.sectionTitle, kind: block.kind, page }
     if (block.kind === 'caption') {
       // 图表题注独立小块：常被「哪个图/表」类问题命中，不与正文混

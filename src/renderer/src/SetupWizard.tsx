@@ -151,7 +151,7 @@ export default function SetupWizard({ initial, onDone }: Props): JSX.Element {
           {step === 2 && (
             <>
               <div className="hint" style={{ marginTop: 0 }}>
-                向量模型（BAAI/bge-m3）首次使用时自动下载，无需配置。
+                嵌入模型由 Ollama 管理（先 ollama pull）；PDF 结构化解析已内置。
               </div>
               <div className="wizard-actions">
                 <button className="btn ghost" onClick={() => void testEmbed()}>

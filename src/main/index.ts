@@ -10,7 +10,6 @@ import { listLocalFonts } from './fonts'
 import { preprocessQuery } from './query'
 import { warmRerank, testRerank } from './rerank'
 import { verifyAnswer, shouldSkipVerify, skippedReport } from './verify'
-import { testMarker } from './marker'
 
 let win: BrowserWindow | null = null
 
@@ -472,8 +471,7 @@ function registerIpc(): void {
       return { ok: false, error: String(err).slice(0, 300) }
     }
   })
-  // marker CLI 探测 / 本地重排序测试（含 GPU→CPU 设备报告）
-  ipcMain.handle('marker:test', () => testMarker())
+  // 本地重排序测试（含 GPU→CPU 设备报告）
   ipcMain.handle('rerank:test', () => testRerank())
 
   // 文献库概况：各分类篇数 + 代表文献标题，供回答分类/数量/方向类问题

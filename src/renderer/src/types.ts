@@ -38,9 +38,9 @@ export interface Settings {
   setupDone?: boolean
   profiles?: ProviderProfile[]
   // ---- RAG 管线 ----
-  // 嵌入固定为本地 BAAI/bge-m3（自动下载），无需配置
-  pdfEngine?: 'builtin' | 'marker'
-  markerCmd?: string
+  // 嵌入由 Ollama 管理（模型名在 Ollama 侧 pull）；PDF 结构化解析（liteparse）内置，无设置项
+  ollamaUrl?: string
+  ollamaEmbedModel?: string
   rerankProvider?: 'off' | 'local'
   queryRewrite?: boolean
   answerVerify?: boolean
@@ -167,7 +167,6 @@ declare global {
       onImportFile: (cb: (o: ImportOutcome) => void) => () => void
       testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; quota?: string; error?: string }>
       testEmbed: () => Promise<{ ok: boolean; dim?: number; error?: string }>
-      testMarker: () => Promise<{ ok: boolean; version?: string; error?: string }>
       testRerank: () => Promise<{ ok: boolean; device?: string; scores?: number[]; error?: string }>
       stream: (
         args: Record<string, unknown>,

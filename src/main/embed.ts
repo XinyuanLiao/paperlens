@@ -1,40 +1,22 @@
-import path from 'node:path'
-import { deviceLabel, tfDeviceChain, type TfDevice } from './device'
+// 本地嵌入：由 Ollama 管理与调用（/api/embed），模型在 Ollama 侧 pull，应用内无需下载管理。
+// 向量统一 L2 归一化（余弦 = 点积）。模型名变更会通过 embedModelId 触发全库重建。
 
-// 本地嵌入：transformers.js + BAAI/bge-m3（ONNX q8，1024 维）。
-// 首次使用自动下载到 model-cache，之后离线可用——无需任何配置。
-// 加速设备自动选择（cuda/dml 优先、CPU 兜底），失败静默换下一设备。
+import { getSettings } from './db'
 
-export const EMBED_MODEL_ID = 'onnx:bge-m3-q8' // 索引版本键：变更触发全库重建
+export function embedModelId(): string {
+  // 索引版本键：换 Ollama 模型时旧向量空间不可比
+  const m = embedConfig().model
+  return `ollama:${m}`
+}
 
-let extractorPromise: Promise<{ ex: any; device: TfDevice }> | null = null
+interface EmbedCfg {
+  url: string
+  model: string
+}
 
-async function getExtractor(): Promise<{ ex: any; device: TfDevice }> {
-  if (!extractorPromise) {
-    extractorPromise = (async () => {
-      process.env.HF_ENDPOINT ||= 'https://hf-mirror.com' // 国内镜像
-      const { pipeline, env } = await import('@huggingface/transformers')
-      const { app } = await import('electron')
-      // 模型缓存放 userData：打包后应用目录（asar）只读，默认缓存路径会写失败
-      env.cacheDir = path.join(app.getPath('userData'), 'model-cache')
-      let lastErr = ''
-      for (const device of tfDeviceChain()) {
-        try {
-          const ex = await pipeline('feature-extraction', 'Xenova/bge-m3', { dtype: 'q8', device })
-          console.log(`[embed] bge-m3 就绪 · ${deviceLabel(device)}`)
-          return { ex, device }
-        } catch (err) {
-          lastErr = String(err)
-          console.warn(`[embed] ${device} 不可用，尝试下一设备：`, lastErr.slice(0, 160))
-        }
-      }
-      throw new Error(`bge-m3 加载失败：${lastErr.slice(0, 200)}`)
-    })()
-    extractorPromise.catch(() => {
-      extractorPromise = null // 失败允许重试
-    })
-  }
-  return extractorPromise
+function embedConfig(): EmbedCfg {
+  const s = getSettings()
+  return { url: (s.ollamaUrl || 'http://127.0.0.1:11434').replace(/\/$/, ''), model: s.ollamaEmbedModel || 'qwen3-embedding:0.6b' }
 }
 
 export interface EmbedResult {
@@ -42,14 +24,36 @@ export interface EmbedResult {
   dim: number
 }
 
-const BATCH = 8
+const BATCH = 32
+
+function normalize(v: number[]): number[] {
+  let n = 0
+  for (const x of v) n += x * x
+  n = Math.sqrt(n) || 1
+  return v.map((x) => x / n)
+}
 
 export async function embed(texts: string[]): Promise<EmbedResult> {
-  const { ex } = await getExtractor()
+  const { url, model } = embedConfig()
   const vectors: number[][] = []
   for (let i = 0; i < texts.length; i += BATCH) {
-    const out = await ex(texts.slice(i, i + BATCH), { pooling: 'mean', normalize: true })
-    vectors.push(...(out.tolist() as number[][]))
+    const batch = texts.slice(i, i + BATCH)
+    const resp = await fetch(`${url}/api/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, input: batch }),
+      signal: AbortSignal.timeout(120_000)
+    })
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '')
+      throw new Error(
+        resp.status === 404 || /not found/i.test(t)
+          ? `Ollama 缺少模型 ${model}（执行 ollama pull ${model}）`
+          : `Ollama 嵌入 ${resp.status}: ${t.slice(0, 160)}`
+      )
+    }
+    const json = (await resp.json()) as { embeddings: number[][] }
+    vectors.push(...json.embeddings.map(normalize))
   }
   return { vectors, dim: vectors[0]?.length ?? 0 }
 }

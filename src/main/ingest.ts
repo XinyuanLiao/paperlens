@@ -1,9 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { getDb, getSettings } from './db'
-import { embed, EMBED_MODEL_ID } from './embed'
-import { runMarker, parseMdBlocks } from './marker'
-import { chunkMdBlocks, chunkPages, type ChunkJob } from './chunk'
+import { embed, embedModelId } from './embed'
+import { runLiteparse } from './liteparse'
+import { chunkMdBlocks, chunkPages, parseMdBlockPages, type ChunkJob } from './chunk'
 import { rerankChunks, rerankEnabled, rerankDevice } from './rerank'
 import type { PreparedQuery } from './query'
 
@@ -14,8 +14,10 @@ export function isIndexRunning(): boolean {
 }
 
 // 分块算法版本：改动分块逻辑时递增，buildIndex 检测到旧版本索引会自动清空重建
-// v3：裁参考文献 + 分类前缀嵌入；v4：marker 结构化三层分块；v5：块目标 512→1024 token、重叠 128
+// v3：裁参考文献 + 分类前缀嵌入；v4：结构化三层分块；v5：块目标 1024 token、重叠 128
 const CHUNK_VERSION = 5
+// 结构化解析引擎（liteparse 随应用内置，无 OCR；旧引擎值 'marker'/'builtin' 不一致即触发重建）
+const PDF_ENGINE = 'liteparse'
 // 精排候选数（固定）：GPU = 40；仅 CPU 轻量 = 24
 const RERANK_CANDIDATES = 40
 const LITE_CANDIDATES = 24
@@ -29,10 +31,9 @@ export function indexNeedsRebuild(): boolean {
   if (!v || v.value !== String(CHUNK_VERSION)) return true
   // 嵌入模型 / 解析引擎切换同样使旧索引不可比（写在 buildIndex 里的清库条件要靠这里触发）
   const m = db.prepare("SELECT value FROM meta WHERE key='embed_model'").get() as { value: string } | undefined
-  if (m?.value !== EMBED_MODEL_ID) return true
-  const engine = getSettings().pdfEngine === 'marker' ? 'marker' : 'builtin'
+  if (m?.value !== embedModelId()) return true
   const e = db.prepare("SELECT value FROM meta WHERE key='pdf_engine'").get() as { value: string } | undefined
-  if (e?.value !== engine) return true
+  if (e?.value !== PDF_ENGINE) return true
   const noPvec = db.prepare('SELECT COUNT(*) AS n FROM papers WHERE pvec IS NULL').get() as { n: number }
   if (noPvec.n > 0) return true
   const noFts = db
@@ -129,23 +130,22 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
     const { dim } = await embed(['warmup'])
     const prevDim = db.prepare("SELECT value FROM meta WHERE key='embed_dim'").get() as { value: string } | undefined
     const prevV = db.prepare("SELECT value FROM meta WHERE key='chunk_v'").get() as { value: string } | undefined
-    // PDF 解析引擎切换（内置 ↔ marker）：块内容与结构元数据不可比，同样清库重建
-    const engine = getSettings().pdfEngine === 'marker' ? 'marker' : 'builtin'
+    // PDF 解析引擎切换（旧 marker/builtin ↔ liteparse）：块内容与结构元数据不可比，同样清库重建
     const prevEngine = db.prepare("SELECT value FROM meta WHERE key='pdf_engine'").get() as { value: string } | undefined
     const prevModel = db.prepare("SELECT value FROM meta WHERE key='embed_model'").get() as { value: string } | undefined
     if (
       (prevDim && parseInt(prevDim.value) !== dim) ||
       prevV?.value !== String(CHUNK_VERSION) ||
-      prevEngine?.value !== engine ||
-      prevModel?.value !== EMBED_MODEL_ID
+      prevEngine?.value !== PDF_ENGINE ||
+      prevModel?.value !== embedModelId()
     ) {
       // 嵌入维度变化/分块算法升级/引擎切换/嵌入模型更换：旧块不可比，清空全库重建（含整篇级向量/标题索引）
       db.exec('DELETE FROM chunks; DELETE FROM chunks_fts; DELETE FROM papers_fts; UPDATE papers SET indexed=0, pvec=NULL')
     }
     db.prepare("INSERT INTO meta(key,value) VALUES('embed_dim',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(dim))
     db.prepare("INSERT INTO meta(key,value) VALUES('chunk_v',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(CHUNK_VERSION))
-    db.prepare("INSERT INTO meta(key,value) VALUES('pdf_engine',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(engine)
-    db.prepare("INSERT INTO meta(key,value) VALUES('embed_model',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(EMBED_MODEL_ID)
+    db.prepare("INSERT INTO meta(key,value) VALUES('pdf_engine',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(PDF_ENGINE)
+    db.prepare("INSERT INTO meta(key,value) VALUES('embed_model',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(embedModelId())
 
     const todo = db.prepare('SELECT id, path, slug, title, authors, venue, category FROM papers WHERE indexed=0 ORDER BY id').all() as Array<{
       id: number
@@ -184,13 +184,12 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
       const { id, path, slug, category } = todo[t]
       try {
         const pages = await extractPages(path)
-        // 引擎分发：marker 成功 → markdown 三层分块（章节元数据）；失败/未启用 → 逐页分块回退
+        // 结构化解析：liteparse 逐页 markdown → 三层分块（章节元数据+页码）；
+        // 解析失败回退 pdfjs 逐页分块
         let jobs: ChunkJob[] = []
-        if (engine === 'marker') {
-          const md = await runMarker(path)
-          if (md) jobs = chunkMdBlocks(parseMdBlocks(md), pages)
-          else console.warn(`[index] ${slug} marker 失败，回退内置分块`)
-        }
+        const mdPages = await runLiteparse(path)
+        if (mdPages) jobs = chunkMdBlocks(parseMdBlockPages(mdPages))
+        else console.warn(`[index] ${slug} liteparse 失败，回退内置分块`)
         if (!jobs.length) jobs = chunkPages(pages)
         for (let i = 0; i < jobs.length; i += 16) {
           const batch = jobs.slice(i, i + 16)
