@@ -465,17 +465,6 @@ export default function App(): JSX.Element {
   const [libWidth, setLibWidth] = useState(() => Math.max(258, Number(localStorage.getItem('pl.libW')) || 264))
   // 右侧问答栏最小 360px：再窄控件文字会被挤断行/变形
   const [sideWidth, setSideWidth] = useState(() => Math.max(360, Number(localStorage.getItem('pl.sideW')) || 380))
-  // 侧栏开合/拖宽 → 通知 PDF 随阅读窗重新适应宽度（防抖等过渡结束；系统窗口 resize 不触发）
-  const [fitSignal, setFitSignal] = useState(0)
-  const fitInit = useRef(true)
-  useEffect(() => {
-    if (fitInit.current) {
-      fitInit.current = false
-      return
-    }
-    const t = setTimeout(() => setFitSignal((n) => n + 1), 260)
-    return () => clearTimeout(t)
-  }, [showSide, sideWidth])
   const startDrag = useCallback((which: 'lib' | 'side' | 'ref') => (e: React.MouseEvent) => {
     e.preventDefault()
     const key = which === 'lib' ? 'pl.libW' : which === 'side' ? 'pl.sideW' : 'pl.refW'
@@ -679,7 +668,6 @@ export default function App(): JSX.Element {
                 onSelect={onSelect}
                 onDeleteHighlight={onDeleteHighlight}
                 visible={mode === 'read'}
-                fitSignal={fitSignal}
               />
             )}
             {showSide && (
