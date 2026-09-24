@@ -31,15 +31,21 @@ export interface Settings {
   // 思考开关二态（旧版 default/low/medium/high 读取时自动迁移为 on）
   thinkingLevel?: 'off' | 'on'
   provider: string
-  embedProvider: 'local' | 'zhipu' | 'ollama'
-  ollamaUrl: string
-  ollamaEmbedModel: string
   translateTarget: string
   theme: 'system' | 'light' | 'dark'
   // 全局界面字体（空 = 跟随默认栈）
   fontFamily?: string
   setupDone?: boolean
   profiles?: ProviderProfile[]
+  // ---- RAG 管线 ----
+  // 嵌入 = llama.cpp + bge-m3（安装时自动下载）；marker = 自动配置的 CUDA/MPS 沙盒（markerCmd 留空）。
+  // 加速设备自动选择，均无需手动配置
+  pdfEngine?: 'builtin' | 'marker'
+  markerCmd?: string
+  rerankProvider?: 'off' | 'local'
+  rerankCandidates?: number
+  queryRewrite?: boolean
+  answerVerify?: boolean
 }
 
 export interface HighlightRect {
@@ -85,12 +91,31 @@ export interface SourceRef {
   page: number
   // 命中块原文（截断），引用跳转用它定位到页内真实段落
   snippet?: string
+  // 章节信息（marker 引擎，v4 分块）：来源标注与跳转提示用
+  sectionNo?: string
+  sectionTitle?: string
+}
+
+// 回答后校验：引用/事实/逻辑三级
+export interface VerifyIssue {
+  type: 'citation' | 'fact' | 'logic'
+  severity: 'warn' | 'error'
+  detail: string
+  refs?: number[]
+}
+
+export interface VerifyReport {
+  level: 'pass' | 'warn' | 'error' | 'skipped'
+  // 规则层结果（始终运行）：引用编号存在性等
+  ruleCitations: { ok: boolean; missing: number[]; unused: number[] }
+  issues: VerifyIssue[]
 }
 
 export interface ChatMsg {
   role: 'user' | 'assistant'
   content: string
   sources?: SourceRef[]
+  verify?: VerifyReport
 }
 
 // 对话历史条目（侧栏对话模式下的历史列表）
@@ -143,10 +168,19 @@ declare global {
       onImportRequest: (cb: () => void) => () => void
       onImportFile: (cb: (o: ImportOutcome) => void) => () => void
       testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; quota?: string; error?: string }>
-      testEmbed: () => Promise<{ ok: boolean; dim?: number; error?: string }>
+      testEmbed: () => Promise<{ ok: boolean; device?: string; dim?: number; error?: string }>
+      testMarker: () => Promise<{ ok: boolean; version?: string; error?: string }>
+      testRerank: () => Promise<{ ok: boolean; device?: string; latencyMs?: number; scores?: number[]; error?: string }>
+      // AI 运行时（llama.cpp 向量引擎 / marker 沙盒）：状态 + 手动安装 + 进度事件
+      runtimeStatus: () => Promise<{
+        llama: { state: string; detail: string; device: string; pct?: number }
+        marker: { state: string; detail: string; pct?: number }
+      }>
+      runtimeEnsure: (kind: 'llama' | 'marker') => void
+      onRuntimeProgress: (cb: (p: { kind: 'llama' | 'marker'; state: string; detail: string; pct?: number; device?: string }) => void) => () => void
       stream: (
         args: Record<string, unknown>,
-        handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: SourceRef[]) => void }
+        handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: SourceRef[]) => void; onVerify?: (v: VerifyReport) => void }
       ) => () => void
       onIndexProgress: (cb: (p: { done: number; total: number; phase: string; current?: string }) => void) => () => void
       onImportProgress: (cb: (p: { done: number; total: number; current: string }) => void) => () => void
@@ -155,11 +189,11 @@ declare global {
       chatsList: () => Promise<ChatMeta[]>
       chatLoad: (id: number) => Promise<ChatMsg[]>
       chatCreate: (title: string) => Promise<number>
-      chatAppend: (id: number, role: string, content: string, sources?: string) => Promise<number>
+      chatAppend: (id: number, role: string, content: string, sources?: string, verify?: string) => Promise<number>
       chatRename: (id: number, title: string) => Promise<boolean>
       chatDelete: (id: number) => Promise<boolean>
       chatExport: (id: number, title: string) => Promise<boolean>
-      chatSetMessages: (id: number, msgs: Array<{ role: string; content: string; sources?: SourceRef[] }>) => Promise<boolean>
+      chatSetMessages: (id: number, msgs: Array<{ role: string; content: string; sources?: SourceRef[]; verify?: VerifyReport }>) => Promise<boolean>
       listFonts: () => Promise<string[]>
       appVersion: () => Promise<string>
       checkUpdate: () => Promise<

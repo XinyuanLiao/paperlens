@@ -11,7 +11,7 @@ const PRESETS: Array<{ id: string; label: string; base: string; model: string }>
   { id: 'custom', label: '自定义 / 其他兼容服务', base: '', model: '' }
 ]
 
-const STEPS = ['文献库', 'LLM 配置', '嵌入模型']
+const STEPS = ['文献库', 'LLM 配置', '本地模型']
 
 interface Props {
   initial: Settings
@@ -150,29 +150,11 @@ export default function SetupWizard({ initial, onDone }: Props): JSX.Element {
 
           {step === 2 && (
             <>
-              <div className="preset-row">
-                <button className={`preset-chip ${form.embedProvider === 'local' ? 'on' : ''}`} onClick={() => set({ embedProvider: 'local' })}>
-                  本地 e5-small
-                </button>
-                <button className={`preset-chip ${form.embedProvider === 'zhipu' ? 'on' : ''}`} onClick={() => set({ embedProvider: 'zhipu' })}>
-                  智谱 embedding-3
-                </button>
-                <button className={`preset-chip ${form.embedProvider === 'ollama' ? 'on' : ''}`} onClick={() => set({ embedProvider: 'ollama' })}>
-                  Ollama
-                </button>
+              <div className="hint" style={{ marginTop: 0, lineHeight: 1.9 }}>
+                向量引擎（llama.cpp + BAAI/bge-m3）与 marker 解析环境会在首次使用时<b>自动下载配置</b>：
+                <br />
+                Windows 用 CUDA / macOS 用 Metal·MPS / 低端配置自动落 CPU，无需手动安装。
               </div>
-              {form.embedProvider === 'ollama' && (
-                <div className="field-row">
-                  <div className="field">
-                    <label>Ollama 地址</label>
-                    <input value={form.ollamaUrl} onChange={(e) => set({ ollamaUrl: e.target.value })} placeholder="http://127.0.0.1:11434" />
-                  </div>
-                  <div className="field">
-                    <label>嵌入模型</label>
-                    <input value={form.ollamaEmbedModel} onChange={(e) => set({ ollamaEmbedModel: e.target.value })} placeholder="bge-m3" />
-                  </div>
-                </div>
-              )}
               <div className="wizard-actions">
                 <button className="btn ghost" onClick={() => void testEmbed()}>
                   测试嵌入

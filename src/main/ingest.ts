@@ -1,7 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { getDb, getSettings } from './db'
-import { embed } from './embed'
+import { embed, EMBED_MODEL_ID } from './embed'
+import { runMarker, parseMdBlocks } from './marker'
+import { chunkMdBlocks, chunkPages, type ChunkJob } from './chunk'
+import { rerankChunks, rerankEnabled, rerankDevice } from './rerank'
+import type { PreparedQuery } from './query'
 
 let running = false
 
@@ -10,7 +14,10 @@ export function isIndexRunning(): boolean {
 }
 
 // 分块算法版本：改动分块逻辑时递增，buildIndex 检测到旧版本索引会自动清空重建
-const CHUNK_VERSION = 3
+// v3：裁参考文献 + 分类前缀嵌入；v4：marker 结构化三层分块；v5：块目标 512→1024 token、重叠 128
+const CHUNK_VERSION = 5
+// 仅 CPU 可用时的轻量重排候选数（完整策略用设置里的 rerankCandidates）
+const LITE_CANDIDATES = 24
 
 // 库是否需要（重新）索引：有待索引论文、分块算法版本落后，或整篇级向量/标题索引缺失
 export function indexNeedsRebuild(): boolean {
@@ -29,37 +36,7 @@ export function indexNeedsRebuild(): boolean {
 
 // v2 分块：按行（近似段落）聚合到 ~1200 字符，避免把句子/段落从中间截断，
 // 嵌入向量与检索片段的语义边界都更干净；单行超长时才在句读处硬切
-function chunkText(text: string): string[] {
-  const out: string[] = []
-  const target = 1200
-  const hardMax = 1600
-  let buf = ''
-  const push = (): void => {
-    const piece = buf.trim()
-    if (piece.length > 40) out.push(piece)
-    buf = ''
-  }
-  for (const line of text.split('\n')) {
-    // 单行超过硬上限：先尽量在句号/分号处断开，兜底按长度切
-    if (line.length > hardMax) {
-      if (buf) push()
-      let rest = line
-      while (rest.length > hardMax) {
-        const window = rest.slice(0, hardMax)
-        let cut = Math.max(window.lastIndexOf('. '), window.lastIndexOf('。'), window.lastIndexOf('; '))
-        if (cut < target * 0.4) cut = hardMax
-        out.push(rest.slice(0, cut + 1).trim())
-        rest = rest.slice(cut + 1)
-      }
-      buf = rest
-      continue
-    }
-    if (buf.length + line.length > target) push()
-    buf += (buf ? '\n' : '') + line
-  }
-  if (buf) push()
-  return out
-}
+// （v4 起由 chunk.ts 的三层结构化分块取代，此函数仅保留给内置路径之外的临时抽取）
 
 // 参考文献/致谢/作者简介等尾部章节标题：这些页是引文清单与作者信息，
 // 进入 RAG 会污染检索片段（且引用跳转会落在奇怪的页面），从索引起点剔除
@@ -145,12 +122,23 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
     const { dim } = await embed(['warmup'])
     const prevDim = db.prepare("SELECT value FROM meta WHERE key='embed_dim'").get() as { value: string } | undefined
     const prevV = db.prepare("SELECT value FROM meta WHERE key='chunk_v'").get() as { value: string } | undefined
-    if ((prevDim && parseInt(prevDim.value) !== dim) || prevV?.value !== String(CHUNK_VERSION)) {
-      // 嵌入维度变化或分块算法升级：旧块不可比，清空全库重建（含整篇级向量/标题索引）
+    // PDF 解析引擎切换（内置 ↔ marker）：块内容与结构元数据不可比，同样清库重建
+    const engine = getSettings().pdfEngine === 'marker' ? 'marker' : 'builtin'
+    const prevEngine = db.prepare("SELECT value FROM meta WHERE key='pdf_engine'").get() as { value: string } | undefined
+    const prevModel = db.prepare("SELECT value FROM meta WHERE key='embed_model'").get() as { value: string } | undefined
+    if (
+      (prevDim && parseInt(prevDim.value) !== dim) ||
+      prevV?.value !== String(CHUNK_VERSION) ||
+      prevEngine?.value !== engine ||
+      prevModel?.value !== EMBED_MODEL_ID
+    ) {
+      // 嵌入维度变化/分块算法升级/引擎切换/嵌入模型更换：旧块不可比，清空全库重建（含整篇级向量/标题索引）
       db.exec('DELETE FROM chunks; DELETE FROM chunks_fts; DELETE FROM papers_fts; UPDATE papers SET indexed=0, pvec=NULL')
     }
     db.prepare("INSERT INTO meta(key,value) VALUES('embed_dim',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(dim))
     db.prepare("INSERT INTO meta(key,value) VALUES('chunk_v',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(CHUNK_VERSION))
+    db.prepare("INSERT INTO meta(key,value) VALUES('pdf_engine',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(engine)
+    db.prepare("INSERT INTO meta(key,value) VALUES('embed_model',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(EMBED_MODEL_ID)
 
     const todo = db.prepare('SELECT id, path, slug, title, authors, venue, category FROM papers WHERE indexed=0 ORDER BY id').all() as Array<{
       id: number
@@ -179,7 +167,7 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
     const total = todo.length
     startMaxId = (db.prepare('SELECT MAX(id) AS m FROM papers').get() as { m: number | null }).m ?? 0
     send('index:progress', { done: 0, total, phase: 'indexing' })
-    const insChunk = db.prepare('INSERT INTO chunks(paper_id,page,ord,text,vec) VALUES(?,?,?,?,?)')
+    const insChunk = db.prepare('INSERT INTO chunks(paper_id,page,ord,text,vec,section_no,section_title,kind) VALUES(?,?,?,?,?,?,?,?)')
     // rowid 显式写 chunks.id：两表主键不同步（chunks 是 AUTOINCREMENT，重建后继续累加；
     // fts5 rowid 清空后从 1 重来），不显式对齐的话重建一次 BM25 召回就会错位
     const insFts = db.prepare('INSERT INTO chunks_fts(rowid,text,paper_id,page) VALUES(?,?,?,?)')
@@ -189,20 +177,23 @@ export async function buildIndex(send: (ev: string, payload: unknown) => void): 
       const { id, path, slug, category } = todo[t]
       try {
         const pages = await extractPages(path)
-        const jobs: Array<{ page: number; ord: number; text: string }> = []
-        for (let p = 0; p < pages.length; p++) {
-          const parts = chunkText(pages[p])
-          for (let o = 0; o < parts.length; o++) jobs.push({ page: p + 1, ord: o, text: parts[o] })
+        // 引擎分发：marker 成功 → markdown 三层分块（章节元数据）；失败/未启用 → 逐页分块回退
+        let jobs: ChunkJob[] = []
+        if (engine === 'marker') {
+          const md = await runMarker(path)
+          if (md) jobs = chunkMdBlocks(parseMdBlocks(md), pages)
+          else console.warn(`[index] ${slug} marker 失败，回退内置分块`)
         }
+        if (!jobs.length) jobs = chunkPages(pages)
         for (let i = 0; i < jobs.length; i += 16) {
           const batch = jobs.slice(i, i + 16)
-          // 嵌入文本带分类前缀（库内检索「某分类下的文献」靠它命中），库内仍存干净原文
-          const { vectors } = await embed(batch.map((b) => `【分类：${catLabel(category)}】${b.text}`))
+          // 嵌入文本带分类前缀 + 论点句/重叠（库内仍存干净原文）
+          const { vectors } = await embed(batch.map((b) => `【分类：${catLabel(category)}】${b.embedText}`))
           const tx = db.transaction(() => {
             for (let j = 0; j < batch.length; j++) {
               const v = vectors[j]
               const buf = Buffer.from(new Float32Array(v).buffer)
-              const r = insChunk.run(id, batch[j].page, batch[j].ord, batch[j].text, buf)
+              const r = insChunk.run(id, batch[j].page, batch[j].ord, batch[j].text, buf, batch[j].sectionNo, batch[j].sectionTitle, batch[j].kind)
               insFts.run(Number(r.lastInsertRowid), batch[j].text, id, batch[j].page)
             }
           })
@@ -273,17 +264,27 @@ export interface RetrievedChunk {
   score: number
   // 命中块原文开头（供引用跳转定位到页内真实段落）
   snippet: string
+  // v4 结构化分块：章节元数据（marker 引擎；内置路径为空）
+  sectionNo: string
+  sectionTitle: string
+  kind: string
 }
 
 // 分类显示名：inbox 是「未分类」的内部目录名
 const catLabel = (c: string): string => (c === 'inbox' ? '未分类' : c)
 
-// 混合检索：向量余弦 + FTS5(trigram) BM25，RRF 融合；scopePaperId / category 过滤范围。
-// 全库模式分两层召回：段落块负责精确定位（引用带页码与原文），
-// 整篇级（每篇最优块余弦 + 标题/作者 BM25）保证"这篇论文相关"就一定出现在来源里——
-// 否则一篇强相关论文可能因为没有单块挤进前列而永远检索不到
-export async function hybridSearch(query: string, scopePaperId?: number, topK = 12, category?: string, paperIds?: number[]): Promise<RetrievedChunk[]> {
+// 混合检索管线：查询预处理（意图加权）→ 向量 top-50 + BM25 top-50（RRF 融合去重）
+// → 同章节聚合加成 → 交叉编码器重排（top-N → topK）→ 整篇级召回兜底。
+// scopePaperId / category / paperIds 过滤检索范围；单篇来源上限 4。
+export async function hybridSearch(
+  pq: PreparedQuery,
+  scopePaperId?: number,
+  topK = 12,
+  category?: string,
+  paperIds?: number[]
+): Promise<RetrievedChunk[]> {
   const db = getDb()
+  const s = getSettings()
   let papers = db
     .prepare('SELECT id, slug, title, category, year FROM papers')
     .all() as Array<{ id: number; slug: string; title: string; category: string; year: number | null }>
@@ -296,11 +297,16 @@ export async function hybridSearch(query: string, scopePaperId?: number, topK = 
   if (scopeSet) papers = papers.filter((p) => scopeSet.has(p.id))
   const paperById = new Map(papers.map((p) => [p.id, p]))
 
+  // 意图路由权重：精确匹配（术语/型号/标题命中）加重 BM25，语义关联加重向量
+  const vw = pq.intent === 'exact' ? 0.75 : 1
+  const bw = pq.intent === 'exact' ? 1.25 : 1
   const rrf = new Map<number, number>()
-  const bump = (id: number, rank: number) => rrf.set(id, (rrf.get(id) ?? 0) + 1 / (60 + rank))
+  const bump = (id: number, rank: number, w: number): void => {
+    rrf.set(id, (rrf.get(id) ?? 0) + w / (60 + rank))
+  }
 
-  // 向量召回
-  const { vectors } = await embed([query], true)
+  // 向量召回（用改写/扩展后的查询）
+  const { vectors } = await embed([pq.query])
   const qv = vectors[0]
   const rows = db
     .prepare(
@@ -309,66 +315,119 @@ export async function hybridSearch(query: string, scopePaperId?: number, topK = 
     )
     .all(category ?? null, category ?? '') as Array<{ id: number; paper_id: number; page: number; vec: Buffer }>
   const scored: Array<{ id: number; s: number }> = []
-  // 每篇论文的最强块：整篇级相关度 = max(块余弦)（在全部块上统计，不受 top-60 截断影响）
+  // 每篇论文的最强块：整篇级相关度 = max(块余弦)（在全部块上统计，不受 top-50 截断影响）
   const bestByPaper = new Map<number, { chunkId: number; max: number }>()
   for (const r of rows) {
     if (scopePaperId && r.paper_id !== scopePaperId) continue
     if (scopeSet && !scopeSet.has(r.paper_id)) continue
     const fv = new Float32Array(r.vec.buffer, r.vec.byteOffset, r.vec.byteLength / 4)
-    const s = cosf(qv, fv)
-    scored.push({ id: r.id, s })
+    const sc = cosf(qv, fv)
+    scored.push({ id: r.id, s: sc })
     const b = bestByPaper.get(r.paper_id)
-    if (!b || s > b.max) bestByPaper.set(r.paper_id, { chunkId: r.id, max: s })
+    if (!b || sc > b.max) bestByPaper.set(r.paper_id, { chunkId: r.id, max: sc })
   }
   scored.sort((a, b) => b.s - a.s)
-  scored.slice(0, 60).forEach((x, i) => bump(x.id, i))
+  scored.slice(0, 50).forEach((x, i) => bump(x.id, i, vw))
 
-  // BM25 召回（trigram 对中英文子串都有效）
+  // BM25 召回（trigram 对中英文子串都有效）：关键词 OR 查询，top-50；
+  // 范围过滤用一次 IN 查询映射完成，不再逐行回查
   try {
     const fts = db
-      .prepare(
-        `SELECT f.rowid FROM chunks_fts f
-         WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) LIMIT 200`
-      )
-      .all(query) as Array<{ rowid: number }>
-    const inScope = (rowid: number): boolean => {
-      const c = db.prepare('SELECT paper_id, category FROM chunks JOIN papers ON papers.id=chunks.paper_id WHERE chunks.id=?').get(rowid) as
-        | { paper_id: number; category: string }
-        | undefined
-      if (!c) return false
-      if (scopePaperId && c.paper_id !== scopePaperId) return false
-      if (scopeSet && !scopeSet.has(c.paper_id)) return false
-      if (category && c.category !== category) return false
-      return true
+      .prepare(`SELECT f.rowid FROM chunks_fts f WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) LIMIT 50`)
+      .all(pq.ftsQuery) as Array<{ rowid: number }>
+    const ids = fts.map((f) => Number(f.rowid))
+    if (ids.length) {
+      const ph = ids.map(() => '?').join(',')
+      const rows2 = db.prepare(`SELECT id, paper_id FROM chunks WHERE id IN (${ph})`).all(...ids) as Array<{
+        id: number
+        paper_id: number
+      }>
+      const pidOf = new Map(rows2.map((r) => [r.id, r.paper_id]))
+      let rank = 0
+      for (const x of fts) {
+        const pid = pidOf.get(Number(x.rowid))
+        if (pid === undefined) continue
+        if (scopePaperId && pid !== scopePaperId) continue
+        if (scopeSet && !scopeSet.has(pid)) continue
+        bump(Number(x.rowid), rank++, bw)
+      }
     }
-    fts.forEach((x, i) => {
-      if (inScope(x.rowid)) bump(x.rowid, i)
-    })
   } catch {
     /* 查询词过短或无匹配时忽略 */
   }
 
-  const top = [...rrf.entries()].sort((a, b) => b[1] - a[1]).slice(0, topK * 3)
-  const getChunk = db.prepare('SELECT paper_id, page, ord, text FROM chunks WHERE id=?')
-  const getNeighbor = db.prepare('SELECT text FROM chunks WHERE paper_id=? AND page=? AND ord=? AND id<>?')
+  // RRF 融合 + 同章节聚合加成：同一篇同一章的多处命中互抬（"同章节的块优先"）
+  const fused = [...rrf.entries()].sort((a, b) => b[1] - a[1]).slice(0, 240)
+  const secOf = new Map<number, { pid: number; sec: string }>()
+  if (fused.length) {
+    const ph = fused.map(() => '?').join(',')
+    const rows3 = db.prepare(`SELECT id, paper_id, section_no FROM chunks WHERE id IN (${ph})`).all(...fused.map((f) => f[0])) as Array<{
+      id: number
+      paper_id: number
+      section_no: string | null
+    }>
+    for (const r of rows3) secOf.set(r.id, { pid: r.paper_id, sec: r.section_no ?? '' })
+  }
+  const groupScore = new Map<string, number>()
+  for (const [id, sc] of fused) {
+    const m = secOf.get(id)
+    if (!m || !m.sec) continue
+    const key = `${m.pid}|${m.sec}`
+    groupScore.set(key, (groupScore.get(key) ?? 0) + sc)
+  }
+  const boosted = fused
+    .map(([id, sc]) => {
+      const m = secOf.get(id)
+      const g = m && m.sec ? (groupScore.get(`${m.pid}|${m.sec}`) ?? 0) : 0
+      return { id, s: sc + 0.08 * g }
+    })
+    .sort((a, b) => b.s - a.s)
+
+  // 精排：融合 top-N 候选 → 交叉编码器逐对打分 → 按分数重排。
+  // GPU 可用 = 完整策略（候选数可配 + 单篇上限 4 + 补齐）；仅 CPU 可用 = 轻量策略（固定 24 候选直取，
+  // CPU 跑大批交叉编码器太慢）。关闭/失败/超时按融合序兜底
+  let ordered = boosted
+  const lite = rerankDevice() === 'cpu'
+  const candN = lite ? LITE_CANDIDATES : Math.min(Math.max(s.rerankCandidates ?? 40, 10), 100)
+  if (rerankEnabled() && boosted.length > 1) {
+    const cands = boosted.slice(0, candN)
+    const ph = cands.map(() => '?').join(',')
+    const crows = db.prepare(`SELECT id, text FROM chunks WHERE id IN (${ph})`).all(...cands.map((c) => c.id)) as Array<{
+      id: number
+      text: string
+    }>
+    const textOf = new Map(crows.map((r) => [r.id, r.text]))
+    const scores = await rerankChunks(
+      pq.query,
+      cands.filter((c) => textOf.has(c.id)).map((c) => ({ id: c.id, text: textOf.get(c.id)! }))
+    )
+    if (scores) {
+      ordered = [...cands].sort((a, b) => (scores.get(b.id) ?? -1e9) - (scores.get(a.id) ?? -1e9)).concat(boosted.slice(candN))
+    }
+  }
+
+  const getChunk = db.prepare('SELECT paper_id, page, ord, text, section_no, section_title, kind FROM chunks WHERE id=?')
+  // 上下文扩展只并同章节相邻块（ord 全局连续），跨章内容会稀释语义
+  const getNeighbor = db.prepare('SELECT text FROM chunks WHERE paper_id=? AND ord=? AND id<>? AND section_no=?')
   const makeSource = (
     id: number,
     pid: number,
     page: number,
     ord: number,
     text: string,
-    s: number,
+    sectionNo: string,
+    sectionTitle: string,
+    kind: string,
+    sc: number,
     paper: { slug: string; title: string; category: string; year: number | null }
   ): RetrievedChunk => {
-    // 上下文扩展：并入相邻块，让每个来源不只是孤立片段
     let full = text
-    for (const [pg, od, pre] of [
-      [page, ord - 1, true],
-      [page, ord + 1, false],
-      [page + 1, 0, false]
-    ] as Array<[number, number, boolean]>) {
+    for (const [od, pre] of [
+      [ord - 1, true],
+      [ord + 1, false]
+    ] as Array<[number, boolean]>) {
       if (full.length > 4500) break
-      const n = getNeighbor.get(pid, pg, od, id) as { text: string } | undefined
+      const n = getNeighbor.get(pid, od, id, sectionNo) as { text: string } | undefined
       if (n) full = pre ? `${n.text}（前接）
 ${full}` : `${full}
 ${n.text}`
@@ -381,54 +440,60 @@ ${n.text}`
       year: paper.year,
       page,
       text: full,
-      score: s,
-      snippet: text.slice(0, 600)
+      score: sc,
+      snippet: text.slice(0, 600),
+      sectionNo,
+      sectionTitle,
+      kind
     }
   }
-  const pick = (id: number, s: number): RetrievedChunk | null => {
-    const c = getChunk.get(id) as { paper_id: number; page: number; ord: number; text: string } | undefined
+  const pick = (id: number, sc: number): RetrievedChunk | null => {
+    const c = getChunk.get(id) as
+      | { paper_id: number; page: number; ord: number; text: string; section_no: string | null; section_title: string | null; kind: string | null }
+      | undefined
     if (!c) return null
     const p = paperById.get(c.paper_id)
     if (!p) return null // 孤儿块（论文行已删但块残留），跳过
     if (scopePaperId && c.paper_id !== scopePaperId) return null
-    return makeSource(id, c.paper_id, c.page, c.ord, c.text, s, p)
+    return makeSource(id, c.paper_id, c.page, c.ord, c.text, c.section_no ?? '', c.section_title ?? '', c.kind ?? 'body', sc, p)
   }
 
   const out: RetrievedChunk[] = []
-  if (scopePaperId) {
-    for (const [id, s] of top) {
-      const src = pick(id, s)
-      if (src) out.push(src)
+  if (scopePaperId || lite) {
+    // 整篇内检索 / CPU 轻量策略：按序直取
+    for (const o of ordered) {
       if (out.length >= topK) break
+      const src = pick(o.id, o.s)
+      if (src) out.push(src)
     }
-    return out
-  }
-
-  // 全库：单篇来源数设上限（4），避免一两篇强匹配论文吃掉全部名额、其他相关论文全部缺席
-  const PER_PAPER = 4
-  const perPaper = new Map<number, number>()
-  let i = 0
-  for (; i < top.length && out.length < topK; i++) {
-    const src = pick(top[i][0], top[i][1])
-    if (!src) continue
-    const n = perPaper.get(src.paperId) ?? 0
-    if (n >= PER_PAPER) continue
-    perPaper.set(src.paperId, n + 1)
-    out.push(src)
-  }
-  // 名额没填满（都被上限挡住）就放开上限补齐
-  for (; i < top.length && out.length < topK; i++) {
-    const src = pick(top[i][0], top[i][1])
-    if (src) out.push(src)
+    if (scopePaperId) return out
+  } else {
+    // 全库完整策略：单篇来源数上限（4），避免一两篇强匹配论文吃掉全部名额、其他相关论文全部缺席
+    const PER_PAPER = 4
+    const perPaper = new Map<number, number>()
+    let i = 0
+    for (; i < ordered.length && out.length < topK; i++) {
+      const src = pick(ordered[i].id, ordered[i].s)
+      if (!src) continue
+      const n = perPaper.get(src.paperId) ?? 0
+      if (n >= PER_PAPER) continue
+      perPaper.set(src.paperId, n + 1)
+      out.push(src)
+    }
+    // 名额没填满（都被上限挡住）就放开上限补齐
+    for (; i < ordered.length && out.length < topK; i++) {
+      const src = pick(ordered[i].id, ordered[i].s)
+      if (src) out.push(src)
+    }
   }
 
   // 整篇级召回：max(块余弦, 整篇向量余弦) + 标题/作者命中加成，选出尚未出现的最相关论文，
-  // 注入其最强块作为来源（上限 4，total 最多 topK+4）
+  // 注入其最强块作为来源（上限 4，total 最多 topK+4）；不参与重排，用余弦分数
   let titleHits = new Set<number>()
   try {
     const hits = db
       .prepare(`SELECT rowid FROM papers_fts WHERE papers_fts MATCH ? ORDER BY bm25(papers_fts) LIMIT 40`)
-      .all(query) as Array<{ rowid: number }>
+      .all(pq.ftsQuery) as Array<{ rowid: number }>
     titleHits = new Set(hits.map((h) => h.rowid).filter((pid) => paperById.has(pid)))
   } catch {
     /* 短查询/无命中忽略 */
@@ -468,7 +533,10 @@ ${n.text}`
           page: 1,
           text: `${p.title}（正文索引缺失，仅元数据命中）`,
           score: c.s,
-          snippet: ''
+          snippet: '',
+          sectionNo: '',
+          sectionTitle: '',
+          kind: 'meta'
         })
       }
     }

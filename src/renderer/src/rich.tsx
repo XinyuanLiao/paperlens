@@ -91,11 +91,12 @@ function inline(text: string, keyBase: string, sources: SourceRef[] | undefined,
       if (src) {
         // 芯片随身携带它在回答里的局部上下文：整篇问答（无 snippet）时用它做关键词定位
         const ctx = text.slice(Math.max(0, m.index - 140), m.index + 160)
+        const sec = src.sectionNo || src.sectionTitle ? ` §${[src.sectionNo, src.sectionTitle].filter(Boolean).join(' ')}` : ''
         out.push(
           <span
             key={`${keyBase}-c${k++}`}
             className="cite-chip"
-            title={`${src.title} · 第 ${src.page} 页（跳到原文）`}
+            title={`${src.title}${sec} · 第 ${src.page} 页（跳到原文）`}
             onClick={() => onJump(src.slug, src.page, src.snippet, ctx)}
           >
             [{src.n}] p.{src.page}

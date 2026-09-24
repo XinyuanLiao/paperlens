@@ -5,8 +5,13 @@ import * as dbmod from './db'
 import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPagesCached } from './ingest'
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
 import { importPapers, previewImport, movePaperToCategory, createCategory, deleteCategory, deletePaper, renamePaper } from './import'
-import { embed } from './embed'
 import { listLocalFonts } from './fonts'
+import { preprocessQuery } from './query'
+import { warmRerank, testRerank } from './rerank'
+import { verifyAnswer, shouldSkipVerify, skippedReport } from './verify'
+import { testMarker } from './marker'
+import { ensureLlamaRuntime, onRuntimeStatus, shutdownLlama, llamaStatus, testLlamaRuntime } from './llamacpp'
+import { ensureMarkerEnv, onMarkerEnvStatus, markerEnvStatus, markerEnvReady } from './markerEnv'
 
 let win: BrowserWindow | null = null
 
@@ -17,6 +22,19 @@ function send(ev: string, payload: unknown): void {
 // ---------- 工作区重扫描：iCloud/网盘可能随时从别的设备同步来新文献 ----------
 // 启动 / dock 重新激活 / 窗口聚焦（节流）/ 定时，都会扫描一遍；有变化才通知界面刷新
 let lastScanAt = 0
+
+// 索引入队：marker 引擎在沙盒未配置时先自动配置（CUDA/MPS 环境），完成/失败后再索引——
+// 保证首轮就走 marker 结构化分块；配置失败自动落内置引擎
+function queueIndex(): void {
+  const s = dbmod.getSettings()
+  const pending = (): void => {
+    if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
+  }
+  if (s.pdfEngine === 'marker' && !s.markerCmd.trim() && !markerEnvReady()) {
+    void ensureMarkerEnv().finally(pending)
+  } else pending()
+}
+
 function rescanLibrary(reason: string): void {
   const s = dbmod.getSettings()
   if (!s.libraryPath || !fs.existsSync(s.libraryPath)) return
@@ -25,7 +43,10 @@ function rescanLibrary(reason: string): void {
     const r = dbmod.scanLibrary(s.libraryPath)
     console.log(`[scan:${reason}] 新增 ${r.added} 更新 ${r.updated} 共 ${r.total}`)
     if (r.added > 0 || r.updated > 0) send('papers:changed', { ids: [] })
-    if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch((e) => console.error('[index]', e))
+    queueIndex()
+    // 重排序模型预热 + 向量引擎安装（均幂等，已就绪直接返回）
+    warmRerank()
+    void ensureLlamaRuntime()
   } catch (e) {
     console.error('[scan]', e)
   }
@@ -114,6 +135,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+app.on('before-quit', () => shutdownLlama())
 
 function registerIpc(): void {
   ipcMain.handle('settings:get', () => dbmod.getSettings())
@@ -158,14 +180,14 @@ function registerIpc(): void {
   ipcMain.handle('papers:import', async (_e, items: Array<{ path: string; category?: string }>) => {
     const outcomes = await importPapers(items, send)
     const r = dbmod.scanLibrary(dbmod.getSettings().libraryPath)
-    if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch(() => {})
+    queueIndex()
     send('papers:changed', { ids: outcomes.filter((o) => o.ok).map((o) => o.slug) }) // 兜底同步界面（弹窗收尾之外的路径）
     return { outcomes, scan: r }
   })
   ipcMain.handle('papers:rename', (_e, id: number, title: string) => {
     const r = renamePaper(id, String(title))
     // pvec 被清空 → 触发增量补嵌（只重嵌这一篇的整篇向量）
-    if (indexNeedsRebuild() && !isIndexRunning()) void buildIndex(send).catch(() => {})
+    queueIndex()
     send('papers:changed', { ids: [id] })
     return r
   })
@@ -446,23 +468,25 @@ function registerIpc(): void {
   })
   ipcMain.handle('index:rebuild', async () => {
     dbmod.getDb().exec('DELETE FROM chunks; DELETE FROM chunks_fts; DELETE FROM papers_fts; UPDATE papers SET indexed=0, pvec=NULL')
-    if (!isIndexRunning()) void buildIndex(send).catch((e) => send('index:error', String(e)))
+    queueIndex()
     return true
   })
-  ipcMain.on('index:start', () => {
-    if (!isIndexRunning()) void buildIndex(send).catch((e) => send('index:error', String(e)))
-  })
+  ipcMain.on('index:start', () => queueIndex())
 
   // 连接测试：over = 渲染端当前编辑值（先保存再测会读到旧全局配置，正确 key 也测不过）
   ipcMain.handle('llm:test', (_e, over?: import('./llm').LlmEndpoint) => testLLM(over))
-  ipcMain.handle('embed:test', async () => {
-    try {
-      const { dim } = await embed(['connection test'])
-      return { ok: true, dim }
-    } catch (err) {
-      return { ok: false, error: String(err).slice(0, 300) }
-    }
+  ipcMain.handle('embed:test', () => testLlamaRuntime())
+  // marker CLI 探测 / 本地重排序测试（含 GPU→CPU 设备报告）
+  ipcMain.handle('marker:test', () => testMarker())
+  ipcMain.handle('rerank:test', () => testRerank())
+  // AI 运行时（向量引擎 llama.cpp / marker 沙盒）：状态查询 + 手动触发安装，进度经 runtime:progress 推送
+  ipcMain.handle('runtime:status', () => ({ llama: llamaStatus(), marker: markerEnvStatus() }))
+  ipcMain.on('runtime:ensure', (_e, kind: string) => {
+    if (kind === 'llama') void ensureLlamaRuntime(true)
+    else if (kind === 'marker') void ensureMarkerEnv(true).finally(queueIndex)
   })
+  onRuntimeStatus((st) => send('runtime:progress', { kind: 'llama', ...st }))
+  onMarkerEnvStatus((st) => send('runtime:progress', { kind: 'marker', ...st }))
 
   // 文献库概况：各分类篇数 + 代表文献标题，供回答分类/数量/方向类问题
   const buildLibStats = (): string => {
@@ -482,8 +506,12 @@ function registerIpc(): void {
     }
     return lines.join('\n')
   }
-  const srcLabel = (s: { title: string; category: string; year: number | null; page: number }): string =>
-    `《${s.title}》（${s.category === 'inbox' ? '未分类' : s.category}${s.year ? ` · ${s.year}` : ''}）p.${s.page}`
+  const srcLabel = (s: import('./ingest').RetrievedChunk): string => {
+    const cat = s.category === 'inbox' ? '未分类' : s.category
+    // §章节（marker 引擎的结构化元数据）：定位到章的引用 + 生成端可点明出处
+    const sec = s.sectionNo || s.sectionTitle ? `§${[s.sectionNo, s.sectionTitle].filter(Boolean).join(' ')}` : ''
+    return `《${s.title}》（${[cat, s.year ? `${s.year}` : '', sec, `p.${s.page}`].filter(Boolean).join(' · ')}）`
+  }
 
   // LLM 流式：reqId 关联渲染端回调；inflight 供「停止生成」abort 进行中的请求
   const inflight = new Map<number, AbortController>()
@@ -513,11 +541,13 @@ function registerIpc(): void {
       try {
         let msgs: ChatMessage[]
         let sources: import('./ingest').RetrievedChunk[] = []
+        // 整篇模式（引用为 [页码] 而非 [n]）：后校验的编号规则不适用，跳过
+        let fullPaper = false
         if (args.mode === 'translate') msgs = translateMessages(args.text!, args.context ?? '', dbmod.getSettings().translateTarget)
         else if (args.mode === 'explain') msgs = explainMessages(args.text!, args.context ?? '')
         else if (args.mode === 'rag') {
           if (args.scopePaperId) {
-            // 整篇模式：完整论文正文进提示词（按页标记，引用为 [页码]）
+            // 整篇模式：完整论文正文进提示词（按页标记，引用为 [页码]），无需检索预处理
             const paper = dbmod
               .getDb()
               .prepare('SELECT id, slug, title, path, category, year FROM papers WHERE id=?')
@@ -532,6 +562,7 @@ function registerIpc(): void {
               pages = []
             }
             if (pages.length > 0) {
+              fullPaper = true
               sources = pages.map((t, i) => ({
                 paperId: paper.id,
                 slug: paper.slug,
@@ -541,11 +572,16 @@ function registerIpc(): void {
                 page: i + 1,
                 text: t,
                 score: 1,
-                snippet: ''
+                snippet: '',
+                sectionNo: '',
+                sectionTitle: '',
+                kind: 'page'
               }))
               msgs = paperFullMessages(args.question!, pages, paper.title, undefined, args.history, paper.category)
             } else {
-              sources = await hybridSearch(args.question!, args.scopePaperId, 10, args.category)
+              // 查询预处理（意图/术语扩展）→ 混合检索（含重排序）
+              const pq = await preprocessQuery(args.question!, args.history)
+              sources = await hybridSearch(pq, args.scopePaperId, 10, args.category)
               msgs = ragMessages(
                 args.question!,
                 sources.map((s) => ({ label: srcLabel(s), text: s.text })),
@@ -555,7 +591,8 @@ function registerIpc(): void {
               )
             }
           } else {
-            sources = await hybridSearch(args.question!, undefined, 16, args.category, args.paperIds)
+            const pq = await preprocessQuery(args.question!, args.history)
+            sources = await hybridSearch(pq, undefined, 10, args.category, args.paperIds)
             if (sources.length === 0) {
               send(`llm:delta:${args.reqId}`, '⚠️ 检索不到相关片段（可能索引尚未建好），请先重建索引。')
               send(`llm:end:${args.reqId}`, null)
@@ -571,12 +608,38 @@ function registerIpc(): void {
           }
         } else msgs = args.messages ?? []
 
-        for await (const delta of chatStream(msgs, { signal: controller.signal })) send(`llm:delta:${args.reqId}`, delta)
-        if (args.mode === 'rag')
+        let answer = ''
+        for await (const delta of chatStream(msgs, { signal: controller.signal })) {
+          answer += delta
+          send(`llm:delta:${args.reqId}`, delta)
+        }
+        if (args.mode === 'rag') {
           send(
             `llm:sources:${args.reqId}`,
-            sources.map((s, i) => ({ n: i + 1, slug: s.slug, title: s.title, page: s.page, snippet: s.snippet || undefined }))
+            sources.map((s, i) => ({
+              n: i + 1,
+              slug: s.slug,
+              title: s.title,
+              page: s.page,
+              snippet: s.snippet || undefined,
+              sectionNo: s.sectionNo || undefined,
+              sectionTitle: s.sectionTitle || undefined
+            }))
           )
+          // 后校验：引用编号（规则层）+ 引用支持性/事实/逻辑（LLM 层）；中断或空回答跳过
+          if (!fullPaper && !shouldSkipVerify(answer, controller.signal.aborted)) {
+            let verify = skippedReport()
+            try {
+              verify = await verifyAnswer(
+                answer,
+                sources.map((s, i) => ({ n: i + 1, title: s.title, text: s.text }))
+              )
+            } catch {
+              /* 校验失败不影响交付 */
+            }
+            send(`llm:verify:${args.reqId}`, verify)
+          }
+        }
         send(`llm:end:${args.reqId}`, null)
       } catch (err) {
         // 用户主动停止：不追加错误提示，静默收尾即可
@@ -596,9 +659,9 @@ function registerIpc(): void {
   ipcMain.handle('chats:list', () => dbmod.listChats())
   ipcMain.handle('chat:load', (_e, id: number) => dbmod.loadChat(Number(id)))
   ipcMain.handle('chat:create', (_e, title: string) => dbmod.createChat(String(title ?? '')))
-  ipcMain.handle('chat:append', (_e, id: number, role: string, content: string, sources?: string) => {
+  ipcMain.handle('chat:append', (_e, id: number, role: string, content: string, sources?: string, verify?: string) => {
     if (typeof content !== 'string' || !content.trim()) return 0
-    return dbmod.appendChatMsg(Number(id), String(role), content, sources)
+    return dbmod.appendChatMsg(Number(id), String(role), content, sources, verify)
   })
   ipcMain.handle('chat:rename', (_e, id: number, title: string) => {
     dbmod.renameChat(Number(id), String(title ?? ''))
@@ -632,10 +695,10 @@ function registerIpc(): void {
     return true
   })
   // 整会话重写（问题编辑重生成后同步落库，单事务）
-  ipcMain.handle('chat:set-messages', (_e, id: number, msgs: Array<{ role: string; content: string; sources?: unknown }>) => {
+  ipcMain.handle('chat:set-messages', (_e, id: number, msgs: Array<{ role: string; content: string; sources?: unknown; verify?: unknown }>) => {
     dbmod.setChatMessages(
       Number(id),
-      msgs.map((m) => ({ role: m.role === 'user' ? 'user' : 'assistant', content: String(m.content ?? ''), sources: m.sources }))
+      msgs.map((m) => ({ role: m.role === 'user' ? 'user' : 'assistant', content: String(m.content ?? ''), sources: m.sources, verify: m.verify }))
     )
     return true
   })

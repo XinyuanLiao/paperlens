@@ -5,3 +5,6 @@ dist/
 .DS_Store
 .tooling/
 .smoke-*
+
+# 内置模型二进制（fetch-models.mjs 下载，不进 git）
+build/models/

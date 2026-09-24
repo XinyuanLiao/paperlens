@@ -35,9 +35,6 @@ export interface Settings {
   apiKey: string
   model: string
   provider: string
-  embedProvider: 'local' | 'zhipu' | 'ollama'
-  ollamaUrl: string
-  ollamaEmbedModel: string
   translateTarget: string
   theme: Theme
   fontFamily: string
@@ -45,6 +42,20 @@ export interface Settings {
   models: string[]
   thinkingLevel: 'off' | 'on'
   profiles?: ProviderProfile[]
+  // ---- RAG 管线 ----
+  // PDF 解析引擎：marker（Python，结构感知）优先，逐篇失败自动回退内置 pdfjs。
+  // markerCmd 留空 = 用自动配置的沙盒环境（markerEnv），填了则优先手动命令
+  pdfEngine: 'builtin' | 'marker'
+  markerCmd: string
+  // 重排序开关（本地 ONNX bge-reranker-v2-m3）：GPU 可用时走完整策略（候选数可配），
+  // 仅 CPU 可用时自动轻量化（固定 24 候选直取）
+  rerankProvider: 'off' | 'local'
+  rerankCandidates: number
+  // 查询预处理（术语扩展/意图识别/指代消解）与回答后校验（引用/事实/逻辑）
+  queryRewrite: boolean
+  answerVerify: boolean
+  // 嵌入固定为内置 BAAI/bge-m3（随安装包分发），加速设备自动选择（CUDA/DirectML/GPU→CPU），
+  // 均无需设置；旧版本的 embedProvider/ollama*/gpuEnabled 等字段读取时自动忽略
 }
 
 // 默认文献库：跟随平台放到「文档」目录（开发态 app 未 ready 前不能调 getPath，惰性求值）
@@ -60,15 +71,18 @@ const DEFAULTS: Settings = {
   apiKey: '',
   model: 'glm-4.5-air',
   provider: 'zhipu',
-  embedProvider: 'local',
-  ollamaUrl: 'http://127.0.0.1:11434',
-  ollamaEmbedModel: 'bge-m3',
   translateTarget: '中文',
   theme: 'system',
   fontFamily: '',
   setupDone: false,
   models: [],
-  thinkingLevel: 'on'
+  thinkingLevel: 'on',
+  pdfEngine: 'marker',
+  markerCmd: '',
+  rerankProvider: 'local',
+  rerankCandidates: 40,
+  queryRewrite: true,
+  answerVerify: true
 }
 
 let db: Database.Database
@@ -90,7 +104,8 @@ export function initDb(): void {
     CREATE TABLE IF NOT EXISTS chunks(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       paper_id INTEGER REFERENCES papers(id) ON DELETE CASCADE,
-      page INTEGER, ord INTEGER, text TEXT, vec BLOB
+      page INTEGER, ord INTEGER, text TEXT, vec BLOB,
+      section_no TEXT DEFAULT '', section_title TEXT DEFAULT '', kind TEXT DEFAULT 'body'
     );
     CREATE INDEX IF NOT EXISTS idx_chunks_paper ON chunks(paper_id);
     CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -117,10 +132,18 @@ export function initDb(): void {
       role TEXT NOT NULL,
       content TEXT NOT NULL,
       sources TEXT,
+      verify TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_chatmsgs ON chatmsgs(chat_id);
   `)
+  // 迁移：v4 结构化分块的章节元数据 + 回答校验报告
+  const ccols = (db.prepare('PRAGMA table_info(chunks)').all() as Array<{ name: string }>).map((c) => c.name)
+  if (!ccols.includes('section_no')) db.exec("ALTER TABLE chunks ADD COLUMN section_no TEXT DEFAULT ''")
+  if (!ccols.includes('section_title')) db.exec("ALTER TABLE chunks ADD COLUMN section_title TEXT DEFAULT ''")
+  if (!ccols.includes('kind')) db.exec("ALTER TABLE chunks ADD COLUMN kind TEXT DEFAULT 'body'")
+  const mcols = (db.prepare('PRAGMA table_info(chatmsgs)').all() as Array<{ name: string }>).map((c) => c.name)
+  if (!mcols.includes('verify')) db.exec('ALTER TABLE chatmsgs ADD COLUMN verify TEXT')
   // 迁移：papers 增加 pvec（整篇级向量：标题+作者+首页）与 opened_at（最近打开时间）
   const cols = (db.prepare('PRAGMA table_info(papers)').all() as Array<{ name: string }>).map((c) => c.name)
   if (!cols.includes('pvec')) db.exec('ALTER TABLE papers ADD COLUMN pvec BLOB')
@@ -429,6 +452,8 @@ export interface ChatMsg {
   role: 'user' | 'assistant'
   content: string
   sources?: Array<{ n: number; slug: string; title: string; page: number; snippet?: string }>
+  // 回答后校验报告（引用/事实/逻辑），仅 rag 模式的 assistant 消息携带
+  verify?: unknown
 }
 
 export function listChats(): ChatMeta[] {
@@ -443,15 +468,17 @@ export function listChats(): ChatMeta[] {
 
 export function loadChat(id: number): ChatMsg[] {
   return (
-    db.prepare('SELECT role, content, sources FROM chatmsgs WHERE chat_id=? ORDER BY id').all(id) as Array<{
+    db.prepare('SELECT role, content, sources, verify FROM chatmsgs WHERE chat_id=? ORDER BY id').all(id) as Array<{
       role: string
       content: string
       sources: string | null
+      verify: string | null
     }>
   ).map((r) => ({
     role: r.role === 'user' ? 'user' : 'assistant',
     content: r.content,
-    ...(r.sources ? { sources: JSON.parse(r.sources) } : {})
+    ...(r.sources ? { sources: JSON.parse(r.sources) } : {}),
+    ...(r.verify ? { verify: JSON.parse(r.verify) } : {})
   }))
 }
 
@@ -460,12 +487,13 @@ export function createChat(title: string): number {
   return Number(r.lastInsertRowid)
 }
 
-export function appendChatMsg(id: number, role: string, content: string, sources?: string): number {
-  const r = db.prepare('INSERT INTO chatmsgs(chat_id,role,content,sources) VALUES(?,?,?,?)').run(
+export function appendChatMsg(id: number, role: string, content: string, sources?: string, verify?: string): number {
+  const r = db.prepare('INSERT INTO chatmsgs(chat_id,role,content,sources,verify) VALUES(?,?,?,?,?)').run(
     id,
     role === 'user' ? 'user' : 'assistant',
     content,
-    sources ?? null
+    sources ?? null,
+    verify ?? null
   )
   db.prepare("UPDATE chats SET updated_at=datetime('now') WHERE id=?").run(id)
   return Number(r.lastInsertRowid)
@@ -486,14 +514,20 @@ export function deleteChat(id: number): void {
 // 整会话重写（编辑问题重新生成后同步）：单事务清旧插新，updated_at 顺带刷新
 export function setChatMessages(
   id: number,
-  msgs: Array<{ role: string; content: string; sources?: unknown }>
+  msgs: Array<{ role: string; content: string; sources?: unknown; verify?: unknown }>
 ): void {
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM chatmsgs WHERE chat_id=?').run(id)
-    const ins = db.prepare('INSERT INTO chatmsgs(chat_id,role,content,sources) VALUES(?,?,?,?)')
+    const ins = db.prepare('INSERT INTO chatmsgs(chat_id,role,content,sources,verify) VALUES(?,?,?,?,?)')
     for (const m of msgs) {
       if (!m.content?.trim()) continue
-      ins.run(id, m.role === 'user' ? 'user' : 'assistant', m.content, m.sources ? JSON.stringify(m.sources) : null)
+      ins.run(
+        id,
+        m.role === 'user' ? 'user' : 'assistant',
+        m.content,
+        m.sources ? JSON.stringify(m.sources) : null,
+        m.verify ? JSON.stringify(m.verify) : null
+      )
     }
     db.prepare("UPDATE chats SET updated_at=datetime('now') WHERE id=?").run(id)
   })

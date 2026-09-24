@@ -1,18 +1,37 @@
 import path from 'node:path'
-import { getSettings } from './db'
+import { deviceLabel, tfDeviceChain, type TfDevice } from './device'
+import { llamaEmbed } from './llamacpp'
 
-// 本地嵌入：transformers.js + multilingual-e5-small（384 维，q8 量化约 130MB，首次运行下载）
-let extractorPromise: Promise<any> | null = null
+// 本地嵌入：主路径 llama.cpp + BAAI/bge-m3 GGUF（安装时自动下载，已就绪直接调用；
+// CLS 池化，1024 维，实测区分度优于 mean）。llama.cpp 不可用时回退 ONNX q8（transformers.js）。
+// 加速设备自动选择：Windows CUDA/CPU、macOS Metal、低端 CPU（llama.cpp 侧），ONNX 侧 cuda/dml/gpu→cpu。
 
-async function getLocalExtractor(): Promise<any> {
+export const EMBED_MODEL_ID = 'llama.cpp:bge-m3-q6k@cls' // 索引版本键：变更触发全库重建
+
+// ---------- ONNX 兜底（llama.cpp 缺失/失败时） ----------
+let extractorPromise: Promise<{ ex: any; device: TfDevice }> | null = null
+
+async function getOnnxExtractor(): Promise<{ ex: any; device: TfDevice }> {
   if (!extractorPromise) {
     extractorPromise = (async () => {
       process.env.HF_ENDPOINT ||= 'https://hf-mirror.com' // 国内镜像
       const { pipeline, env } = await import('@huggingface/transformers')
       const { app } = await import('electron')
-      // 模型缓存放进 userData：打包后应用目录（asar）只读，默认缓存路径会写失败
+      // 模型缓存放 userData：打包后应用目录（asar）只读，默认缓存路径会写失败
       env.cacheDir = path.join(app.getPath('userData'), 'model-cache')
-      return pipeline('feature-extraction', 'Xenova/multilingual-e5-small', { dtype: 'q8' })
+      const chain = tfDeviceChain()
+      let lastErr = ''
+      for (const device of chain) {
+        try {
+          const ex = await pipeline('feature-extraction', 'Xenova/bge-m3', { dtype: 'q8', device })
+          console.log(`[embed] ONNX bge-m3 兜底就绪 · ${deviceLabel(device)}`)
+          return { ex, device }
+        } catch (err) {
+          lastErr = String(err)
+          console.warn(`[embed] ONNX ${device} 不可用，尝试下一设备：`, lastErr.slice(0, 160))
+        }
+      }
+      throw new Error(`ONNX 兜底加载失败：${lastErr.slice(0, 200)}`)
     })()
     extractorPromise.catch(() => {
       extractorPromise = null // 失败允许重试
@@ -26,51 +45,32 @@ export interface EmbedResult {
   dim: number
 }
 
-export async function embed(texts: string[], isQuery = false): Promise<EmbedResult> {
-  const s = getSettings()
-  if (s.embedProvider === 'zhipu' && s.apiKey) {
-    // 智谱 embedding-3：批量上限 64
-    const vectors: number[][] = []
-    for (let i = 0; i < texts.length; i += 64) {
-      const batch = texts.slice(i, i + 64)
-      const resp = await fetch(`${s.apiBase}/embeddings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.apiKey}` },
-        body: JSON.stringify({ model: 'embedding-3', input: batch })
-      })
-      if (!resp.ok) throw new Error(`Embedding API ${resp.status}: ${await resp.text()}`)
-      const json = (await resp.json()) as { data: Array<{ embedding: number[] }> }
-      vectors.push(...json.data.map((d) => d.embedding))
-    }
-    return { vectors: vectors.map(normalize), dim: vectors[0]?.length ?? 0 }
-  }
-  if (s.embedProvider === 'ollama') {
-    // Ollama /api/embed：{model, input:[...]} → {embeddings:[[...]]}
-    const vectors: number[][] = []
-    for (let i = 0; i < texts.length; i += 32) {
-      const batch = texts.slice(i, i + 32)
-      const resp = await fetch(`${s.ollamaUrl.replace(/\/$/, '')}/api/embed`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: s.ollamaEmbedModel, input: batch })
-      })
-      if (!resp.ok) throw new Error(`Ollama embed ${resp.status}: ${await resp.text()}（确认已 ollama pull ${s.ollamaEmbedModel}）`)
-      const json = (await resp.json()) as { embeddings: number[][] }
-      vectors.push(...json.embeddings.map(normalize))
-    }
-    return { vectors, dim: vectors[0]?.length ?? 0 }
-  }
-  const ex = await getLocalExtractor()
-  const input = texts.map((t) => (isQuery ? 'query: ' : 'passage: ') + t)
-  const out = await ex(input, { pooling: 'mean', normalize: true })
-  return { vectors: out.tolist() as number[][], dim: (out.dims as number[])[out.dims.length - 1] }
-}
+const BATCH = 8 // 逐 8 条一批（llama-server/ONNX 吞吐与内存均衡）
 
-function normalize(v: number[]): number[] {
-  let n = 0
-  for (const x of v) n += x * x
-  n = Math.sqrt(n) || 1
-  return v.map((x) => x / n)
+// llama 路径一旦失败，本会话固定走 ONNX 兜底：两个模型的向量空间不同，
+// 同一索引里混用会让检索彻底失真，宁可整会话统一降级
+let llamaBroken = false
+
+export async function embed(texts: string[]): Promise<EmbedResult> {
+  if (!llamaBroken) {
+    try {
+      const vectors: number[][] = []
+      for (let i = 0; i < texts.length; i += BATCH) {
+        vectors.push(...(await llamaEmbed(texts.slice(i, i + BATCH))))
+      }
+      return { vectors, dim: vectors[0]?.length ?? 0 }
+    } catch (err) {
+      llamaBroken = true
+      console.warn('[embed] llama.cpp 路径失败，本会话固定回退 ONNX（避免向量空间混用）：', String(err).slice(0, 160))
+    }
+  }
+  const { ex } = await getOnnxExtractor()
+  const vectors: number[][] = []
+  for (let i = 0; i < texts.length; i += BATCH) {
+    const out = await ex(texts.slice(i, i + BATCH), { pooling: 'mean', normalize: true })
+    vectors.push(...(out.tolist() as number[][]))
+  }
+  return { vectors, dim: vectors[0]?.length ?? 0 }
 }
 
 export function cosSim(a: number[] | Float32Array, b: number[] | Float32Array): number {

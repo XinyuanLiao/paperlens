@@ -78,27 +78,44 @@ const api = {
   },
   testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => ipcRenderer.invoke('llm:test', over),
   testEmbed: () => ipcRenderer.invoke('embed:test'),
+  testMarker: () => ipcRenderer.invoke('marker:test'),
+  testRerank: () => ipcRenderer.invoke('rerank:test'),
+  // AI 运行时（llama.cpp 向量引擎 / marker 沙盒）：状态 + 手动安装 + 进度事件
+  runtimeStatus: () => ipcRenderer.invoke('runtime:status'),
+  runtimeEnsure: (kind: 'llama' | 'marker') => ipcRenderer.send('runtime:ensure', kind),
+  onRuntimeProgress: (cb: (p: { kind: 'llama' | 'marker'; state: string; detail: string; pct?: number; device?: string }) => void) => {
+    const h = (_e: unknown, p: unknown) => cb(p as never)
+    ipcRenderer.on('runtime:progress', h)
+    return () => ipcRenderer.removeListener('runtime:progress', h)
+  },
 
   // 流式对话：返回 stop 中断句柄（主进程 abort 后照常走 onEnd 收尾）
-  stream: (args: Record<string, unknown>, handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: unknown[]) => void }) => {
+  stream: (
+    args: Record<string, unknown>,
+    handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: unknown[]) => void; onVerify?: (v: unknown) => void }
+  ) => {
     const reqId = Date.now() + Math.floor(Math.random() * 1e6)
     const deltaCh = `llm:delta:${reqId}`
     const endCh = `llm:end:${reqId}`
     const srcCh = `llm:sources:${reqId}`
+    const verCh = `llm:verify:${reqId}`
     const onDelta = (_e: unknown, t: string) => handlers.onDelta(t)
     const onEnd = () => {
       cleanup()
       handlers.onEnd()
     }
     const onSources = (_e: unknown, s: unknown[]) => handlers.onSources?.(s)
+    const onVerify = (_e: unknown, v: unknown) => handlers.onVerify?.(v)
     function cleanup(): void {
       ipcRenderer.removeListener(deltaCh, onDelta)
       ipcRenderer.removeListener(endCh, onEnd)
       ipcRenderer.removeListener(srcCh, onSources)
+      ipcRenderer.removeListener(verCh, onVerify)
     }
     ipcRenderer.on(deltaCh, onDelta)
     ipcRenderer.on(endCh, onEnd)
     ipcRenderer.on(srcCh, onSources)
+    ipcRenderer.on(verCh, onVerify)
     ipcRenderer.send('llm:stream', { reqId, ...args })
     return () => ipcRenderer.send('llm:stop', reqId)
   },
@@ -120,12 +137,12 @@ const api = {
   chatsList: () => ipcRenderer.invoke('chats:list'),
   chatLoad: (id: number) => ipcRenderer.invoke('chat:load', id),
   chatCreate: (title: string) => ipcRenderer.invoke('chat:create', title),
-  chatAppend: (id: number, role: string, content: string, sources?: string) =>
-    ipcRenderer.invoke('chat:append', id, role, content, sources),
+  chatAppend: (id: number, role: string, content: string, sources?: string, verify?: string) =>
+    ipcRenderer.invoke('chat:append', id, role, content, sources, verify),
   chatRename: (id: number, title: string) => ipcRenderer.invoke('chat:rename', id, title),
   chatDelete: (id: number) => ipcRenderer.invoke('chat:delete', id),
   chatExport: (id: number, title: string) => ipcRenderer.invoke('chat:export', id, title),
-  chatSetMessages: (id: number, msgs: Array<{ role: string; content: string; sources?: unknown }>) =>
+  chatSetMessages: (id: number, msgs: Array<{ role: string; content: string; sources?: unknown; verify?: unknown }>) =>
     ipcRenderer.invoke('chat:set-messages', id, msgs),
 
   // 本地字体列表（设置里选全局字体用）

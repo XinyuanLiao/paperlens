@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderRich, type Jump } from './rich'
 import { buildSuggestions } from './suggest'
 import { ModelPill, ThinkingToggle, ScopePill, type ChatScope } from './ChatControls'
-import type { ChatMsg, Paper, SourceRef } from './types'
+import VerifyBar from './VerifyBar'
+import type { ChatMsg, Paper, SourceRef, VerifyReport } from './types'
 
 interface Props {
   papers: Paper[]
@@ -94,6 +95,8 @@ export default function ChatView({
   // 流式累计器：onEnd 时落库完整回答
   const outRef = useRef('')
   const srcRef = useRef<SourceRef[] | undefined>(undefined)
+  // 后校验报告：主流程生成完成后异步送达，到达时补进最后一条消息
+  const verRef = useRef<VerifyReport | undefined>(undefined)
   // 本会话是刚在本组件里创建的：activeChatId 流回来时跳过重载（会把流式中的占位回答冲掉）
   const selfStartedRef = useRef<number | null>(null)
   // 本轮的基底消息（用户问题之前的上下文）：onEnd 全量落库与「编辑重生成」都要用
@@ -146,6 +149,7 @@ export default function ChatView({
     setBusy(true)
     outRef.current = ''
     srcRef.current = undefined
+    verRef.current = undefined
     baseRef.current = base
     scrollBottom()
     void (async () => {
@@ -187,6 +191,15 @@ export default function ChatView({
               return next
             })
           },
+          onVerify: (v) => {
+            verRef.current = v as VerifyReport
+            setMsgs((ms) => {
+              const next = [...ms]
+              const last = next[next.length - 1]
+              if (last?.role === 'assistant') next[next.length - 1] = { ...last, verify: v as VerifyReport }
+              return next
+            })
+          },
           onEnd: () => {
             // 无条件全量重写落库（空回答行由 db 层过滤）：
             // 正常发送 = 去掉开头预写的 user 后重写一遍；编辑重生成 = 覆盖旧回答。
@@ -194,7 +207,12 @@ export default function ChatView({
             const final: ChatMsg[] = [
               ...baseRef.current,
               { role: 'user', content: q },
-              { role: 'assistant', content: outRef.current, ...(srcRef.current ? { sources: srcRef.current } : {}) }
+              {
+                role: 'assistant',
+                content: outRef.current,
+                ...(srcRef.current ? { sources: srcRef.current } : {}),
+                ...(verRef.current ? { verify: verRef.current } : {})
+              }
             ]
             void window.api.chatSetMessages(chatId, final)
             setBusy(false)
@@ -397,7 +415,10 @@ export default function ChatView({
                     </div>
                   )
                 ) : (
-                  <div className="bubble">{renderRich(m.content, m.sources, jumpFor(i))}</div>
+                  <div className="bubble">
+                    {renderRich(m.content, m.sources, jumpFor(i))}
+                    {m.verify && <VerifyBar v={m.verify} />}
+                  </div>
                 )}
               </div>
             ))}

@@ -434,6 +434,24 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
   font-family: var(--mono);
 }
 .cite-chip:hover { background: var(--accent); color: #fff; }
+/* 回答下方的校验条：✓ 通过 / ⚠ 问题清单（引用/事实/逻辑） */
+.verify-bar { margin-top: 8px; font-size: 11.5px; }
+.verify-toggle { background: none; border: none; padding: 0; cursor: pointer; font: inherit; }
+.verify-chip {
+  display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  background: var(--bg3); color: var(--text-dim); transition: background 0.12s, color 0.12s;
+}
+.verify-bar.pass .verify-chip { background: var(--accent-soft); color: var(--accent2); }
+.verify-bar.warn .verify-chip { background: rgba(189, 143, 38, 0.14); color: var(--warn); }
+.verify-bar.error .verify-chip { background: rgba(201, 100, 66, 0.14); color: var(--accent); }
+.verify-note { margin-left: 8px; color: var(--text-dim); font-size: 11px; }
+.verify-issues { margin-top: 6px; display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; border-radius: 8px; background: var(--bg2); }
+.verify-issue { display: flex; gap: 8px; align-items: baseline; line-height: 1.6; }
+.vi-type { flex-shrink: 0; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 4px; background: var(--bg3); color: var(--text-dim); }
+.verify-issue.error .vi-type { background: rgba(201, 100, 66, 0.14); color: var(--accent); }
+.verify-issue.warn .vi-type { background: rgba(189, 143, 38, 0.14); color: var(--warn); }
+.vi-detail { color: var(--text); font-size: 11.5px; }
+.vi-refs { color: var(--text-dim); font-family: var(--mono); }
 /* 回答末尾的来源文献：点击标题跳到阅读模式打开该论文 */
 .sources { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); user-select: text; }
 .sources .src-label { font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; flex-shrink: 0; }

@@ -1,7 +1,8 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { renderRich, renderMathText, type Jump } from './rich'
 import { ModelPill, ThinkingToggle } from './ChatControls'
-import type { ChatMsg, Paper, SourceRef } from './types'
+import VerifyBar from './VerifyBar'
+import type { ChatMsg, Paper, SourceRef, VerifyReport } from './types'
 
 // 翻译译文渲染不需要引用跳转
 const noopJump: Jump = () => {}
@@ -157,6 +158,13 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
             if (last?.role === 'assistant') next[next.length - 1] = { ...last, sources: srcs as SourceRef[] }
             return next
           }),
+        onVerify: (v) =>
+          setMsgs((ms) => {
+            const next = [...ms]
+            const last = next[next.length - 1]
+            if (last?.role === 'assistant') next[next.length - 1] = { ...last, verify: v as VerifyReport }
+            return next
+          }),
         onEnd: () => {
           setBusy(false)
           scrollBottom()
@@ -213,7 +221,16 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
             )}
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
-                <div className="bubble">{m.role === 'assistant' ? renderRich(m.content, m.sources, jumpFor(i)) : renderMathText(m.content)}</div>
+                <div className="bubble">
+                  {m.role === 'assistant' ? (
+                    <>
+                      {renderRich(m.content, m.sources, jumpFor(i))}
+                      {m.verify && <VerifyBar v={m.verify} />}
+                    </>
+                  ) : (
+                    renderMathText(m.content)
+                  )}
+                </div>
               </div>
             ))}
             {busy && (

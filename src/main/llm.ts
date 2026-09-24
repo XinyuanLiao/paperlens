@@ -112,8 +112,9 @@ export function explainMessages(text: string, context: string): ChatMessage[] {
   ]
 }
 
-// 非流式一次性调用（连接测试用）；over 提供时用界面当前编辑值直测，不依赖已保存配置
-export async function chatOnce(messages: ChatMessage[], over?: LlmEndpoint): Promise<{ latencyMs: number; reply: string }> {
+// 非流式一次性调用（连接测试/查询改写/后校验用）；over 提供时用界面当前编辑值直测；
+// timeoutMs 供检索链路上的短等场景（改写 4s / 校验 15s），超时抛错由调用方回退
+export async function chatOnce(messages: ChatMessage[], over?: LlmEndpoint, timeoutMs?: number): Promise<{ latencyMs: number; reply: string }> {
   const s = getSettings()
   const apiBase = (over?.apiBase ?? s.apiBase ?? '').replace(/\/+$/, '')
   const apiKey = over?.apiKey ?? s.apiKey
@@ -128,9 +129,11 @@ export async function chatOnce(messages: ChatMessage[], over?: LlmEndpoint): Pro
     resp = await fetch(`${apiBase}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify(buildBody(model, messages, false, undefined, provider))
+      body: JSON.stringify(buildBody(model, messages, false, undefined, provider)),
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {})
     })
   } catch (err) {
+    if (timeoutMs && (String(err).includes('Timeout') || String(err).includes('abort'))) throw new Error('timeout')
     throw friendlyFetchError(err, apiBase)
   }
   if (!resp.ok) {
@@ -244,10 +247,12 @@ export function ragMessages(
         '1）回答要详尽具体：提取片段中的方法名、模型/数据集、实验条件、数值结论等细节，不要只给笼统概括；' +
         '2）结构化输出：按主题分点或使用小标题，适合对比的问题用 markdown 表格呈现；' +
         '3）每个关键论断后紧跟来源编号，如 [1][3]，编号必须与片段标号一一对应，严禁张冠李戴，也不要把引用集中堆在段末；' +
+        '来源标注里的 §编号 是章节位置，说明方法/实验细节出处时可在论断里点明章节（如「§3.2 的实验设置」）；' +
         '4）不得引入片段与文献库概况之外的论文名称；不同文献观点有差异时明确指出并分别标注来源；' +
         '5）分类归属、各分类篇数、覆盖方向等库级问题以【文献库概况】为准（结合片段内容归纳方向），不要因片段中没有出现分类名就拒绝回答；' +
-        '6）片段与概况都不足以回答时明确说"库内文献未覆盖该问题"，不要编造；' +
-        '7）回答用中文，专业术语首次出现给英文原文。' +
+        '6）片段与概况都不足以回答时明确说"库内文献未覆盖该问题"，不要编造；依据部分覆盖时只回答有据部分并说明缺口；' +
+        '7）依据不足但确有必要的推断，句末标注〔不确定〕，不得与有据论断混排；' +
+        '8）回答用中文，专业术语首次出现给英文原文。' +
         (paperTitle ? `当前讨论的论文是《${paperTitle}》，优先使用与其相关的片段。` : '当前是跨全库检索模式。')
     },
     ...hist,
@@ -255,5 +260,51 @@ export function ragMessages(
       role: 'user',
       content: `【检索到的文献片段】\n${ctx}\n\n${libStats ? `【文献库概况】\n${libStats}\n\n` : ''}【问题】\n${question}`
     }
+  ]
+}
+
+// 查询改写（检索预处理）：把多轮追问改写成独立问题 + 术语扩展 + 意图判定。
+// 只输出 JSON；改写结果仅用于检索，不进入生成
+export function rewriteMessages(q: string, history?: Array<{ role: 'user' | 'assistant'; content: string }>): ChatMessage[] {
+  const hist = (history ?? [])
+    .slice(-4)
+    .map((m) => `${m.role === 'user' ? '用户' : '助手'}：${m.content.slice(0, 400)}`)
+    .join('\n')
+  return [
+    {
+      role: 'system',
+      content:
+        '你是学术文献库（电力电子与 AI 领域）的检索查询改写器。把用户查询改写为更适合检索的独立问题。判定规则：' +
+        'intent="exact" 当查询指向特定术语/缩写/型号/论文名/作者名（需要字面精确匹配）；' +
+        'intent="semantic" 当查询是开放式问题（需要语义关联召回）。' +
+        'query 字段：改写成独立完整的检索问题——消解"它/这篇/上述方法"等指代、补全缩写全称（如 FM→failure mode），不添加答案性内容；' +
+        'keywords 字段：3-8 个检索关键词，英文术语与中文同义词都要有（含缩写与全称）。' +
+        '只输出 JSON，格式：{"intent":"exact或semantic","query":"改写后的问题","keywords":["kw1","kw2"]}'
+    },
+    {
+      role: 'user',
+      content: `${hist ? `【最近对话（仅供消解指代）】\n${hist}\n\n` : ''}【当前查询】\n${q}`
+    }
+  ]
+}
+
+// 回答后校验：引用支持性 / 事实一致性 / 逻辑一致性三类问题清单。只输出 JSON
+export function verifyMessages(answer: string, sources: Array<{ n: number; title: string; text: string }>): ChatMessage[] {
+  const ctx = sources
+    .map((s) => `[${s.n}] ${s.title}\n${s.text.slice(0, 800)}`)
+    .join('\n\n')
+    .slice(0, 24000)
+  return [
+    {
+      role: 'system',
+      content:
+        '你是学术问答的校验员。对照编号来源片段检查回答，找出三类问题：' +
+        'citation——引用张冠李戴（论断与所标 [n] 来源内容不符）、论断无任何来源支持、引用了不存在的编号；' +
+        'fact——数值、单位、方法名、结论与来源矛盾；' +
+        'logic——回答内部前后矛盾。' +
+        '只报告真实存在、能指出具体位置的问题，不要吹毛求疵；每条给出中文简述（引用相关编号）。' +
+        '只输出 JSON：{"issues":[{"type":"citation或fact或logic","severity":"warn或error","detail":"简述","refs":[n]}]}，无问题输出 {"issues":[]}'
+    },
+    { role: 'user', content: `【来源片段】\n${ctx}\n\n【待校验回答】\n${answer}` }
   ]
 }
