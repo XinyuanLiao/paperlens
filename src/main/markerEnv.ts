@@ -25,6 +25,8 @@ function setStatus(s: MarkerEnvStatus): void {
   sink?.(s)
 }
 export function markerEnvStatus(): MarkerEnvStatus {
+  // 惰性现实校验：跳过 ensure 直接复用沙盒时状态对象还是初值，不能显示成"未安装"
+  if (status.state !== 'ready' && markerEnvReady()) return { state: 'ready', detail: '沙盒已配置' }
   return status
 }
 

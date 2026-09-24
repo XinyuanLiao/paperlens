@@ -48,6 +48,10 @@ function setStatus(s: RuntimeStatus): void {
   sink?.(s)
 }
 export function llamaStatus(): RuntimeStatus {
+  // 惰性现实校验：已就绪直接复用时状态对象还是初值，不能显示成"未安装"
+  if (status.state !== 'ready' && status.state !== 'running' && findServer() && haveModel()) {
+    return { state: 'ready', detail: '已安装', device: status.device || '' }
+  }
   return status
 }
 
