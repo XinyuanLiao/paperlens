@@ -232,7 +232,8 @@ export function ragMessages(
   sources: Array<{ n: number; label: string; text: string }>,
   paperTitle?: string,
   history?: Array<{ role: 'user' | 'assistant'; content: string }>,
-  libStats?: string
+  libStats?: string,
+  scopeNote?: string
 ): ChatMessage[] {
   // n = 论文级编号（同一论文的多个片段共用同一编号），由调用方分派
   const ctx = sources.map((s) => `[${s.n}] ${s.label}\n${s.text}`).join('\n\n')
@@ -254,7 +255,7 @@ export function ragMessages(
         '6）片段与概况都不足以回答时明确说"库内文献未覆盖该问题"，不要编造；依据部分覆盖时只回答有据部分并说明缺口；' +
         '7）依据不足但确有必要的推断，句末标注〔不确定〕，不得与有据论断混排；' +
         '8）回答用中文，专业术语首次出现给英文原文。' +
-        (paperTitle ? `当前讨论的论文是《${paperTitle}》，优先使用与其相关的片段。` : '当前是跨全库检索模式。')
+        (paperTitle ? `当前讨论的论文是《${paperTitle}》，优先使用与其相关的片段。` : scopeNote || '当前是跨全库检索模式。')
     },
     ...hist,
     {

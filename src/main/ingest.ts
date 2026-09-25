@@ -14,8 +14,9 @@ export function isIndexRunning(): boolean {
 }
 
 // 分块算法版本：改动分块逻辑时递增，buildIndex 检测到旧版本索引会自动清空重建
-// v3：裁参考文献 + 分类前缀嵌入；v4：结构化三层分块；v5：块目标 1024 token、重叠 128
-const CHUNK_VERSION = 5
+// v3：裁参考文献 + 分类前缀嵌入；v4：结构化三层分块；v5：块目标 1024 token、重叠 128；
+// v6：分组加入页码（修复无标题论文整篇页码坍缩到最后一页）+ 章节标题截断
+const CHUNK_VERSION = 6
 // 结构化解析引擎（liteparse 随应用内置，无 OCR；旧引擎值 'marker'/'builtin' 不一致即触发重建）
 const PDF_ENGINE = 'liteparse'
 // 精排候选数（固定）：GPU = 40；仅 CPU 轻量 = 24

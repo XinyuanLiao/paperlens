@@ -29,6 +29,9 @@ const NUM_CN = /^第([一二三四五六七八九十百\d]+)章\s*(.*)$/
 // 把 liteparse 的逐页 markdown 解析为带章节元数据+页码的顺序块。
 // 章节状态跨页延续（同章多页不重置），页边界 flush（跨页段落自然断开，不丢内容）
 export function parseMdBlockPages(pagesMd: Array<{ page: number; md: string }>): MdBlock[] {
+  // liteparse 偶尔把整段摘要黏在标题行里（## Abstract-DC-link capacitors are ...），
+  // 截断存储防止伪标题污染后续所有块的章节标注
+  const capTitle = (t: string): string => (t.length > 120 ? `${t.slice(0, 120)}…` : t)
   const blocks: MdBlock[] = []
   let sectionNo = ''
   let sectionTitle = ''
@@ -99,16 +102,16 @@ export function parseMdBlockPages(pagesMd: Array<{ page: number; md: string }>):
         const cm = title.match(NUM_CN)
         if (am) {
           sectionNo = am[1]
-          sectionTitle = am[2].trim()
+          sectionTitle = capTitle(am[2].trim())
         } else if (rm) {
           sectionNo = rm[1].toUpperCase()
-          sectionTitle = rm[2].trim()
+          sectionTitle = capTitle(rm[2].trim())
         } else if (cm) {
           sectionNo = cm[1]
-          sectionTitle = cm[2].trim() || `第${cm[1]}章`
+          sectionTitle = capTitle(cm[2].trim() || `第${cm[1]}章`)
         } else {
           sectionNo = ''
-          sectionTitle = title
+          sectionTitle = capTitle(title)
         }
         kind = ABSTRACT_HEADING.test(title) ? 'abstract' : 'body'
         continue
@@ -320,9 +323,12 @@ export function chunkMdBlocks(blocks: MdBlock[]): ChunkJob[] {
     }
     const sameGroup =
       groupMeta !== null &&
+      groupMeta.page === meta.page &&
       groupMeta.sectionNo === meta.sectionNo &&
       groupMeta.sectionTitle === meta.sectionTitle &&
       groupMeta.kind === meta.kind
+    // 页码必须参与分组：正文无 # 标题的论文（liteparse 对双栏排版常如此）整篇共享同一
+    // 章节元数据，不按页断组的话所有块会被并进一个组、页码全部记到组里最后一个块的页
     if (!sameGroup) flushGroup()
     const tokens = estimateTokens(block.text)
     if (tokens > HARD) {

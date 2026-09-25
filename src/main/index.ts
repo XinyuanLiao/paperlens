@@ -520,21 +520,32 @@ function registerIpc(): void {
   // 本地重排序测试（含 GPU→CPU 设备报告）
   ipcMain.handle('rerank:test', () => testRerank())
 
-  // 文献库概况：各分类篇数 + 代表文献标题，供回答分类/数量/方向类问题
-  const buildLibStats = (): string => {
+  // 文献库概况：各分类篇数 + 代表文献标题，供回答分类/数量/方向类问题。
+  // 限定检索范围（分类/勾选文献）时只统计范围内——模型不应看到全库数字再"越界"回答
+  const catLabelOf = (c: string): string => (c === 'inbox' ? '未分类' : c)
+  const buildLibStats = (filter?: { category?: string; paperIds?: number[] }): string => {
     const db = dbmod.getDb()
-    const cats = db.prepare('SELECT category, COUNT(*) AS n FROM papers GROUP BY category ORDER BY n DESC').all() as Array<{
-      category: string
-      n: number
-    }>
+    const ids = filter?.paperIds?.length ? filter.paperIds : null
+    const ph = ids ? ids.map(() => '?').join(',') : ''
+    const cats = (
+      ids
+        ? db.prepare(`SELECT category, COUNT(*) AS n FROM papers WHERE id IN (${ph}) GROUP BY category ORDER BY n DESC`).all(...ids)
+        : filter?.category
+          ? db.prepare('SELECT category, COUNT(*) AS n FROM papers WHERE category=?').all(filter.category)
+          : db.prepare('SELECT category, COUNT(*) AS n FROM papers GROUP BY category ORDER BY n DESC').all()
+    ) as Array<{ category: string; n: number }>
     const total = cats.reduce((a, c) => a + c.n, 0)
-    const lines = [`共 ${total} 篇文献，${cats.length} 个分类：`]
+    const head = ids
+      ? `当前检索范围（勾选的文献）共 ${total} 篇，分类分布：`
+      : filter?.category
+        ? `当前检索范围为分类「${catLabelOf(filter.category)}」，共 ${total} 篇文献。`
+        : `共 ${total} 篇文献，${cats.length} 个分类：`
+    const lines = [head]
     for (const c of cats) {
-      const titles = db.prepare('SELECT title FROM papers WHERE category=? ORDER BY id DESC LIMIT 8').all(c.category) as Array<{
-        title: string
-      }>
-      const label = c.category === 'inbox' ? '未分类' : c.category
-      lines.push(`- ${label}：${c.n} 篇${titles.length ? `。代表文献：${titles.map((t) => `《${t.title}》`).join('、')}` : ''}`)
+      const titles = ids
+        ? (db.prepare(`SELECT title FROM papers WHERE category=? AND id IN (${ph}) ORDER BY id DESC LIMIT 8`).all(c.category, ...ids) as Array<{ title: string }>)
+        : (db.prepare('SELECT title FROM papers WHERE category=? ORDER BY id DESC LIMIT 8').all(c.category) as Array<{ title: string }>)
+      lines.push(`- ${catLabelOf(c.category)}：${c.n} 篇${titles.length ? `。代表文献：${titles.map((t) => `《${t.title}》`).join('、')}` : ''}`)
     }
     return lines.join('\n')
   }
@@ -680,7 +691,20 @@ function registerIpc(): void {
               send(`llm:end:${args.reqId}`, null)
               return
             }
-            msgs = ragMessages(args.question!, ragPromptSources(sources), args.paperTitle, args.history, buildLibStats())
+            // 限定范围时明确告知模型边界，防止它按全库口径作答
+            const scopeNote = args.paperIds?.length
+              ? `当前检索范围限定在勾选的 ${args.paperIds.length} 篇文献内：仅依据这些文献的片段与按范围统计的【文献库概况】回答，范围之外的文献一律不涉及。`
+              : args.category
+                ? `当前检索范围限定在分类「${catLabelOf(args.category)}」内：仅依据该分类文献的片段与按范围统计的【文献库概况】回答，其他分类的文献一律不涉及。`
+                : undefined
+            msgs = ragMessages(
+              args.question!,
+              ragPromptSources(sources),
+              args.paperTitle,
+              args.history,
+              buildLibStats({ category: args.category, paperIds: args.paperIds }),
+              scopeNote
+            )
           }
         } else msgs = args.messages ?? []
 
