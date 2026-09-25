@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
@@ -76,24 +76,51 @@ function CodeBlock({ lang, code }: { lang: string; code: string }): JSX.Element 
 
 // 顺序敏感：[n] 引用 → 链接 → **粗** → ~~删~~ → `码` → $公式$ / \(公式\) → *斜*
 // 引用芯片：片段级（整篇问答）显示页码、点击跳原文位置；论文级（rag）只显示 [n]、
-// 点击跳文章首页，悬停出简要信息卡（题目/期刊·年份/作者）
+// 点击跳文章首页，悬停出简要信息卡（题目/期刊·年份/作者）。
+// 卡片悬停时实测边界：默认在芯片上方展开，右缘超出聊天区就左移、上方放不下翻到下方，
+// 保证不被聊天区边缘与右侧来源面板遮挡；不再设置 title（原生提示框会与卡片叠成白条）
 function CiteChip({ src, ctx, onJump }: { src: SourceRef; ctx: string; onJump: Jump }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [adj, setAdj] = useState<{ dx: number; below: boolean }>({ dx: 0, below: false })
+  const wrapRef = useRef<HTMLSpanElement>(null)
+  const cardRef = useRef<HTMLSpanElement>(null)
+  const close = (): void => {
+    setOpen(false)
+    setAdj({ dx: 0, below: false })
+  }
+  useLayoutEffect(() => {
+    if (!open) return
+    const chip = wrapRef.current
+    const card = cardRef.current
+    const log = chip?.closest('.chat-log') as HTMLElement | null
+    if (!chip || !card || !log) return
+    // 只用与 transform 无关的量做几何计算（芯片矩形 + 卡片宽高），否则应用位移后再测会振荡
+    const cr = chip.getBoundingClientRect()
+    const lr = log.getBoundingClientRect()
+    const kd = card.getBoundingClientRect()
+    const naturalLeft = cr.left - 6
+    let dx = 0
+    let below = false
+    if (cr.top - kd.height - 8 < lr.top + 8 && cr.bottom + kd.height + 12 < lr.bottom - 8) below = true
+    const overR = naturalLeft + kd.width - (lr.right - 8)
+    if (overR > 0) dx -= overR
+    const overL = naturalLeft + dx - (lr.left + 8)
+    if (overL < 0) dx -= overL
+    if (dx !== adj.dx || below !== adj.below) setAdj({ dx, below })
+  }, [open])
   const paperLevel = !src.snippet && !src.sectionNo && !src.sectionTitle
   return (
-    <span className="cite-wrap" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <span ref={wrapRef} className="cite-wrap" onMouseEnter={() => setOpen(true)} onMouseLeave={close}>
       <span
         className="cite-chip"
-        title={paperLevel ? `${src.title}（点击跳到文章首页）` : `${src.title} · 第 ${src.page} 页（跳到原文）`}
         onClick={() => onJump(src.slug, src.page, paperLevel ? undefined : src.snippet, paperLevel ? undefined : ctx)}
       >
         {paperLevel ? `[${src.n}]` : `[${src.n}] p.${src.page}`}
       </span>
       {open && (
-        <span className="cite-card">
+        <span ref={cardRef} className="cite-card" data-below={adj.below || undefined} style={adj.dx ? { transform: `translateX(${adj.dx}px)` } : undefined}>
           <b className="cite-card-title">{src.title}</b>
           <span className="cite-card-meta">{[src.venue, src.year, src.authors].filter(Boolean).join(' · ')}</span>
-          <span className="cite-card-hint">点击跳转到文章首页</span>
         </span>
       )}
     </span>

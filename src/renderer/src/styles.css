@@ -466,22 +466,22 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 .src-card-title { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.4; }
 .src-card-meta { font-size: 11px; color: var(--text-dim); }
 .src-panel-restore {
-  position: absolute; right: 18px; bottom: 104px; z-index: 20;
+  position: absolute; top: 12px; right: 18px; z-index: 20;
   background: var(--bg); border: 1px solid var(--border-lit); border-radius: 999px;
   padding: 6px 14px; font-size: 12px; color: var(--text); cursor: pointer; box-shadow: var(--shadow); font-family: inherit;
 }
 .src-panel-restore:hover { background: var(--bg2); }
-/* 引用芯片的悬停信息卡：贴芯片上方，不拦截鼠标 */
+/* 引用芯片的悬停信息卡：默认芯片上方展开，越界时按实测翻转/平移（CiteChip），不拦截鼠标 */
 .cite-wrap { position: relative; }
 .cite-card {
-  position: absolute; bottom: calc(100% + 8px); left: -6px; z-index: 40; width: 320px;
+  position: absolute; bottom: calc(100% + 8px); left: -6px; z-index: 200; width: 320px;
   display: flex; flex-direction: column; gap: 3px; padding: 10px 12px;
   background: var(--bg); border: 1px solid var(--border-lit); border-radius: 10px; box-shadow: var(--shadow);
   pointer-events: none; cursor: default; text-align: left;
 }
+.cite-card[data-below] { bottom: auto; top: calc(100% + 8px); }
 .cite-card-title { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.45; }
 .cite-card-meta { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
-.cite-card-hint { font-size: 10.5px; color: var(--text-dim); opacity: 0.85; }
 
 
 /* ============ 右栏：聊天/翻译 ============ */

@@ -89,9 +89,25 @@ async function main() {
   await sleep(400)
   const collapsed = await ev(`!document.querySelector('.src-panel') && !!document.querySelector('.src-panel-restore')`)
   console.log('collapse:', collapsed)
+  const pillTop = await ev(`(() => { const p = document.querySelector('.src-panel-restore'); const v = document.querySelector('.chat-view'); if (!p || !v) return null; return Math.round(p.getBoundingClientRect().top - v.getBoundingClientRect().top) })()`)
 
-  const pass = chipOk && r.panelOpen && r.cardCount > 0 && !!card && jump.mode === 'read' && collapsed
-  console.log(pass ? 'ALL PASS' : 'HAS FAIL', '| chips:', r.chipTexts.join(' '))
+  // 右缘芯片悬停：卡片不越聊天区右缘、不压来源面板，且无原生 title 白条
+  await ev(`(() => { const cs = [...document.querySelectorAll('.chat-view .cite-chip')]; const c = cs.reduce((a, b) => (b.getBoundingClientRect().right > a.getBoundingClientRect().right ? b : a)); c.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })()`)
+  await sleep(600)
+  const bounds = await ev(`(() => {
+    const card = document.querySelector('.chat-view .cite-card')
+    const log = document.querySelector('.chat-view .chat-log')
+    const panel = document.querySelector('.src-panel')
+    const chip = [...document.querySelectorAll('.chat-view .cite-chip')].reduce((a, b) => (b.getBoundingClientRect().right > a.getBoundingClientRect().right ? b : a))
+    if (!card || !log) return null
+    const kr = card.getBoundingClientRect(), lr = log.getBoundingClientRect(), pr = panel ? panel.getBoundingClientRect() : null
+    return { cardRight: Math.round(kr.right), logRight: Math.round(lr.right), panelLeft: pr ? Math.round(pr.left) : null, chipTitle: chip ? chip.getAttribute('title') : null, below: card.hasAttribute('data-below') }
+  })()`)
+  console.log('right-edge bounds:', JSON.stringify(bounds))
+  const rightOk = !!bounds && bounds.cardRight <= bounds.logRight - 2 && (bounds.panelLeft == null || bounds.cardRight <= bounds.panelLeft + 2) && bounds.chipTitle == null
+
+  const pass = chipOk && r.panelOpen && r.cardCount > 0 && !!card && jump.mode === 'read' && collapsed && rightOk && pillTop != null && pillTop < 40
+  console.log(pass ? 'ALL PASS' : 'HAS FAIL', '| chips:', r.chipTexts.join(' '), '| pillTop:', pillTop)
   ws.close()
   process.exit(pass ? 0 : 1)
 }
