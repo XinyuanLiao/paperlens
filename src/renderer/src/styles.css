@@ -451,24 +451,42 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 
 /* ---------- rag 来源面板 + 引用悬停卡（引用指向论文而非片段） ---------- */
 .chat-main-row { flex: 1; min-height: 0; display: flex; gap: 10px; }
+/* 正文列：log + 输入框一起被来源面板挤压 */
+.chat-left-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .chat-main-row .chat-log { flex: 1; min-width: 0; }
-.src-panel {
-  width: 304px; flex-shrink: 0; display: flex; flex-direction: column; margin: 2px 12px 6px 0;
-  background: var(--bg); border: 1px solid var(--border-lit); border-radius: var(--radius-lg); overflow: hidden;
+/* 折叠态胶囊与展开态面板右上角坐标一致（top/right 相同），缩放动画以右上角为原点，
+   切换全程角点不动；阴影+描边提供悬浮感；面板上下边距相等 */
+@keyframes src-pop-in {
+  from { opacity: 0; transform: scale(0.94) translateY(-6px); }
+  to { opacity: 1; transform: none; }
 }
+@keyframes src-pop-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.94) translateY(-6px); }
+}
+.src-panel {
+  width: 304px; flex-shrink: 0; display: flex; flex-direction: column; margin: 4px 12px 4px 0;
+  background: var(--bg); border: 1px solid var(--border-lit); border-radius: var(--radius-lg); overflow: hidden;
+  box-shadow: var(--shadow); transform-origin: top right;
+  animation: src-pop-in 0.2s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.src-panel.closing { animation: src-pop-out 0.16s ease-in both; }
 .src-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; font-size: 12px; font-weight: 600; color: var(--text); }
 .src-panel-x { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 12px; padding: 2px 8px; border-radius: 5px; }
 .src-panel-x:hover { background: var(--bg3); color: var(--text); }
 .src-panel-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 10px; display: flex; flex-direction: column; gap: 3px; }
 .src-card { display: flex; flex-direction: column; gap: 3px; text-align: left; background: none; border: 1px solid transparent; border-radius: 10px; padding: 8px 10px; cursor: pointer; font-family: inherit; }
 .src-card:hover { background: var(--bg2); border-color: var(--border); }
-.src-card-venue { font-size: 11px; color: var(--text-dim); }
+/* 编号徽标 + 完整标题同行（标题可换行完整展示）；期刊/作者/年份归入 meta 行 */
+.src-card-top { display: flex; align-items: flex-start; gap: 6px; }
+.src-card-n { flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--accent2); line-height: 1.4; }
 .src-card-title { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.4; }
 .src-card-meta { font-size: 11px; color: var(--text-dim); }
 .src-panel-restore {
-  position: absolute; top: 12px; right: 18px; z-index: 20;
+  position: absolute; top: 4px; right: 12px; z-index: 20;
   background: var(--bg); border: 1px solid var(--border-lit); border-radius: 999px;
   padding: 6px 14px; font-size: 12px; color: var(--text); cursor: pointer; box-shadow: var(--shadow); font-family: inherit;
+  transform-origin: top right; animation: src-pop-in 0.18s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 .src-panel-restore:hover { background: var(--bg2); }
 /* 引用芯片的悬停信息卡：默认芯片上方展开，越界时按实测翻转/平移（CiteChip），不拦截鼠标 */

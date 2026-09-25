@@ -58,6 +58,11 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
   }
 
   const scrollBottom = () => setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' }), 50)
+  // 等待动画只在「模型还没吐出第一个字」时显示三个点；流式开始后完全隐藏。
+  // 要求 msgs 非空：纯翻译（不产生消息）进行中切到问答页不应显示等待点
+  const lastMsg = msgs[msgs.length - 1]
+  const pendingFirstChar =
+    busy && tab === 'chat' && msgs.length > 0 && !(lastMsg?.role === 'assistant' && lastMsg.content)
 
   useImperativeHandle(ref, () => ({
     translate(text: string, context: string) {
@@ -166,8 +171,8 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
             return next
           }),
         onEnd: () => {
+          // 输出完成后不滚动：用户可能已滚到上方阅读，强行拉底会打断
           setBusy(false)
-          scrollBottom()
         }
       }
     )
@@ -233,9 +238,9 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
                 </div>
               </div>
             ))}
-            {busy && (
+            {pendingFirstChar && (
               <div className="thinking">
-                <span className="b" /> <span className="b" /> <span className="b" /> 思考中…
+                <span className="b" /> <span className="b" /> <span className="b" />
               </div>
             )}
           </div>

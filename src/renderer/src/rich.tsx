@@ -127,7 +127,40 @@ function CiteChip({ src, ctx, onJump }: { src: SourceRef; ctx: string; onJump: J
   )
 }
 
+// ---------- 引用去重 ----------
+// RAG 回答常在同一段里反复标注同一编号（……[7]……[7]……[7]）。规则：同一段文本内
+// 重复的引用编号全部删除，按首次出现顺序在段末收尾标点前补回一次；只出现一次的编号
+// 保持原位。行内码 `…` 原样保留（arr[1] 之类的下标不是引用）；代码块不经 inline 渲染。
+// 函数幂等：去重后再跑一遍是空操作
+// `[nn](url)` 形式的 markdown 链接（纯数字 label）不算引用，(?! \() 排除
+const CITE_TOK_RE = /\[(\d+)\](?!\()/g
+
+export function dedupeCites(text: string): string {
+  if (!text.includes('[')) return text
+  // 成对切分行内码：偶数位是普通文本，奇数位是 `code`
+  const parts = text.split(/(`[^`\n]*`)/)
+  const counts = new Map<string, number>()
+  for (let i = 0; i < parts.length; i += 2) {
+    for (const m of parts[i].matchAll(CITE_TOK_RE)) counts.set(m[1], (counts.get(m[1]) ?? 0) + 1)
+  }
+  const dups = [...counts.entries()].filter(([, c]) => c > 1).map(([n]) => n)
+  if (!dups.length) return text
+  const dupSet = new Set(dups)
+  let body = parts.map((p, i) => (i % 2 ? p : p.replace(CITE_TOK_RE, (t, n) => (dupSet.has(n) ? '' : t)))).join('')
+  const ins = dups.map((n) => `[${n}]`).join('')
+  // 补回位置：段末收尾标点之前；与前方文字留一个空格（中文紧排则不加）
+  const tail = body.match(/^(.*?)(\s*)([。．.!！?？…；;]*)$/s)
+  if (tail) {
+    const sep = tail[2] || (/[A-Za-z0-9)'"]$/.test(tail[1]) ? ' ' : '')
+    body = `${tail[1]}${sep}${ins}${tail[3]}`
+  } else {
+    body += ins
+  }
+  return body
+}
+
 function inline(text: string, keyBase: string, sources: SourceRef[] | undefined, onJump: Jump, depth = 0): ReactNode[] {
+  text = dedupeCites(text)
   const out: ReactNode[] = []
   const re =
     /(\[(\d+)\])|(\[[^\]\n]+\]\([^)\s]+\))|(\*\*(?=\S)[^*]*?\S\*\*)|(~~(?=\S)[^~]+~~)|(`[^`\n]+`)|(\$(?=\S)[^$\n]*\S\$)|(\\\(.+?\\\))|(\*(?=[^\s*])[^*\n]*?\S\*)/g
@@ -273,9 +306,11 @@ export function renderRich(content: string, sources: SourceRef[] | undefined, on
   const flushPara = (): void => {
     if (!para.length) return
     const key = `p${blocks.length}`
+    // 段内跨行先去重再按行渲染（inline 入口的单行去重幂等，双保险）
+    const segs = dedupeCites(para.join('\n')).split('\n')
     blocks.push(
       <p key={key} className="md-p">
-        {para.map((seg, si) => (
+        {segs.map((seg, si) => (
           <span key={si}>
             {si > 0 && <br />}
             {inline(seg, `${key}-${si}`, sources, onJump)}

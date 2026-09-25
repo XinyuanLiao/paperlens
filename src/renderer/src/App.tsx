@@ -106,6 +106,10 @@ export default function App(): JSX.Element {
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [mode, setMode] = useState<'read' | 'chat'>('read')
+  // 切换模式后搜索框重置：侧栏搜索在阅读模式过滤论文、对话模式过滤历史对话，语义不同不延续
+  useEffect(() => {
+    setQ('')
+  }, [mode])
   const isMac = /Mac/.test(navigator.platform)
 
   // 命令面板：Ctrl/Cmd + K 全局唤起
