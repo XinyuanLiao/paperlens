@@ -16,6 +16,8 @@ export interface RefIndex {
   entries: RefEntry[]
   byNum: Map<number, RefEntry>
   byLine: Map<string, RefEntry>
+  // 文献表覆盖的页码集合：悬停预过滤用（非这些页且 span 不含 [n] 形态就免装配）
+  pages: Set<number>
   parsed: boolean
 }
 
@@ -122,6 +124,7 @@ export async function buildRefIndex(doc: any): Promise<RefIndex> {
   const byNum = new Map<number, RefEntry>()
   const byLine = new Map<string, RefEntry>()
   const entries: RefEntry[] = []
+  const pages = new Set<number>()
   try {
     const flat: Line[] = []
     for (let n = 1; n <= doc.numPages; n++) {
@@ -136,7 +139,8 @@ export async function buildRefIndex(doc: any): Promise<RefIndex> {
     // 取最后一次出现的标题（正文里引用「references」一词不会整行等值）
     let start = -1
     for (let i = 0; i < flat.length; i++) if (isHeading(flat[i].text)) start = i
-    if (start < 0) return { entries, byNum, byLine, parsed: false }
+    if (start < 0) return { entries, byNum, byLine, pages, parsed: false }
+    for (let i = start + 1; i < flat.length; i++) pages.add(flat[i].page)
     let cur: RefEntry | null = null
     for (let i = start + 1; i < flat.length; i++) {
       const raw = fullWidth(flat[i].text).replace(/\s+/g, ' ').trim()
@@ -168,7 +172,7 @@ export async function buildRefIndex(doc: any): Promise<RefIndex> {
   } catch {
     /* 解析失败不影响阅读 */
   }
-  return { entries, byNum, byLine, parsed: entries.length > 0 }
+  return { entries, byNum, byLine, pages, parsed: entries.length > 0 }
 }
 
 export interface ClickHit {
@@ -177,70 +181,166 @@ export interface ClickHit {
   lineText: string
 }
 
-// 点击 → 所在「栏内行」文本（+ 命中的引用编号）。等宽近似把字符映射到屏幕 x：
-// 与全文搜索 findInPage 同一思路，对点击命中足够准
-export function resolveRefClick(cx: number, cy: number): ClickHit | null {
+// ---------- 行装配（点击与悬停共用同一核心，保证「高亮即所得」） ----------
+
+// span 矩形缓存（wrap 相对坐标）：悬停每次 mousemove 都要装配行，不能反复读布局。
+// 缩放/换文档时渲染端调 invalidateRefLayout() 前移版本号，缓存整体失效
+let layoutVersion = 0
+export function invalidateRefLayout(): void {
+  layoutVersion++
+}
+
+interface CachedSpan {
+  el: HTMLElement
+  l: number
+  t: number
+  w: number
+  h: number
+}
+const rectCache = new WeakMap<HTMLElement, { version: number; spans: CachedSpan[] }>()
+
+function cachedSpans(wrap: HTMLElement): CachedSpan[] {
+  let c = rectCache.get(wrap)
+  if (!c || c.version !== layoutVersion) {
+    const wrapRect = wrap.getBoundingClientRect()
+    const spans: CachedSpan[] = []
+    for (const el of [...wrap.querySelectorAll('.textLayer span')] as HTMLElement[]) {
+      const r = el.getBoundingClientRect()
+      if (!r.width && !r.height) continue
+      spans.push({ el, l: r.left - wrapRect.left, t: r.top - wrapRect.top, w: r.width, h: r.height })
+    }
+    c = { version: layoutVersion, spans }
+    rectCache.set(wrap, c)
+  }
+  return c.spans
+}
+
+interface Assembled {
+  hitSpan: HTMLElement
+  segText: string
+  charX: number[]
+  segRect: { x: number; y: number; w: number; h: number }
+}
+
+// 点击/悬停点 → 所在「栏内行」（同视觉行 spans 按栏间隙拆段），输出行文本、
+// 字符→视口 x 映射（等宽近似，与全文搜索同思路）与段联合矩形
+function assembleLine(cx: number, cy: number): Assembled | null {
   const cr = (document as any).caretRangeFromPoint?.(cx, cy) as Range | null
   if (!cr || !cr.startContainer) return null
   let node: Node | null = cr.startContainer
   if (node.nodeType === 3) node = node.parentNode
   const el = node as HTMLElement
-  if (!el || el.tagName !== 'SPAN' || !el.getBoundingClientRect) return null
+  if (!el || el.tagName !== 'SPAN') return null
   const layer = el.closest('.textLayer') as HTMLElement | null
   const wrap = layer?.closest('.page-wrap') as HTMLElement | null
   if (!layer || !wrap) return null
-  const wrapW = wrap.getBoundingClientRect().width
-  const spanRect = el.getBoundingClientRect()
-
-  // 同一视觉行（y 中心对齐）的 spans → 按 x 排序 → 按栏间隙拆段 → 取点击所在段
-  const spans = ([...layer.querySelectorAll('span')] as HTMLElement[]).filter((s) => {
-    const r = s.getBoundingClientRect()
-    if (!r.width && !r.height) return false
-    return Math.abs(r.top + r.height / 2 - (spanRect.top + spanRect.height / 2)) <= Math.max(3, r.height * 0.6)
-  })
-  if (!spans.length) return null
-  spans.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
-  const rects = spans.map((s) => s.getBoundingClientRect())
-  let text = ''
-  const charX: number[] = []
-  const segOf: number[] = []
-  const spanSeg: number[] = []
-  let seg = 0
-  let prev: DOMRect | null = null
-  const gapLim = Math.max(8, wrapW * 0.012)
-  spans.forEach((s, i) => {
-    const r = rects[i]
-    if (prev && r.left - prev.right > gapLim) seg++
-    prev = r
-    spanSeg.push(seg)
-    const str = s.textContent ?? ''
-    const cw = r.width / Math.max(1, str.length)
-    for (let c = 0; c < str.length; c++) {
-      text += str[c]
-      charX.push(r.left + (c + 0.5) * cw)
-      segOf.push(seg)
+  const cur = wrap.getBoundingClientRect()
+  const spans = cachedSpans(wrap)
+  const hit = spans.find((s) => s.el === el)
+  if (!hit) return null
+  const row = spans.filter((s) => Math.abs(s.t + s.h / 2 - (hit.t + hit.h / 2)) <= Math.max(3, Math.max(s.h, hit.h) * 0.6))
+  if (!row.length) return null
+  row.sort((a, b) => a.l - b.l)
+  const gapLim = Math.max(8, cur.width * 0.012)
+  const segs: CachedSpan[][] = []
+  let seg: CachedSpan[] = []
+  for (const s of row) {
+    const prev = seg[seg.length - 1]
+    if (prev && s.l - (prev.l + prev.w) > gapLim) {
+      segs.push(seg)
+      seg = []
     }
-  })
-  const myIdx = spans.indexOf(el)
-  if (myIdx < 0) return null
-  const mySeg = spanSeg[myIdx]
-  const s0 = segOf.indexOf(mySeg)
-  const s1 = segOf.lastIndexOf(mySeg) + 1
-  if (s0 < 0) return null
-  const segText = text.slice(s0, s1)
+    seg.push(s)
+  }
+  segs.push(seg)
+  const mine = segs.find((g) => g.some((s) => s.el === el))
+  if (!mine) return null
+  let segText = ''
+  const charX: number[] = []
+  let prev: CachedSpan | null = null
+  for (const s of mine) {
+    const str = s.el.textContent ?? ''
+    if (prev && s.l - (prev.l + prev.w) > Math.max(1, prev.h * 0.2) && !/\s$/.test(segText) && !/^\s/.test(str)) segText += ' '
+    const cw = s.w / Math.max(1, str.length)
+    for (let c = 0; c < str.length; c++) {
+      segText += str[c]
+      charX.push(cur.left + s.l + (c + 0.5) * cw)
+    }
+    prev = s
+  }
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const s of mine) {
+    const x = cur.left + s.l
+    const y = cur.top + s.t
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x + s.w)
+    maxY = Math.max(maxY, y + s.h)
+  }
+  const segRect = { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+  return { hitSpan: el, segText, charX, segRect }
+}
 
-  // 行内标记：点击点必须落在某个编号 token 的矩形附近才算（[3-5] 精确到具体数字）
+// 行内标记匹配：点击点必须落在某个编号 token 附近；高亮/点击都取完整 [n] token 的矩形
+function matchMarkerToken(
+  segText: string,
+  charX: number[],
+  segRect: { y: number; h: number },
+  cx: number
+): { num: number; rect: { x: number; y: number; w: number; h: number } } | null {
   const re = /\[(\d{1,4}(?:\s*[-–—,;，；]\s*\d{1,4})*)\]/g
   let m: RegExpExecArray | null
   while ((m = re.exec(segText))) {
-    const inner0 = s0 + m.index + 1
     const digits = /\d{1,4}/g
     let d: RegExpExecArray | null
     while ((d = digits.exec(m[1]))) {
-      const a = s0 + m.index + 1 + d.index
+      const a = m.index + 1 + d.index
       const b = a + d[0].length - 1
-      if (cx >= charX[a] - 5 && cx <= charX[b] + 5) return { num: parseInt(d[0]), lineText: segText }
+      if (cx >= charX[a] - 5 && cx <= charX[b] + 5) {
+        const x0 = charX[m.index] - 3
+        const x1 = charX[m.index + m[0].length - 1] + 3
+        return { num: parseInt(d[0]), rect: { x: x0, y: segRect.y, w: Math.max(6, x1 - x0), h: segRect.h } }
+      }
     }
   }
-  return { num: null, lineText: segText }
+  return null
+}
+
+export function resolveRefClick(cx: number, cy: number): ClickHit | null {
+  const a = assembleLine(cx, cy)
+  if (!a) return null
+  const token = matchMarkerToken(a.segText, a.charX, a.segRect, cx)
+  return { num: token?.num ?? null, lineText: a.segText }
+}
+
+export interface HoverHit {
+  rect: { x: number; y: number; w: number; h: number }
+  span: HTMLElement
+}
+
+// 悬停命中：与点击同一套装配/匹配。索引未就绪或对应条目不存在时不亮（高亮即可点）。
+// 预过滤避免绝大多数 mousemove 都装配整行：span 文本呈引用标记形态，或页在文献表范围内
+export function resolveRefHover(cx: number, cy: number, index: RefIndex | null): HoverHit | null {
+  if (!index || !index.parsed) return null
+  const cr = (document as any).caretRangeFromPoint?.(cx, cy) as Range | null
+  if (!cr || !cr.startContainer) return null
+  let node: Node | null = cr.startContainer
+  if (node.nodeType === 3) node = node.parentNode
+  const el = node as HTMLElement
+  if (!el || el.tagName !== 'SPAN') return null
+  const wrap = el.closest?.('.page-wrap') as HTMLElement | null
+  if (!wrap) return null
+  const txt = el.textContent ?? ''
+  const page = parseInt(wrap.dataset.page ?? '')
+  const nearMarker = /\[\d{1,3}/.test(txt) || /^[\[\]0-9,，\u2013\u2014\-\s]{1,8}$/.test(txt)
+  if (!nearMarker && !(page && index.pages.has(page))) return null
+  const a = assembleLine(cx, cy)
+  if (!a) return null
+  const token = matchMarkerToken(a.segText, a.charX, a.segRect, cx)
+  const entry = (token ? index.byNum.get(token.num) : undefined) ?? index.byLine.get(normKey(a.segText))
+  if (!entry) return null
+  return { rect: token ? token.rect : a.segRect, span: a.hitSpan }
 }

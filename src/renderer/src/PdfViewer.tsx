@@ -4,7 +4,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { Tab } from './App'
 import type { Highlight, Paper } from './types'
 import { locateSnippet, locateByKeywords, flashHit } from './locate'
-import { buildRefIndex, resolveRefClick, normKey, type RefIndex } from './reflink'
+import { buildRefIndex, resolveRefClick, resolveRefHover, invalidateRefLayout, normKey, type RefIndex } from './reflink'
 import RefPopup from './RefPopup'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
@@ -257,6 +257,53 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     [ensureRefIndex]
   )
 
+  // ---------- 引用悬停高亮 ----------
+  // 与点击共用同一套装配/匹配（高亮即所得）；索引在文档加载后台预热，悬停走同步路径
+  const [refHover, setRefHover] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const hotSpanRef = useRef<HTMLElement | null>(null)
+  const lastHoverAt = useRef(0)
+  const clearHover = useCallback(() => {
+    setRefHover(null)
+    if (hotSpanRef.current) {
+      hotSpanRef.current.classList.remove('ref-hot')
+      hotSpanRef.current = null
+    }
+  }, [])
+  const onViewerMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const now = Date.now()
+      if (now - lastHoverAt.current < 40) return
+      lastHoverAt.current = now
+      if ((e.target as Element).closest('.hl, .find-layer')) {
+        clearHover()
+        return
+      }
+      const sel = window.getSelection()
+      if (sel && !sel.isCollapsed) {
+        clearHover()
+        return
+      }
+      const idx = refIdxRef.current?.index
+      if (!idx) {
+        ensureRefIndex() // 首次悬停触发后台构建（加载文档后也会预热一次）
+        clearHover()
+        return
+      }
+      const hit = resolveRefHover(e.clientX, e.clientY, idx)
+      if (hit) {
+        setRefHover(hit.rect)
+        if (hotSpanRef.current !== hit.span) {
+          hotSpanRef.current?.classList.remove('ref-hot')
+          hit.span.classList.add('ref-hot')
+          hotSpanRef.current = hit.span
+        }
+      } else {
+        clearHover()
+      }
+    },
+    [clearHover, ensureRefIndex]
+  )
+
   // ---------- 视图记忆（缩放 bug 修复）----------
   // 每篇文献记住自己的 baseScale/zoom/滚动位置：切走时快照，切回时原样恢复。
   // 窗口大小、侧栏开合在期间怎么变都不影响恢复值——「同一篇的缩放比例不变」由这条不变量保证；
@@ -445,6 +492,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     setFindIdx(0)
     setRefPop(null)
     refIdxRef.current = null
+    invalidateRefLayout()
     if (!active) return
     let cancelled = false
     void (async () => {
@@ -485,6 +533,10 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         const saved = viewStateRef.current.get(active.paper.id)
         setDoc(d)
         setNumPages(d.numPages)
+        // 文献索引后台预热：悬停/点击首击即有高亮与元数据（构建在 pdf.js worker，不卡 UI）
+        setTimeout(() => {
+          if (docRef.current === d) void ensureRefIndex()
+        }, 1200)
         if (saved) {
           // 切回已打开过的文献：缩放与滚动位置原样恢复（哪怕窗口/面板已变——这正是「比例不变」）
           setBaseScale(saved.baseScale)
@@ -524,10 +576,12 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
 
   const scale = baseScale * zoom
 
-  // 缩放变化时弹窗锚点已失效（内容重排），直接关闭
+  // 缩放变化时弹窗锚点已失效（内容重排），直接关闭；悬停高亮与矩形缓存同样作废
   useEffect(() => {
+    invalidateRefLayout()
     setRefPop(null)
-  }, [zoom, baseScale])
+    clearHover()
+  }, [zoom, baseScale, clearHover])
 
   // 横向滚动按需开启：最宽页放得下时禁止横滚（消除 fit 状态下右侧空白可滑的问题）。
   // ResizeObserver 盯容器本身：窗口缩放、侧栏拖宽都会触发重算
@@ -662,7 +716,8 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   }, [doc, pendingJump, active, numPages, onPageContext, onJumped])
 
   const onScroll = useCallback(() => {
-    setRefPop(null) // 弹窗固定定位不随内容滚动，滚动即关闭避免悬空
+    clearHover() // 悬停高亮与弹窗都是固定定位，滚动即失效
+    setRefPop(null)
     const sc = scrollRef.current
     if (!sc) return
     // 用视口相对位置判定当前页（offsetTop 受 offsetParent 影响，不可靠）
@@ -676,7 +731,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         return
       }
     }
-  }, [numPages, onPageContext])
+  }, [numPages, onPageContext, clearHover])
 
   const onMouseUp = useCallback(
     (e: React.MouseEvent) => {
@@ -833,7 +888,15 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           <button className="tool-btn" title="关闭搜索（Esc）" onClick={closeFind}>✕</button>
         </div>
       )}
-      <div className={`viewer-scroll ${xScroll ? 'x-auto' : ''}`} ref={attachScrollEl} onMouseUp={onMouseUp} onClick={onViewerClick} onScroll={onScroll}>
+      <div
+        className={`viewer-scroll ${xScroll ? 'x-auto' : ''}`}
+        ref={attachScrollEl}
+        onMouseUp={onMouseUp}
+        onClick={onViewerClick}
+        onMouseMove={onViewerMouseMove}
+        onMouseLeave={clearHover}
+        onScroll={onScroll}
+      >
         {error && <div className="empty-viewer">PDF 打开失败：{error}</div>}
         {doc &&
           Array.from({ length: numPages }, (_, i) => (
@@ -857,6 +920,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
             />
           ))}
       </div>
+      {refHover && <div className="ref-hover" style={{ left: refHover.x, top: refHover.y, width: refHover.w, height: refHover.h }} />}
       {refPop && active && (
         <RefPopup
           x={refPop.x}
@@ -999,6 +1063,7 @@ function PageView({ doc, num, scale, dim, hls, find, onDeleteHl, registerRef, on
   return (
     <div
       className="page-wrap"
+      data-page={num}
       ref={(el) => { registerRef(el); (wrapRef as any).current = el }}
       style={dim ? { width: Math.floor(dim.w * scale), height: Math.floor(dim.h * scale) } : undefined}
     >

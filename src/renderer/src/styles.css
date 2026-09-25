@@ -27,15 +27,17 @@
   --hl: rgba(250, 204, 21, 0.42);
   --pdf-canvas: #efede4;  /* PDF 页面外的画布（暖纸灰） */
   --mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', ui-monospace, Consolas, monospace;
-  /* 角色字型：全局中文一律宋体（衬线）；各角色先列西文字体，CJK 字符自然落到宋体栈 */
+  /* 角色字型：全局中文一律宋体（衬线）；各角色先列西文字体，CJK 字符自然落到宋体栈。
+     西文用随包分发的开源字体（OFL，@fontsource-variable，vite 打进产物）：Literata≈Tiempos 文本体、
+     Inter≈Styrene 界面体、Playfair Display≈Copernicus 展示体；商业字体名后置为可选回退 */
   --font-cjk-serif: 'Songti SC', 'SimSun', 'STZhongsong', 'Source Han Serif SC', 'Noto Serif CJK SC', serif;
-  /* 界面/输入框：Styrene B 系现代无衬线（未安装时回退 Segoe UI）。
+  /* 界面/输入框：现代无衬线。
      CJK 宋体栈必须排在 system-ui 之前——Chromium 的 system-ui 对汉字解析成系统 UI 字体（微软雅黑），放前面会劫持宋体 */
-  --font-ui: 'Styrene B', 'Styrene A', 'Segoe UI', var(--font-cjk-serif), system-ui, sans-serif;
-  /* 回复正文：Tiempos Text 系高辨识度衬线，长文本阅读优先 */
-  --font-serif: 'Tiempos Text', 'Tiempos', 'Charter', 'Bitstream Charter', Cambria, Georgia, var(--font-cjk-serif);
-  /* 欢迎大标题：Galaxie Copernicus 系展示衬线 */
-  --font-display: 'Galaxie Copernicus', 'Tiempos Headline', 'Playfair Display', Georgia, 'Times New Roman', var(--font-cjk-serif);
+  --font-ui: 'Inter Variable', 'Inter', 'Styrene B', 'Segoe UI', var(--font-cjk-serif), system-ui, sans-serif;
+  /* 回复正文：高辨识度文本衬线，长文本阅读优先 */
+  --font-serif: 'Literata Variable', 'Literata', 'Tiempos Text', Charter, Cambria, Georgia, var(--font-cjk-serif);
+  /* 欢迎大标题：展示衬线 */
+  --font-display: 'Playfair Display Variable', 'Playfair Display', 'Galaxie Copernicus', Georgia, 'Times New Roman', var(--font-cjk-serif);
   --speed: 0.13s;
 }
 html[data-theme='dark'] {
@@ -439,6 +441,13 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 /* 文本层里整段恰为 [n] 的 run：可点的光标提示（解析/命中不依赖该标记） */
 .textLayer span.cite-mark { cursor: pointer; }
 .textLayer span.cite-mark:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); border-radius: 2px; }
+/* 引用悬停高亮：与点击同一套命中逻辑（高亮即可点），覆盖层不拦截鼠标 */
+.ref-hover {
+  position: fixed; z-index: 999; pointer-events: none; border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.textLayer span.ref-hot { cursor: pointer; }
 
 
 /* ============ 右栏：聊天/翻译 ============ */

@@ -140,13 +140,13 @@ export default function App(): JSX.Element {
     return () => mq.removeEventListener('change', apply)
   }, [settings?.theme])
 
-  // 全局字体（设置 → 通用）：默认走界面字型栈（西文无衬线 + 中文宋体）；
+  // 全局字体（设置 → 通用）：默认走界面字型栈（内置 Inter 无衬线 + 中文宋体）；
   // 用户显式选择字体时其西文优先，中文仍落到宋体栈（选中的字体若自带中文则以其为准，属用户显式选择）
   useEffect(() => {
     const cjk = `'Songti SC', SimSun, 'STZhongsong', 'Source Han Serif SC', 'Noto Serif CJK SC', serif`
     document.body.style.fontFamily = settings?.fontFamily
       ? `"${settings.fontFamily.replace(/["']/g, '')}", ${cjk}`
-      : `'Styrene B', 'Styrene A', 'Segoe UI', ${cjk}, system-ui, sans-serif`
+      : `'Inter Variable', 'Inter', 'Segoe UI', ${cjk}, system-ui, sans-serif`
   }, [settings?.fontFamily])
 
   // 刷新文献与分类列表；同时把打开的标签页/引用面板里的旧 paper 对象换成最新数据

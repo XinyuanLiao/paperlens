@@ -1,6 +1,6 @@
 {
   "name": "paperlens",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "PaperLens — PDF 文献阅读 + 划词翻译 + LLM 问答 + 全库 RAG",
   "main": "out/main/index.js",
   "productName": "PaperLens",
@@ -58,6 +58,9 @@
     }
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/literata": "^5.3.0",
+    "@fontsource-variable/playfair-display": "^5.3.0",
     "@huggingface/transformers": "^3.5.0",
     "@llamaindex/liteparse": "^2.14.7",
     "better-sqlite3": "^11.9.0",
