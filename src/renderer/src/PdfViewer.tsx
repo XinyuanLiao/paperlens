@@ -4,7 +4,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { Tab } from './App'
 import type { Highlight, Paper } from './types'
 import { locateSnippet, locateByKeywords, flashHit } from './locate'
-import { buildRefIndex, resolveRefClick, resolveRefHover, invalidateRefLayout, normKey, type RefIndex } from './reflink'
+import { buildRefIndex, resolveRefClick, resolveRefHover, invalidateRefLayout, lookupEntry, type RefIndex } from './reflink'
 import RefPopup from './RefPopup'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
@@ -215,6 +215,8 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   // 点击 PDF 里的 [n] 标记或文献表条目行 → 弹出该文献的元数据卡片（reflink.ts 负责解析与命中）
   const [refPop, setRefPop] = useState<{ x: number; y: number; num: number; raw: string } | null>(null)
   const refIdxRef = useRef<{ doc: any; index?: RefIndex; building?: Promise<RefIndex | null> } | null>(null)
+  // 调试句柄：CDP 冒烟时直接读应用内索引（仅一个 ref 引用，运行时开销可忽略）
+  ;(window as any).__refIdx = refIdxRef
 
   // References 索引按文档惰性构建（首次点击时），构建中/已建复用同一份
   const ensureRefIndex = useCallback((): Promise<RefIndex | null> => {
@@ -232,7 +234,10 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           if (refIdxRef.current === cc) cc.index = idx
           return idx
         })
-        .catch(() => null)
+        .catch((e) => {
+          console.error('[refidx] build failed:', e)
+          return null
+        })
     }
     return cc.building ?? Promise.resolve(cc.index ?? null)
   }, [])
@@ -248,8 +253,8 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
       void (async () => {
         const idx = await ensureRefIndex()
         if (!idx) return
-        // 行内编号优先，其次整行反查条目（文献表任意行可点）
-        const entry = (hit.num != null ? idx.byNum.get(hit.num) : undefined) ?? idx.byLine.get(normKey(hit.lineText))
+        // 行内编号优先，其次整行反查条目（精确 → 模糊，文献表任意行可点）
+        const entry = lookupEntry(idx, hit.num, hit.lineText)
         if (!entry) return
         setRefPop({ x: e.clientX, y: e.clientY, num: entry.num, raw: entry.raw })
       })()

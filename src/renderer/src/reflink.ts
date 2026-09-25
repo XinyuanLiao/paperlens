@@ -1,8 +1,9 @@
 // 参考文献解析与点击命中：
 // ① buildRefIndex —— 从 PDF 文本重建 References 条目（编号 / 原文 / 各行 key），供弹窗查询元数据；
-// ② resolveRefClick —— 把一次渲染端点击解析成「行内引用标记 [n] 的具体编号」或「文献表条目行」。
-// 两侧共用同一套行重建逻辑（getTextContent 与 textLayer 同源、disableNormalization 同口径），
-// 行 key 归一化后才能跨源对上。支持 [n] / (n) / n. 三种编号风格；两栏页按栏间隙拆段、左栏先读。
+// ② resolveRefClick / resolveRefHover —— 把渲染端点击/悬停解析成具体条目（高亮即可点）。
+// 两侧共用同一套行重建逻辑（getTextContent 与 textLayer 同源、disableNormalization 同口径）。
+// 支持 [n] / (n) / n. 编号风格 + 无编号悬挂缩进风格（author-year 文献表）；
+// 两栏页按栏间隙拆段、左栏先读；IEEE 下载水印在条目/行两级过滤。
 
 export interface RefEntry {
   num: number
@@ -39,6 +40,38 @@ export function normKey(s: string): string {
     .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '')
 }
 
+// 字符 bigram 集合的 Dice 系数：DOM 行与解析行组成有出入时的模糊反查用
+function diceBigram(a: string, b: string): number {
+  if (a.length < 2 || b.length < 2) return 0
+  const ga = new Set<string>()
+  for (let i = 0; i < a.length - 1; i++) ga.add(a.slice(i, i + 2))
+  const gb = new Set<string>()
+  for (let i = 0; i < b.length - 1; i++) gb.add(b.slice(i, i + 2))
+  let hit = 0
+  for (const g of ga) if (gb.has(g)) hit++
+  return (2 * hit) / (ga.size + gb.size)
+}
+
+// 条目反查：编号精确 → 行键精确 → 行键模糊（两侧行组成有出入时兜底）。
+// 点击与悬停共用，保证「高亮即可点」
+export function lookupEntry(index: RefIndex, num: number | null, lineText: string): RefEntry | undefined {
+  if (num != null) {
+    const byNum = index.byNum.get(num)
+    if (byNum) return byNum
+  }
+  const key = normKey(lineText)
+  const exact = index.byLine.get(key)
+  if (exact) return exact
+  let best: { e: RefEntry; d: number } | null = null
+  for (const e of index.entries) {
+    for (const k of e.lineKeys) {
+      const d = diceBigram(k, key)
+      if (!best || d > best.d) best = { e, d }
+    }
+  }
+  return best && best.d > 0.65 ? best.e : undefined
+}
+
 interface PItem {
   str: string
   x: number
@@ -50,12 +83,18 @@ interface PItem {
 interface Line {
   text: string
   page: number
+  x0: number
+  col: 0 | 1
+  pageW: number
 }
 
-// 条目起始编号：[12] / (12) 为强特征；「12.」弱特征（正文数字列表/小数点易误配），
-// 要求后随大写字母或括号开头
-const START_BR = /^[\[(](\d{1,4})[\])]\s*(.*)$/
+// 条目起始编号：[12] / (12) 为强特征（括号内允许空格：[ 12 ]）；「12.」弱特征
+// （正文数字列表/小数点易误配），要求后随大写字母或括号开头
+const START_BR = /^[\[(]\s*(\d{1,4})\s*[\])]\s*(.*)$/
 const START_DOT = /^(\d{1,3})[.)]\s+(?=[A-Z\[(“"])(.+)$/
+
+// IEEE 下载水印（每页斜排重复）：条目行与行键的固定污染源，两级过滤
+const WATERMARK_ITEM = /licensed\s+use\s+limited\s+to|downloaded\s+on\s+\d/i
 
 function joinLines(a: string, b: string): string {
   if (!a) return b
@@ -106,7 +145,7 @@ function itemsToLines(items: PItem[], page: number, pageW: number): Line[] {
   const left = segs.filter((s) => s.x0 < mid).sort((a, b) => b.y - a.y)
   const right = segs.filter((s) => s.x0 >= mid).sort((a, b) => b.y - a.y)
   const ordered = left.length >= 3 && right.length >= 3 ? [...left, ...right] : segs.sort((a, b) => b.y - a.y)
-  return ordered.map((s) => ({ text: s.text, page }))
+  return ordered.map((s) => ({ text: s.text, page, x0: s.x0, col: s.x0 < mid ? 0 : 1, pageW }))
 }
 
 const HEADINGS = new Set(['references', 'reference', 'bibliography', '参考文献'])
@@ -116,7 +155,7 @@ function isHeading(text: string): boolean {
     .toLowerCase()
     .replace(/[\s:：.。]+$/, '')
     .trim()
-  return HEADINGS.has(t)
+  return HEADINGS.has(t) || (t.startsWith('references ') && t.length <= 24)
 }
 
 // 解析失败（无 References / 非编号风格）时 parsed=false，点击只做行内标记匹配
@@ -133,6 +172,7 @@ export async function buildRefIndex(doc: any): Promise<RefIndex> {
       const tc = await pg.getTextContent({ disableNormalization: true })
       const items = (tc.items as Array<{ str: string; transform: number[]; width: number; height: number }>)
         .filter((it) => typeof it.str === 'string' && it.transform)
+        .filter((it) => !WATERMARK_ITEM.test(it.str)) // 下载水印在 item 级剔除（斜排跨行，行级兜不住）
         .map((it) => ({ str: it.str, x: it.transform[4], y: it.transform[5], w: it.width, h: it.height }))
       flat.push(...itemsToLines(items, n, vp.width))
     }
@@ -140,35 +180,155 @@ export async function buildRefIndex(doc: any): Promise<RefIndex> {
     let start = -1
     for (let i = 0; i < flat.length; i++) if (isHeading(flat[i].text)) start = i
     if (start < 0) return { entries, byNum, byLine, pages, parsed: false }
-    for (let i = start + 1; i < flat.length; i++) pages.add(flat[i].page)
-    let cur: RefEntry | null = null
-    for (let i = start + 1; i < flat.length; i++) {
-      const raw = fullWidth(flat[i].text).replace(/\s+/g, ' ').trim()
-      if (!raw) continue
-      if (/^(appendix|appendices|acknowledg|supplementary|supporting information)/i.test(raw)) break
-      const mBr = START_BR.exec(raw)
-      const mDot = mBr ? null : START_DOT.exec(raw)
-      const m = mBr ?? mDot
-      if (m) {
-        const num = parseInt((mBr ?? mDot)![1])
-        const rest = (mBr ?? mDot)![2].trim()
-        const exist = byNum.get(num)
-        if (exist) {
-          cur = exist // 重号（解析误切）：续行并入已有条目
-        } else {
-          cur = { num, raw: rest, page: flat[i].page, lineKeys: [] }
-          byNum.set(num, cur)
-          entries.push(cur)
-        }
-      } else if (!cur) {
-        continue // 标题与首个条目之间的杂行
-      } else {
-        cur.raw = joinLines(cur.raw, raw)
-      }
-      const key = normKey(raw)
-      if (key && cur) cur.lineKeys.push(key)
+    let region = flat.slice(start + 1)
+    // 行级水印兜底 + 纯页码行 + 停止边界（附录/致谢之后不再是文献表）。
+    // 注意页码判定用原始文本（纯数字）：条目编号段 "[1]" 的 normKey 也是纯数字，不能误杀
+    const boundaryRe = /^(appendix|appendices|acknowledg|supplementary|supporting information)/i
+    const isJunk = (l: Line): boolean => {
+      if (/^\d{1,4}$/.test(l.text.trim())) return true
+      const k = normKey(l.text)
+      return k.startsWith('authorizedlicenseduse') || k.startsWith('downloadedon')
     }
-    for (const e of entries) for (const k of e.lineKeys) byLine.set(k, e)
+
+    // 几何辅助：(页,栏) → x0 最小值（列边距）；缩进 = 超出边距 + 容差
+    const mkMargin = (lines: Line[]): Map<string, number> => {
+      const m = new Map<string, number>()
+      for (const l of lines) {
+        const k = `${l.page}:${l.col}`
+        m.set(k, Math.min(m.get(k) ?? Infinity, l.x0))
+      }
+      return m
+    }
+    const tolOf = (l: Line): number => Math.max(3, l.pageW * 0.008)
+    const indented = (l: Line, m: Map<string, number>): boolean => l.x0 > (m.get(`${l.page}:${l.col}`) ?? l.x0) + tolOf(l)
+
+    // 编号候选（[n] / (n) / n.），按行对象记录
+    const startOf = new Map<Line, { num: number; rest: string }>()
+    for (const l of region) {
+      const t = fullWidth(l.text).replace(/\s+/g, ' ').trim()
+      const mBr = START_BR.exec(t)
+      const mDot = mBr ? null : START_DOT.exec(t)
+      const m = mBr ?? mDot
+      if (m) startOf.set(l, { num: parseInt((mBr ?? mDot)![1]), rest: ((mBr ?? mDot)![2] || '').trim() })
+    }
+
+    // 按页门控：文献页 = 编号候选 ≥3 或缩进续行占比 ≥15%（页内自身边距）。
+    // 从第一个文献页起，遇到第一个非文献页即截断——附录图表文字不混进条目
+    {
+      const pageOrder: number[] = []
+      const stat = new Map<number, { starts: number; lines: number; indented: number }>()
+      const marginAll = mkMargin(region)
+      for (const l of region) {
+        if (!stat.has(l.page)) pageOrder.push(l.page)
+        const st = stat.get(l.page) ?? { starts: 0, lines: 0, indented: 0 }
+        st.lines++
+        if (startOf.has(l) && !isJunk(l)) st.starts++
+        if (indented(l, marginAll)) st.indented++
+        stat.set(l.page, st)
+      }
+      const bibLike: number[] = []
+      let seenBib = false
+      for (const p of pageOrder) {
+        const st = stat.get(p)!
+        // 行数异常多的是表格/图页（400-1100 行），文献页只有几十行
+        const isBib =
+          st.lines <= 250 && (st.starts >= 3 || st.indented / Math.max(1, st.lines) >= 0.15 || (seenBib && st.starts >= 1))
+        if (isBib) {
+          bibLike.push(p)
+          seenBib = true
+        } else if (seenBib) break
+      }
+      if (!seenBib) return { entries, byNum, byLine, pages, parsed: false }
+      region = region.filter((l) => bibLike.includes(l.page) && !isJunk(l))
+    }
+    let regionLines = region
+    const boundaryIdx = regionLines.findIndex((l) => boundaryRe.test(l.text))
+    if (boundaryIdx >= 0) regionLines = regionLines.slice(0, boundaryIdx)
+    for (const l of regionLines) pages.add(l.page)
+
+    const pushKey = (e: RefEntry, raw: string): void => {
+      const k = normKey(raw)
+      if (k) e.lineKeys.push(k)
+    }
+
+    let list: RefEntry[] = []
+    if (startOf.size >= 3) {
+      // 编号流：起始判定 = 编号严格递增 + 非裹挟续行。
+      // 「裹挟续行」= 恰好以 [更大编号] 开头的上一条目换行：它落在该栏「续行缩进位」上；
+      // 而真起始行在起始边距上。两个边距都从行集自身统计（起始行 x0 / 非起始行 x0 的最小值）
+      const startMargin = mkMargin([...startOf.keys()])
+      const contMargin = mkMargin(regionLines.filter((l) => !startOf.has(l)))
+      const isWrappedCitation = (l: Line): boolean => {
+        const cont = contMargin.get(`${l.page}:${l.col}`)
+        return indented(l, startMargin) && cont != null && Math.abs(l.x0 - cont) <= tolOf(l)
+      }
+      let cur: RefEntry | null = null
+      for (const l of regionLines) {
+        const raw = fullWidth(l.text).replace(/\s+/g, ' ').trim()
+        if (!raw) continue
+        const cand = startOf.get(l)
+        if (cand && (!cur || (cand.num > cur.num && !isWrappedCitation(l)))) {
+          const exist = list.find((e) => e.num === cand.num)
+          if (exist) cur = exist
+          else {
+            cur = { num: cand.num, raw: cand.rest, page: l.page, lineKeys: [] }
+            list.push(cur)
+          }
+        } else if (cur) cur.raw = joinLines(cur.raw, raw)
+        else continue
+        pushKey(cur!, raw)
+      }
+      // 恢复：编号候选多但条目过少（反常缩进样式把起始全判成了续行）→ 纯序列判定
+      if (list.length < Math.min(3, startOf.size * 0.5)) {
+        list = []
+        let cur: RefEntry | null = null
+        let lastNum = 0
+        for (const l of regionLines) {
+          const raw = fullWidth(l.text).replace(/\s+/g, ' ').trim()
+          if (!raw) continue
+          const cand = startOf.get(l)
+          if (cand && (!cur || cand.num > lastNum)) {
+            const exist = list.find((e) => e.num === cand.num)
+            if (exist) cur = exist
+            else {
+              cur = { num: cand.num, raw: cand.rest, page: l.page, lineKeys: [] }
+              list.push(cur)
+              lastNum = cand.num
+            }
+          } else if (cur) cur.raw = joinLines(cur.raw, raw)
+          else continue
+          pushKey(cur!, raw)
+        }
+      }
+    } else {
+      // 无编号流（author-year 文献表）：悬挂缩进 + 作者名模式 + 上行句末 三重判定——
+      // 只有「列边距上的作者名行」才是新条目（该样式的 URL 续行不缩进，仅缩进判会大量假切分）
+      const margin = mkMargin(regionLines)
+      let indentedCount = 0
+      for (const l of regionLines) if (indented(l, margin)) indentedCount++
+      if (regionLines.length && indentedCount / regionLines.length >= 0.15) {
+        const authorStart = /^[A-Z][A-Za-z''’\-]+ [A-Z]/
+        let cur: RefEntry | null = null
+        let prevEndsSentence = true
+        for (const l of regionLines) {
+          const raw = fullWidth(l.text).replace(/\s+/g, ' ').trim()
+          if (!raw) continue
+          const atMargin = !indented(l, margin)
+          if ((!cur || (atMargin && prevEndsSentence)) && authorStart.test(raw)) {
+            cur = { num: list.length + 1, raw, page: l.page, lineKeys: [] }
+            list.push(cur)
+          } else if (cur) cur.raw = joinLines(cur.raw, raw)
+          prevEndsSentence = /[.?!]["'”’)]?$/.test(raw)
+          if (cur) pushKey(cur!, raw)
+        }
+      }
+    }
+
+    for (const e of list) {
+      if (!byNum.has(e.num)) byNum.set(e.num, e)
+      for (const k of e.lineKeys) if (!byLine.has(k)) byLine.set(k, e)
+    }
+    entries.push(...list)
   } catch {
     /* 解析失败不影响阅读 */
   }
@@ -322,7 +482,7 @@ export interface HoverHit {
 }
 
 // 悬停命中：与点击同一套装配/匹配。索引未就绪或对应条目不存在时不亮（高亮即可点）。
-// 预过滤避免绝大多数 mousemove 都装配整行：span 文本呈引用标记形态，或页在文献表范围内
+// 预过滤避免绝大多数 mousemove 都装配整行：span 含数字或括号，或页在文献表范围内
 export function resolveRefHover(cx: number, cy: number, index: RefIndex | null): HoverHit | null {
   if (!index || !index.parsed) return null
   const cr = (document as any).caretRangeFromPoint?.(cx, cy) as Range | null
@@ -335,12 +495,11 @@ export function resolveRefHover(cx: number, cy: number, index: RefIndex | null):
   if (!wrap) return null
   const txt = el.textContent ?? ''
   const page = parseInt(wrap.dataset.page ?? '')
-  const nearMarker = /\[\d{1,3}/.test(txt) || /^[\[\]0-9,，\u2013\u2014\-\s]{1,8}$/.test(txt)
-  if (!nearMarker && !(page && index.pages.has(page))) return null
+  if (!/[\[\]0-9]/.test(txt) && !(page && index.pages.has(page))) return null
   const a = assembleLine(cx, cy)
   if (!a) return null
   const token = matchMarkerToken(a.segText, a.charX, a.segRect, cx)
-  const entry = (token ? index.byNum.get(token.num) : undefined) ?? index.byLine.get(normKey(a.segText))
+  const entry = lookupEntry(index, token?.num ?? null, a.segText)
   if (!entry) return null
   return { rect: token ? token.rect : a.segRect, span: a.hitSpan }
 }
