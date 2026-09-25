@@ -131,6 +131,11 @@ export function initDb(): void {
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_chatmsgs ON chatmsgs(chat_id);
+    CREATE TABLE IF NOT EXISTS refcache(
+      slug TEXT PRIMARY KEY,
+      cited_by INTEGER,
+      fetched_at TEXT DEFAULT (datetime('now'))
+    );
   `)
   // 迁移：v4 结构化分块的章节元数据 + 回答校验报告
   const ccols = (db.prepare('PRAGMA table_info(chunks)').all() as Array<{ name: string }>).map((c) => c.name)
@@ -407,6 +412,18 @@ export function setStatus(id: number, status: string): void {
 
 export function markOpened(id: number): void {
   db.prepare("UPDATE papers SET opened_at=datetime('now') WHERE id=?").run(id)
+}
+
+// ---------- 被引数缓存（来源面板用）：undefined=未查过，null=查过但查不到 ----------
+export function getCitedBy(slug: string): number | null | undefined {
+  const r = db.prepare('SELECT cited_by FROM refcache WHERE slug=?').get(slug) as { cited_by: number | null } | undefined
+  return r ? r.cited_by : undefined
+}
+
+export function setCitedBy(slug: string, n: number | null): void {
+  db.prepare(
+    "INSERT INTO refcache(slug, cited_by, fetched_at) VALUES(?,?,datetime('now')) ON CONFLICT(slug) DO UPDATE SET cited_by=excluded.cited_by, fetched_at=excluded.fetched_at"
+  ).run(slug, n)
 }
 
 // ---------- 分类（目录）名集合：论文行已有的 + 手动新建的空分类 ----------

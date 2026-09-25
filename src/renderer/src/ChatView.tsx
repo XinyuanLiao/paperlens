@@ -115,6 +115,30 @@ export default function ChatView({
 
   const suggestions = useMemo(() => buildSuggestions(papers, catCounts), [papers, catCounts])
 
+  // 来源面板（Google 风格）：最后一条回答的引用论文列表（主进程已按论文去重），
+  // 显示 题目/期刊·年份/作者/被引数（CrossRef best-effort，refcache 缓存），点击跳阅读界面
+  const [srcPanelOpen, setSrcPanelOpen] = useState(true)
+  const [citedByMap, setCitedByMap] = useState<Record<string, number | null>>({})
+  const citedFetched = useRef(new Set<string>())
+  const lastSources = useMemo(() => {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'assistant') return msgs[i].sources ?? []
+    }
+    return []
+  }, [msgs])
+  useEffect(() => {
+    if (!srcPanelOpen || !lastSources.length) return
+    for (const s of lastSources) {
+      if (citedFetched.current.has(s.slug)) continue
+      citedFetched.current.add(s.slug)
+      setCitedByMap((m) => ({ ...m, [s.slug]: null })) // 占位：请求中/未知
+      void window.api
+        .citedBy(s.slug, s.title)
+        .then((n) => setCitedByMap((m) => ({ ...m, [s.slug]: n })))
+        .catch(() => {})
+    }
+  }, [srcPanelOpen, lastSources])
+
   // 打开历史对话：载入消息停在底部；activeChatId 置 null（新建对话）只清空
   useEffect(() => {
     setEditIdx(null)
@@ -184,6 +208,7 @@ export default function ChatView({
           },
           onSources: (srcs) => {
             srcRef.current = srcs as SourceRef[]
+            setSrcPanelOpen(true) // 新回答到达时自动展开来源面板
             setMsgs((ms) => {
               const next = [...ms]
               const last = next[next.length - 1]
@@ -353,6 +378,40 @@ export default function ChatView({
     </div>
   )
 
+  const srcPanel = lastSources.length > 0 ? (
+    srcPanelOpen ? (
+      <div className="src-panel">
+        <div className="src-panel-head">
+          <span>来源文献 · {lastSources.length}</span>
+          <button className="src-panel-x" onClick={() => setSrcPanelOpen(false)}>
+            收起
+          </button>
+        </div>
+        <div className="src-panel-list">
+          {lastSources.map((s) => (
+            <button key={s.n} className="src-card" onClick={() => onJump(s.slug, 1)} title="点击跳转到阅读界面">
+              <span className="src-card-venue ellipsis">{s.venue || '文献来源'}</span>
+              <span className="src-card-title">{s.title}</span>
+              <span className="src-card-meta ellipsis">
+                {[
+                  s.authors && s.authors.length > 42 ? `${s.authors.slice(0, 42)}…` : s.authors,
+                  s.year,
+                  citedByMap[s.slug] != null ? `被引 ${citedByMap[s.slug]}` : undefined
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : (
+      <button className="src-panel-restore" onClick={() => setSrcPanelOpen(true)}>
+        来源 · {lastSources.length} 篇
+      </button>
+    )
+  ) : null
+
   return (
     <div className="chat-view">
       {msgs.length === 0 ? (
@@ -364,7 +423,7 @@ export default function ChatView({
               </svg>
             </div>
             <div className="headline">与全库文献对话</div>
-            <div className="tip">跨所有论文语义检索，回答自带页码引用，点击引用直达原文</div>
+            <div className="tip">回答按论文编号引用，悬停看论文信息，点击直达原文首页</div>
           </div>
           {inputBox}
           <div className="hero-suggest">
@@ -377,7 +436,8 @@ export default function ChatView({
         </div>
       ) : (
         <>
-          <div className="chat-log" ref={scrollRef}>
+          <div className="chat-main-row">
+            <div className="chat-log" ref={scrollRef}>
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
                 {m.role === 'user' ? (
@@ -427,6 +487,8 @@ export default function ChatView({
                 <span className="b" /> <span className="b" /> <span className="b" /> 检索并思考中…
               </div>
             )}
+            </div>
+            {srcPanel}
           </div>
           <div className="chat-view-input">{inputBox}</div>
         </>

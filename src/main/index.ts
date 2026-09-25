@@ -5,7 +5,7 @@ import * as dbmod from './db'
 import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPagesCached } from './ingest'
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
 import { importPapers, previewImport, movePaperToCategory, createCategory, deleteCategory, deletePaper, renamePaper } from './import'
-import { lookupRefMeta, downloadRefPdf } from './refmeta'
+import { lookupRefMeta, downloadRefPdf, lookupCitedBy } from './refmeta'
 import { embed } from './embed'
 import { listLocalFonts } from './fonts'
 import { preprocessQuery } from './query'
@@ -538,11 +538,67 @@ function registerIpc(): void {
     }
     return lines.join('\n')
   }
-  const srcLabel = (s: import('./ingest').RetrievedChunk): string => {
-    const cat = s.category === 'inbox' ? '未分类' : s.category
-    // §章节（marker 引擎的结构化元数据）：定位到章的引用 + 生成端可点明出处
-    const sec = s.sectionNo || s.sectionTitle ? `§${[s.sectionNo, s.sectionTitle].filter(Boolean).join(' ')}` : ''
-    return `《${s.title}》（${[cat, s.year ? `${s.year}` : '', sec, `p.${s.page}`].filter(Boolean).join(' · ')}）`
+  // 片段 → 论文级编号：同一论文的所有片段共用同一编号（首次出现顺序）。
+  // 引用指向「文章」而非片段——提示词、来源下发、后校验三层全部按论文编号
+  const groupByPaper = (chunks: import('./ingest').RetrievedChunk[]) => {
+    const groups: Array<{ paperId: number; chunks: import('./ingest').RetrievedChunk[] }> = []
+    const byPaper = new Map<number, import('./ingest').RetrievedChunk[]>()
+    for (const c of chunks) {
+      let g = byPaper.get(c.paperId)
+      if (!g) {
+        g = []
+        byPaper.set(c.paperId, g)
+        groups.push({ paperId: c.paperId, chunks: g })
+      }
+      g.push(c)
+    }
+    const nOf = new Map<number, number>()
+    groups.forEach((g, i) => nOf.set(g.paperId, i + 1))
+    return { groups, nOf }
+  }
+  const paperGroupsMeta = async (groups: { chunks: import('./ingest').RetrievedChunk[] }[]) => {
+    const ids = groups.map((g) => g.chunks[0].paperId)
+    const rows = ids.length
+      ? (dbmod
+          .getDb()
+          .prepare(`SELECT id, venue, authors FROM papers WHERE id IN (${ids.map(() => '?').join(',')})`)
+          .all(...ids) as Array<{ id: number; venue: string; authors: string }>)
+      : []
+    const meta = new Map<number, { venue: string; authors: string }>()
+    for (const r of rows) meta.set(r.id, { venue: r.venue, authors: r.authors })
+    return groups.map((g) => meta.get(g.chunks[0].paperId) ?? { venue: '', authors: '' })
+  }
+  const paperSrcPayload = (
+    chunks: import('./ingest').RetrievedChunk[],
+    metas: Array<{ venue: string; authors: string }>
+  ) => {
+    const { groups, nOf } = groupByPaper(chunks)
+    return groups.map((g, i) => ({
+      n: nOf.get(g.paperId)!,
+      slug: g.chunks[0].slug,
+      title: g.chunks[0].title,
+      page: 1, // 引用指向文章本身：点击跳首页
+      snippet: undefined,
+      sectionNo: undefined,
+      sectionTitle: undefined,
+      venue: metas[i]?.venue || undefined,
+      authors: metas[i]?.authors || undefined,
+      year: g.chunks[0].year
+    }))
+  }
+
+  // rag 提示词的片段块：编号为论文级（同论文同号），标注保留片段页码/章节供生成端点明出处
+  const ragPromptSources = (chunks: import('./ingest').RetrievedChunk[]) => {
+    const { nOf } = groupByPaper(chunks)
+    return chunks.map((c) => {
+      const cat = c.category === 'inbox' ? '未分类' : c.category
+      const sec = c.sectionNo || c.sectionTitle ? ` §${[c.sectionNo, c.sectionTitle].filter(Boolean).join(' ')}` : ''
+      return {
+        n: nOf.get(c.paperId)!,
+        label: `《${c.title}》（${cat}${c.year ? ` · ${c.year}` : ''}）片段 p.${c.page}${sec}`,
+        text: c.text
+      }
+    })
   }
 
   // LLM 流式：reqId 关联渲染端回调；inflight 供「停止生成」abort 进行中的请求
@@ -614,13 +670,7 @@ function registerIpc(): void {
               // 查询预处理（意图/术语扩展）→ 混合检索（含重排序）
               const pq = await preprocessQuery(args.question!, args.history)
               sources = await hybridSearch(pq, args.scopePaperId, 10, args.category)
-              msgs = ragMessages(
-                args.question!,
-                sources.map((s) => ({ label: srcLabel(s), text: s.text })),
-                paper.title,
-                args.history,
-                buildLibStats()
-              )
+              msgs = ragMessages(args.question!, ragPromptSources(sources), paper.title, args.history, buildLibStats())
             }
           } else {
             const pq = await preprocessQuery(args.question!, args.history)
@@ -630,13 +680,7 @@ function registerIpc(): void {
               send(`llm:end:${args.reqId}`, null)
               return
             }
-            msgs = ragMessages(
-              args.question!,
-              sources.map((s) => ({ label: srcLabel(s), text: s.text })),
-              args.paperTitle,
-              args.history,
-              buildLibStats()
-            )
+            msgs = ragMessages(args.question!, ragPromptSources(sources), args.paperTitle, args.history, buildLibStats())
           }
         } else msgs = args.messages ?? []
 
@@ -646,25 +690,41 @@ function registerIpc(): void {
           send(`llm:delta:${args.reqId}`, delta)
         }
         if (args.mode === 'rag') {
-          send(
-            `llm:sources:${args.reqId}`,
-            sources.map((s, i) => ({
-              n: i + 1,
-              slug: s.slug,
-              title: s.title,
-              page: s.page,
-              snippet: s.snippet || undefined,
-              sectionNo: s.sectionNo || undefined,
-              sectionTitle: s.sectionTitle || undefined
-            }))
-          )
+          if (fullPaper) {
+            // 整篇模式：引用为 [页码]，来源按页下发（行为不变）
+            send(
+              `llm:sources:${args.reqId}`,
+              sources.map((s, i) => ({
+                n: i + 1,
+                slug: s.slug,
+                title: s.title,
+                page: s.page,
+                snippet: s.snippet || undefined,
+                sectionNo: s.sectionNo || undefined,
+                sectionTitle: s.sectionTitle || undefined
+              }))
+            )
+          } else {
+            // 片段模式：引用指向「文章」——同一论文的片段去重，编号即论文编号，点击跳首页
+            const { groups, nOf } = groupByPaper(sources)
+            const metas = await paperGroupsMeta(groups)
+            send(`llm:sources:${args.reqId}`, paperSrcPayload(sources, metas))
+          }
           // 后校验：引用编号（规则层）+ 引用支持性/事实/逻辑（LLM 层）；中断或空回答跳过
           if (!fullPaper && !shouldSkipVerify(answer, controller.signal.aborted)) {
             let verify = skippedReport()
             try {
+              const { groups, nOf } = groupByPaper(sources)
               verify = await verifyAnswer(
                 answer,
-                sources.map((s, i) => ({ n: i + 1, title: s.title, text: s.text }))
+                groups.map((g) => ({
+                  n: nOf.get(g.paperId)!,
+                  title: g.chunks[0].title,
+                  text: g.chunks
+                    .map((c) => c.text)
+                    .join('\n\n')
+                    .slice(0, 12000)
+                }))
               )
             } catch {
               /* 校验失败不影响交付 */
@@ -685,6 +745,16 @@ function registerIpc(): void {
 
   ipcMain.on('open-external', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
+  })
+
+  // 来源面板的被引数：refcache 缓存优先（null=查过没有），未查过才走 CrossRef
+  ipcMain.handle('ref:citedby', async (_e, slug: string, title: string) => {
+    const slugS = String(slug ?? '')
+    const cached = dbmod.getCitedBy(slugS)
+    if (cached !== undefined) return cached
+    const n = await lookupCitedBy(String(title ?? ''))
+    dbmod.setCitedBy(slugS, n)
+    return n
   })
 
   // ---------- 对话历史 ----------

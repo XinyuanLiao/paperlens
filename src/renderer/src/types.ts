@@ -87,11 +87,15 @@ export interface SourceRef {
   slug: string
   title: string
   page: number
-  // 命中块原文（截断），引用跳转用它定位到页内真实段落
+  // 命中块原文开头（供引用跳转定位到页内真实段落）
   snippet?: string
   // 章节信息（marker 引擎，v4 分块）：来源标注与跳转提示用
   sectionNo?: string
   sectionTitle?: string
+  // 论文级元数据（片段模式下来源按论文去重后随发）：引用悬停卡与来源面板用
+  venue?: string
+  authors?: string
+  year?: number | null
 }
 
 // 回答后校验：引用/事实/逻辑三级
@@ -191,6 +195,7 @@ declare global {
       syncTheme: (theme: string) => void
       lookupRef: (raw: string) => Promise<RefMeta | null>
       importRefPdf: (args: { urls: string[]; category: string; title: string; authors?: string; year?: number | null; venue?: string }) => Promise<{ ok: boolean; slug?: string; title?: string; error?: string }>
+      citedBy: (slug: string, title: string) => Promise<number | null>
       chatsList: () => Promise<ChatMeta[]>
       chatLoad: (id: number) => Promise<ChatMsg[]>
       chatCreate: (title: string) => Promise<number>

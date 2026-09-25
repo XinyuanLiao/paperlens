@@ -128,6 +128,8 @@ const api = {
   lookupRef: (raw: string) => ipcRenderer.invoke('ref:lookup', raw),
   importRefPdf: (args: { urls: string[]; category: string; title: string; authors?: string; year?: number | null; venue?: string }) =>
     ipcRenderer.invoke('ref:import-pdf', args),
+  // 来源面板被引数（refcache 缓存 + CrossRef best-effort）
+  citedBy: (slug: string, title: string) => ipcRenderer.invoke('ref:citedby', slug, title),
 
   // 对话历史（全库对话按会话持久化）
   chatsList: () => ipcRenderer.invoke('chats:list'),

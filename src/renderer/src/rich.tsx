@@ -75,6 +75,31 @@ function CodeBlock({ lang, code }: { lang: string; code: string }): JSX.Element 
 // ---------- 行内元素：引用芯片 / 链接 / 粗体 / 斜体 / 行内码 / 删除线 / $公式$ ----------
 
 // 顺序敏感：[n] 引用 → 链接 → **粗** → ~~删~~ → `码` → $公式$ / \(公式\) → *斜*
+// 引用芯片：片段级（整篇问答）显示页码、点击跳原文位置；论文级（rag）只显示 [n]、
+// 点击跳文章首页，悬停出简要信息卡（题目/期刊·年份/作者）
+function CiteChip({ src, ctx, onJump }: { src: SourceRef; ctx: string; onJump: Jump }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const paperLevel = !src.snippet && !src.sectionNo && !src.sectionTitle
+  return (
+    <span className="cite-wrap" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <span
+        className="cite-chip"
+        title={paperLevel ? `${src.title}（点击跳到文章首页）` : `${src.title} · 第 ${src.page} 页（跳到原文）`}
+        onClick={() => onJump(src.slug, src.page, paperLevel ? undefined : src.snippet, paperLevel ? undefined : ctx)}
+      >
+        {paperLevel ? `[${src.n}]` : `[${src.n}] p.${src.page}`}
+      </span>
+      {open && (
+        <span className="cite-card">
+          <b className="cite-card-title">{src.title}</b>
+          <span className="cite-card-meta">{[src.venue, src.year, src.authors].filter(Boolean).join(' · ')}</span>
+          <span className="cite-card-hint">点击跳转到文章首页</span>
+        </span>
+      )}
+    </span>
+  )
+}
+
 function inline(text: string, keyBase: string, sources: SourceRef[] | undefined, onJump: Jump, depth = 0): ReactNode[] {
   const out: ReactNode[] = []
   const re =
@@ -91,17 +116,7 @@ function inline(text: string, keyBase: string, sources: SourceRef[] | undefined,
       if (src) {
         // 芯片随身携带它在回答里的局部上下文：整篇问答（无 snippet）时用它做关键词定位
         const ctx = text.slice(Math.max(0, m.index - 140), m.index + 160)
-        const sec = src.sectionNo || src.sectionTitle ? ` §${[src.sectionNo, src.sectionTitle].filter(Boolean).join(' ')}` : ''
-        out.push(
-          <span
-            key={`${keyBase}-c${k++}`}
-            className="cite-chip"
-            title={`${src.title}${sec} · 第 ${src.page} 页（跳到原文）`}
-            onClick={() => onJump(src.slug, src.page, src.snippet, ctx)}
-          >
-            [{src.n}] p.{src.page}
-          </span>
-        )
+        out.push(<CiteChip key={`${keyBase}-c${k++}`} src={src} ctx={ctx} onJump={onJump} />)
       } else out.push(tok)
     } else if (m[3]) {
       const lm = tok.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/)!

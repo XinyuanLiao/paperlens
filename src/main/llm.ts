@@ -229,12 +229,13 @@ ${pages[i]}`
 
 export function ragMessages(
   question: string,
-  sources: Array<{ label: string; text: string }>,
+  sources: Array<{ n: number; label: string; text: string }>,
   paperTitle?: string,
   history?: Array<{ role: 'user' | 'assistant'; content: string }>,
   libStats?: string
 ): ChatMessage[] {
-  const ctx = sources.map((s, i) => `[${i + 1}] ${s.label}\n${s.text}`).join('\n\n')
+  // n = 论文级编号（同一论文的多个片段共用同一编号），由调用方分派
+  const ctx = sources.map((s) => `[${s.n}] ${s.label}\n${s.text}`).join('\n\n')
   // 多轮：带最近两轮问答（ assistant 内容截断，避免上下文膨胀）
   const hist: ChatMessage[] = (history ?? [])
     .slice(-4)
@@ -246,8 +247,8 @@ export function ragMessages(
         '你是严谨的学术问答助手。仅依据提供的文献片段与文献库概况回答问题：' +
         '1）回答要详尽具体：提取片段中的方法名、模型/数据集、实验条件、数值结论等细节，不要只给笼统概括；' +
         '2）结构化输出：按主题分点或使用小标题，适合对比的问题用 markdown 表格呈现；' +
-        '3）每个关键论断后紧跟来源编号，如 [1][3]，编号必须与片段标号一一对应，严禁张冠李戴，也不要把引用集中堆在段末；' +
-        '来源标注里的 §编号 是章节位置，说明方法/实验细节出处时可在论断里点明章节（如「§3.2 的实验设置」）；' +
+        '3）每个关键论断后紧跟来源编号，如 [1][3]；编号对应「论文」而非片段——同一论文的多个片段共用同一编号，回答中同一论文始终用同一编号，严禁张冠李戴，也不要把引用集中堆在段末；' +
+        '片段标注里的 p.页码 与 §章节 是该片段在论文中的位置，说明方法/实验细节出处时可在论断里点明（如「§3.2 的实验设置」）；' +
         '4）不得引入片段与文献库概况之外的论文名称；不同文献观点有差异时明确指出并分别标注来源；' +
         '5）分类归属、各分类篇数、覆盖方向等库级问题以【文献库概况】为准（结合片段内容归纳方向），不要因片段中没有出现分类名就拒绝回答；' +
         '6）片段与概况都不足以回答时明确说"库内文献未覆盖该问题"，不要编造；依据部分覆盖时只回答有据部分并说明缺口；' +

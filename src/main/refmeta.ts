@@ -179,6 +179,29 @@ async function s2Search(q: string): Promise<RefMeta | null> {
   return null
 }
 
+// 标题检索 → 被引数（CrossRef is-referenced-by-count）。无高相似条目返回 null（来源面板 best-effort 用）
+export async function lookupCitedBy(title: string): Promise<number | null> {
+  const q = title.trim().replace(/\s+/g, ' ').slice(0, 300)
+  if (!q) return null
+  const url =
+    'https://api.crossref.org/works?query.bibliographic=' +
+    encodeURIComponent(q) +
+    '&rows=3&select=title,is-referenced-by-count'
+  const data = await jget(url, 8_000)
+  const items = data?.message?.items
+  if (!Array.isArray(items)) return null
+  const ql = q.toLowerCase()
+  let best: { n: number; d: number } | null = null
+  for (const it of items) {
+    const t = Array.isArray(it?.title) && typeof it.title[0] === 'string' ? it.title[0].replace(/<[^>]+>/g, '').trim() : ''
+    if (!t) continue
+    const d = diceBigram(t.toLowerCase(), ql)
+    const n = typeof it?.['is-referenced-by-count'] === 'number' ? it['is-referenced-by-count'] : 0
+    if (!best || d > best.d) best = { n, d }
+  }
+  return best && best.d > 0.4 ? best.n : null
+}
+
 // ---------- 对外接口 ----------
 
 // 输入为一条参考文献条目原文（如 "[3] J. Smith, Power electronics, IEEE Trans., 2019"）。
