@@ -176,6 +176,8 @@ export default function SettingsDialog({
 
   // 默认模型切换：聚合所有服务商的模型，选中即激活所属服务商（与对话界面切换等效）
   const allModels = profiles.flatMap((p) => p.models.map((m) => ({ m, pf: p })))
+  // 当前默认模型所属的服务商配置（与 save() 的同步逻辑一致），翻译引擎的 LLM 选项按它有无 Key 决定
+  const activePf = profiles.find((p) => p.models.includes(form.model)) ?? profiles[0]
   const switchModel = async (m: string): Promise<void> => {
     const hit = allModels.find((x) => x.m === m)
     set({ model: m, ...(hit ? { provider: hit.pf.provider, apiBase: hit.pf.apiBase, apiKey: hit.pf.apiKey, models: hit.pf.models } : {}) })
@@ -369,6 +371,22 @@ export default function SettingsDialog({
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="field">
+                  <label>翻译引擎</label>
+                  <select
+                    value={activePf?.apiKey ? (form.translateEngine ?? 'llm') : 'google'}
+                    onChange={(e) => set({ translateEngine: e.target.value as Settings['translateEngine'] })}
+                  >
+                    {activePf?.apiKey && <option value="llm">LLM · {form.model || '当前默认模型'}（术语更准，走 AI 配置）</option>}
+                    <option value="google">谷歌翻译（免费，无需配置）</option>
+                    <option value="bing">必应翻译（免费，无需配置）</option>
+                  </select>
+                  <div className="hint">
+                    {activePf?.apiKey
+                      ? 'LLM 引擎使用「AI 配置」里的当前默认模型；免费引擎即开即用，失败时自动切换另一家。'
+                      : '未配置 AI 服务商（或当前服务商没有 API Key）时仅可用免费翻译引擎；配置后可用 LLM 翻译。'}
+                  </div>
                 </div>
               </div>
             </>

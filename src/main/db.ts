@@ -36,6 +36,9 @@ export interface Settings {
   model: string
   provider: string
   translateTarget: string
+  // 翻译引擎：llm = 当前默认模型（需 API Key）；google/bing = 免费服务，未配置 LLM 也可用。
+  // 旧设置无此字段按 llm 处理，运行时无 Key 自动回退免费引擎
+  translateEngine?: 'llm' | 'google' | 'bing'
   theme: Theme
   fontFamily: string
   setupDone: boolean

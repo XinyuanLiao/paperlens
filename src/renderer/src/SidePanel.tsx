@@ -38,7 +38,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
   { paper, pageContext, onJump, models, model, thinkingOn, onChangeModel, onChangeThinkingOn, width, fs, onFs },
   ref
 ): JSX.Element {
-  const [tab, setTab] = useState<'chat' | 'translate'>('chat')
+  const [tab, setTab] = useState<'chat' | 'translate'>('translate') // 启动默认翻译页（划词即用）
   const [msgs, setMsgs] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -189,13 +189,16 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
           翻译
         </div>
         <div className="side-tabs-actions">
-          <button className="side-new" title="新对话：清空问答记录与上下文" onClick={reset}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.4 0-2.8-.3-4-.9L3 21l1.9-5.5A8.5 8.5 0 1 1 21 11.5z" />
-              <path d="M12 8v7M8.5 11.5h7" />
-            </svg>
-            新对话
-          </button>
+          {/* 新对话只属于问答页：翻译页没有会话概念 */}
+          {tab === 'chat' && (
+            <button className="side-new" title="新对话：清空问答记录与上下文" onClick={reset}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.4 0-2.8-.3-4-.9L3 21l1.9-5.5A8.5 8.5 0 1 1 21 11.5z" />
+                <path d="M12 8v7M8.5 11.5h7" />
+              </svg>
+              新对话
+            </button>
+          )}
           <div className="fs-ctl" title={`字号（当前 ${fs}px，问答/翻译/对话共用）`}>
             <button onClick={() => onFs(-1)} title="减小字号">
               A−

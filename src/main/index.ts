@@ -6,6 +6,7 @@ import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPag
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
 import { importPapers, previewImport, movePaperToCategory, createCategory, deleteCategory, deletePaper, renamePaper } from './import'
 import { lookupRefMeta, downloadRefPdf, lookupCitedBy } from './refmeta'
+import { freeTranslate } from './freetranslate'
 import { embed } from './embed'
 import { listLocalFonts } from './fonts'
 import { preprocessQuery } from './query'
@@ -638,12 +639,21 @@ function registerIpc(): void {
       const controller = new AbortController()
       inflight.set(args.reqId, controller)
       try {
-        let msgs: ChatMessage[]
+        let msgs: ChatMessage[] = []
         let sources: import('./ingest').RetrievedChunk[] = []
         // 整篇模式（引用为 [页码] 而非 [n]）：后校验的编号规则不适用，跳过
         let fullPaper = false
-        if (args.mode === 'translate') msgs = translateMessages(args.text!, args.context ?? '', dbmod.getSettings().translateTarget)
-        else if (args.mode === 'explain') msgs = explainMessages(args.text!, args.context ?? '')
+        // 免费翻译引擎直连：不构造提示词、不经 LLM 流式，结果整段下发（渲染端协议不变）
+        let directTranslate = false
+        if (args.mode === 'translate') {
+          const st = dbmod.getSettings()
+          // 引擎选了 llm 但没配 Key：自动回退免费引擎，保证无 LLM 配置也能翻译
+          if ((st.translateEngine ?? 'llm') === 'llm' && st.apiKey) {
+            msgs = translateMessages(args.text!, args.context ?? '', st.translateTarget)
+          } else {
+            directTranslate = true
+          }
+        } else if (args.mode === 'explain') msgs = explainMessages(args.text!, args.context ?? '')
         else if (args.mode === 'rag') {
           if (args.scopePaperId) {
             // 整篇模式：完整论文正文进提示词（按页标记，引用为 [页码]），无需检索预处理
@@ -707,6 +717,17 @@ function registerIpc(): void {
             )
           }
         } else msgs = args.messages ?? []
+
+        if (directTranslate) {
+          try {
+            const out = await freeTranslate(args.text!, dbmod.getSettings().translateTarget, controller.signal)
+            if (!controller.signal.aborted) send(`llm:delta:${args.reqId}`, out)
+          } catch (err) {
+            if (!controller.signal.aborted) send(`llm:delta:${args.reqId}`, `❌ 免费翻译服务不可用（请检查网络）：${String(err).slice(0, 160)}`)
+          }
+          send(`llm:end:${args.reqId}`, null)
+          return
+        }
 
         let answer = ''
         for await (const delta of chatStream(msgs, { signal: controller.signal })) {

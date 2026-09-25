@@ -87,7 +87,8 @@ export default function App(): JSX.Element {
   const [showSettings, setShowSettings] = useState(false)
   const [showLib, setShowLib] = useState(true)
   // 右侧问答面板默认收起：阅读空间优先，顶栏/视图菜单可再打开
-  const [showSide, setShowSide] = useState(false)
+  // 阅读模式的问答·翻译侧栏默认展开（划词翻译在启动首屏即可用）
+  const [showSide, setShowSide] = useState(true)
   const [indexInfo, setIndexInfo] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [importInfo, setImportInfo] = useState('')
   const [cats, setCats] = useState<string[]>([])

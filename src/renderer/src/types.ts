@@ -32,6 +32,8 @@ export interface Settings {
   thinkingLevel?: 'off' | 'on'
   provider: string
   translateTarget: string
+  // 翻译引擎：llm = 当前默认模型（需 API Key）；google/bing = 免费服务（详见 main/freetranslate.ts）
+  translateEngine?: 'llm' | 'google' | 'bing'
   theme: 'system' | 'light' | 'dark'
   // 全局界面字体（空 = 跟随默认栈）
   fontFamily?: string
