@@ -2,8 +2,10 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { Tab } from './App'
-import type { Highlight } from './types'
+import type { Highlight, Paper } from './types'
 import { locateSnippet, locateByKeywords, flashHit } from './locate'
+import { buildRefIndex, resolveRefClick, normKey, type RefIndex } from './reflink'
+import RefPopup from './RefPopup'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -123,6 +125,9 @@ interface Props {
   onDeleteHighlight: (id: number) => void
   // 面板常驻但 chat 模式下隐藏：隐藏时全局缩放快捷键不生效（让位给引用面板）
   visible: boolean
+  // 参考文献弹窗：本地库比对「是否已在文库」+ 导入完成后打开
+  papers: Paper[]
+  onOpenPaperBySlug: (slug: string) => void
 }
 
 interface PageTextMap {
@@ -165,7 +170,7 @@ function normalizeSelText(raw: string): string {
 }
 
 const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
-  { tabs, activeId, onActivate, onCloseTab, pendingJump, onJumped, onPageContext, onSelect, onDeleteHighlight, visible },
+  { tabs, activeId, onActivate, onCloseTab, pendingJump, onJumped, onPageContext, onSelect, onDeleteHighlight, visible, papers, onOpenPaperBySlug },
   ref
 ): JSX.Element {
   const active = tabs.find((t) => t.paper.id === activeId) ?? null
@@ -205,6 +210,67 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   useEffect(() => {
     docRef.current = doc
   }, [doc])
+
+  // ---------- 参考文献弹窗 ----------
+  // 点击 PDF 里的 [n] 标记或文献表条目行 → 弹出该文献的元数据卡片（reflink.ts 负责解析与命中）
+  const [refPop, setRefPop] = useState<{ x: number; y: number; num: number; raw: string } | null>(null)
+  const refIdxRef = useRef<{ doc: any; index?: RefIndex; building?: Promise<RefIndex | null> } | null>(null)
+
+  // References 索引按文档惰性构建（首次点击时），构建中/已建复用同一份
+  const ensureRefIndex = useCallback((): Promise<RefIndex | null> => {
+    const doc = docRef.current
+    if (!doc) return Promise.resolve(null)
+    let c = refIdxRef.current
+    if (!c || c.doc !== doc) {
+      c = { doc }
+      refIdxRef.current = c
+    }
+    const cc = c
+    if (!cc.building) {
+      cc.building = buildRefIndex(doc)
+        .then((idx) => {
+          if (refIdxRef.current === cc) cc.index = idx
+          return idx
+        })
+        .catch(() => null)
+    }
+    return cc.building ?? Promise.resolve(cc.index ?? null)
+  }, [])
+
+  const onViewerClick = useCallback(
+    (e: React.MouseEvent) => {
+      // 高亮/搜索层有自己的交互；拖选（非折叠选区）不是点击
+      if ((e.target as Element).closest('.hl, .find-layer')) return
+      const sel = window.getSelection()
+      if (sel && !sel.isCollapsed) return
+      const hit = resolveRefClick(e.clientX, e.clientY)
+      if (!hit) return
+      void (async () => {
+        const idx = await ensureRefIndex()
+        if (!idx) return
+        // 行内编号优先，其次整行反查条目（文献表任意行可点）
+        const entry = (hit.num != null ? idx.byNum.get(hit.num) : undefined) ?? idx.byLine.get(normKey(hit.lineText))
+        if (!entry) return
+        setRefPop({ x: e.clientX, y: e.clientY, num: entry.num, raw: entry.raw })
+      })()
+    },
+    [ensureRefIndex]
+  )
+
+  // ---------- 视图记忆（缩放 bug 修复）----------
+  // 每篇文献记住自己的 baseScale/zoom/滚动位置：切走时快照，切回时原样恢复。
+  // 窗口大小、侧栏开合在期间怎么变都不影响恢复值——「同一篇的缩放比例不变」由这条不变量保证；
+  // 切换标签不再按当前窗宽重新适应宽度（旧实现切回即 refit + 回顶部，缩放和阅读位置全丢）
+  const viewStateRef = useRef(new Map<number, { baseScale: number; zoom: number; scrollTop: number; page: number }>())
+  const prevIdRef = useRef<number | null>(null)
+  const zoomRef = useRef(1)
+  const baseScaleRef = useRef(1)
+  useEffect(() => {
+    zoomRef.current = zoom
+  }, [zoom])
+  useEffect(() => {
+    baseScaleRef.current = baseScale
+  }, [baseScale])
 
   // 挂载滚动容器：Ctrl+滚轮缩放；不再在 resize 时重缩放/回跳（保持阅读位置）
   const attachScrollEl = useCallback((el: HTMLDivElement | null) => {
@@ -353,6 +419,19 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   }, [findOpen, findHits, curHit])
 
   useEffect(() => {
+    // 切走时快照上一篇的视图：此刻 DOM 还是旧文档，scrollTop/缩放状态都仍属于它
+    const prevId = prevIdRef.current
+    prevIdRef.current = active?.paper.id ?? null
+    if (prevId !== null && prevId !== (active?.paper.id ?? null)) {
+      const m = viewStateRef.current
+      if (m.size > 40) m.delete(m.keys().next().value as number)
+      m.set(prevId, {
+        baseScale: baseScaleRef.current,
+        zoom: zoomRef.current,
+        scrollTop: scrollRef.current?.scrollTop ?? 0,
+        page: curPageRef.current
+      })
+    }
     setDoc(null)
     setPageDims([])
     setNumPages(0)
@@ -364,6 +443,8 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     setFindPhase('idle')
     setFindHits([])
     setFindIdx(0)
+    setRefPop(null)
+    refIdxRef.current = null
     if (!active) return
     let cancelled = false
     void (async () => {
@@ -401,13 +482,37 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         setPageDims(metas)
         // 适应宽度按「最宽页」计算：混排尺寸的 PDF（横版插页等）在 100% 时也不会溢出横向滚动
         baseVwRef.current = metas.reduce((m, x) => Math.max(m, x.w), 0) || 612
-        const w = scrollRef.current?.clientWidth ?? 800
-        setBaseScale(Math.max(0.5, Math.min(2.2, (w - 56) / baseVwRef.current)))
+        const saved = viewStateRef.current.get(active.paper.id)
         setDoc(d)
         setNumPages(d.numPages)
-        setCurPage(1)
-        scrollRef.current?.scrollTo({ top: 0 })
-        curPageRef.current = 1
+        if (saved) {
+          // 切回已打开过的文献：缩放与滚动位置原样恢复（哪怕窗口/面板已变——这正是「比例不变」）
+          setBaseScale(saved.baseScale)
+          setZoom(saved.zoom)
+          setCurPage(saved.page)
+          curPageRef.current = saved.page
+          requestAnimationFrame(() => {
+            const sc = scrollRef.current
+            if (!sc || docRef.current !== d) return
+            sc.scrollTo({ top: Math.max(0, saved.scrollTop) })
+          })
+        } else {
+          const w = scrollRef.current?.clientWidth ?? 800
+          setBaseScale(Math.max(0.5, Math.min(2.2, (w - 56) / baseVwRef.current)))
+          setCurPage(1)
+          scrollRef.current?.scrollTo({ top: 0 })
+          curPageRef.current = 1
+          // 首次打开 fit 时纵向滚动条尚未出现，算出的基准会宽出一个滚动条宽度；
+          // 布局稳定后校正一次（仅首开这一次，之后窗口/面板怎么变都不再自动缩放）
+          requestAnimationFrame(() => {
+            const sc = scrollRef.current
+            if (!sc || docRef.current !== d) return
+            const w1 = sc.clientWidth
+            if (w1 > 0 && Math.abs(w1 - w) > 1) {
+              setBaseScale(Math.max(0.5, Math.min(2.2, (w1 - 56) / baseVwRef.current)))
+            }
+          })
+        }
       } catch (e) {
         setError(String(e))
       }
@@ -418,6 +523,11 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   }, [active?.paper.id])
 
   const scale = baseScale * zoom
+
+  // 缩放变化时弹窗锚点已失效（内容重排），直接关闭
+  useEffect(() => {
+    setRefPop(null)
+  }, [zoom, baseScale])
 
   // 横向滚动按需开启：最宽页放得下时禁止横滚（消除 fit 状态下右侧空白可滑的问题）。
   // ResizeObserver 盯容器本身：窗口缩放、侧栏拖宽都会触发重算
@@ -552,6 +662,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   }, [doc, pendingJump, active, numPages, onPageContext, onJumped])
 
   const onScroll = useCallback(() => {
+    setRefPop(null) // 弹窗固定定位不随内容滚动，滚动即关闭避免悬空
     const sc = scrollRef.current
     if (!sc) return
     // 用视口相对位置判定当前页（offsetTop 受 offsetParent 影响，不可靠）
@@ -722,7 +833,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           <button className="tool-btn" title="关闭搜索（Esc）" onClick={closeFind}>✕</button>
         </div>
       )}
-      <div className={`viewer-scroll ${xScroll ? 'x-auto' : ''}`} ref={attachScrollEl} onMouseUp={onMouseUp} onScroll={onScroll}>
+      <div className={`viewer-scroll ${xScroll ? 'x-auto' : ''}`} ref={attachScrollEl} onMouseUp={onMouseUp} onClick={onViewerClick} onScroll={onScroll}>
         {error && <div className="empty-viewer">PDF 打开失败：{error}</div>}
         {doc &&
           Array.from({ length: numPages }, (_, i) => (
@@ -746,6 +857,18 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
             />
           ))}
       </div>
+      {refPop && active && (
+        <RefPopup
+          x={refPop.x}
+          y={refPop.y}
+          num={refPop.num}
+          raw={refPop.raw}
+          papers={papers}
+          category={active.paper.category}
+          onOpenPaper={onOpenPaperBySlug}
+          onClose={() => setRefPop(null)}
+        />
+      )}
     </div>
   )
 })
@@ -835,7 +958,11 @@ function PageView({ doc, num, scale, dim, hls, find, onDeleteHl, registerRef, on
           if (el.classList.contains('markedContent')) continue
           const txt = (el.textContent ?? '').trim()
           const isMarginJunk = txt === '' || /^\d{1,4}$/.test(txt)
-          if (!isMarginJunk) continue
+          if (!isMarginJunk) {
+            // 整段就是一个 [n] 标记：给个可点的视觉提示（解析/命中不依赖它，纯光标提示）
+            if (/^\[\d{1,4}\]$/.test(txt)) el.classList.add('cite-mark')
+            continue
+          }
           const leftPct = parseFloat(el.style.left)
           const ratio = (!isNaN(leftPct) && el.style.left.includes('%') ? leftPct / 100 : el.offsetLeft / cw)
           if (ratio < 0.03 || ratio > 0.965) el.remove()

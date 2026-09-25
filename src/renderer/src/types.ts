@@ -124,6 +124,19 @@ export interface ChatMeta {
   n: number
 }
 
+// 参考文献元数据（主进程 CrossRef/Unpaywall/S2 聚合，见 src/main/refmeta.ts）
+export interface RefMeta {
+  title: string
+  authors: string
+  year: number | null
+  venue: string
+  doi: string
+  citedBy: number | null
+  pdfUrls: string[]
+  landing: string
+  source: 'crossref' | 's2' | 'none'
+}
+
 declare global {
   interface Window {
     api: {
@@ -176,6 +189,8 @@ declare global {
       onImportProgress: (cb: (p: { done: number; total: number; current: string }) => void) => () => void
       openExternal: (url: string) => void
       syncTheme: (theme: string) => void
+      lookupRef: (raw: string) => Promise<RefMeta | null>
+      importRefPdf: (args: { urls: string[]; category: string; title: string; authors?: string; year?: number | null; venue?: string }) => Promise<{ ok: boolean; slug?: string; title?: string; error?: string }>
       chatsList: () => Promise<ChatMeta[]>
       chatLoad: (id: number) => Promise<ChatMsg[]>
       chatCreate: (title: string) => Promise<number>

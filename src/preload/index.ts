@@ -124,6 +124,11 @@ const api = {
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
   syncTheme: (theme: string) => ipcRenderer.send('ui:theme', theme),
 
+  // 参考文献弹窗：元数据查询 + OA PDF 下载入库
+  lookupRef: (raw: string) => ipcRenderer.invoke('ref:lookup', raw),
+  importRefPdf: (args: { urls: string[]; category: string; title: string; authors?: string; year?: number | null; venue?: string }) =>
+    ipcRenderer.invoke('ref:import-pdf', args),
+
   // 对话历史（全库对话按会话持久化）
   chatsList: () => ipcRenderer.invoke('chats:list'),
   chatLoad: (id: number) => ipcRenderer.invoke('chat:load', id),

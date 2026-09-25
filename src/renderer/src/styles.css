@@ -27,6 +27,15 @@
   --hl: rgba(250, 204, 21, 0.42);
   --pdf-canvas: #efede4;  /* PDF 页面外的画布（暖纸灰） */
   --mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  /* 角色字型：全局中文一律宋体（衬线）；各角色先列西文字体，CJK 字符自然落到宋体栈 */
+  --font-cjk-serif: 'Songti SC', 'SimSun', 'STZhongsong', 'Source Han Serif SC', 'Noto Serif CJK SC', serif;
+  /* 界面/输入框：Styrene B 系现代无衬线（未安装时回退 Segoe UI）。
+     CJK 宋体栈必须排在 system-ui 之前——Chromium 的 system-ui 对汉字解析成系统 UI 字体（微软雅黑），放前面会劫持宋体 */
+  --font-ui: 'Styrene B', 'Styrene A', 'Segoe UI', var(--font-cjk-serif), system-ui, sans-serif;
+  /* 回复正文：Tiempos Text 系高辨识度衬线，长文本阅读优先 */
+  --font-serif: 'Tiempos Text', 'Tiempos', 'Charter', 'Bitstream Charter', Cambria, Georgia, var(--font-cjk-serif);
+  /* 欢迎大标题：Galaxie Copernicus 系展示衬线 */
+  --font-display: 'Galaxie Copernicus', 'Tiempos Headline', 'Playfair Display', Georgia, 'Times New Roman', var(--font-cjk-serif);
   --speed: 0.13s;
 }
 html[data-theme='dark'] {
@@ -54,12 +63,16 @@ html, body, #root { height: 100%; }
 body {
   background: var(--bg2);
   color: var(--text);
-  font-family: -apple-system, 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--font-ui);
   font-size: 13px;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
+/* 角色字型（正文回覆衬线 / 输入框无衬线 / 大标题展示衬线）；textarea 不继承字体必须显式给 */
+.msg.assistant { font-family: var(--font-serif); }
+.hero-textarea, .msg-edit textarea, .searchbox, .pdf-search-input { font-family: var(--font-ui); }
+.workspace-empty .headline, .empty-viewer .headline, .chat-hero .headline, .wizard-head h1 { font-family: var(--font-display); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: rgba(128, 128, 140, 0.3); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 140, 0.5); background-clip: content-box; border: 2px solid transparent; }
@@ -400,6 +413,34 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 .float-bar button.fb-accent:hover { opacity: 0.88; }
 .float-bar.copied button { pointer-events: none; }
 
+/* ---------- 参考文献弹窗（点击 PDF 里的 [n] / 文献表条目） ---------- */
+.ref-pop {
+  position: fixed; z-index: 1000; padding: 10px 12px 12px;
+  background: var(--bg); border: 1px solid var(--border-lit); border-radius: 10px;
+  box-shadow: var(--shadow); font-size: 12px; animation: pop 0.12s ease;
+}
+.ref-pop-head { display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-weight: 600; }
+.ref-pop-x { margin-left: auto; cursor: pointer; opacity: 0.5; padding: 1px 6px; border-radius: 4px; }
+.ref-pop-x:hover { opacity: 1; background: var(--bg3); }
+.ref-pop-title { margin-top: 7px; color: var(--accent2); font-weight: 600; line-height: 1.45; word-break: break-word; }
+.ref-pop-meta { margin-top: 4px; color: var(--text-dim); line-height: 1.5; }
+.ref-pop-dim { margin-top: 7px; color: var(--text-dim); line-height: 1.55; }
+.ref-pop-raw { margin-top: 7px; color: var(--text-dim); line-height: 1.5; border-left: 2px solid var(--border); padding-left: 8px; }
+.ref-pop-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.ref-pill {
+  display: inline-flex; align-items: center; gap: 5px; background: var(--bg2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
+  font-size: 12px; cursor: pointer; transition: background 0.1s;
+}
+.ref-pill:hover { background: var(--bg3); }
+.ref-pill.pdf { color: var(--accent2); font-weight: 600; border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.ref-pill:disabled { opacity: 0.55; cursor: default; }
+.ref-pop-err { margin-top: 8px; color: var(--warn); }
+/* 文本层里整段恰为 [n] 的 run：可点的光标提示（解析/命中不依赖该标记） */
+.textLayer span.cite-mark { cursor: pointer; }
+.textLayer span.cite-mark:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); border-radius: 2px; }
+
+
 /* ============ 右栏：聊天/翻译 ============ */
 .side { background: var(--bg2); display: flex; flex-direction: column; min-width: 360px; }
 .side-tabs { display: flex; align-items: center; gap: 2px; padding: 0 12px 0 14px; flex-shrink: 0; }
@@ -650,7 +691,7 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .chat-hero-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 40px; gap: 22px; }
 .chat-hero { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
 .chat-hero .big-icon { margin-bottom: 4px; }
-.chat-hero .headline { font-family: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif; font-size: 25px; font-weight: 600; color: var(--text); letter-spacing: 0.3px; }
+.chat-hero .headline { font-size: 25px; font-weight: 600; color: var(--text); letter-spacing: 0.3px; }
 .chat-hero .tip { font-size: 12.5px; color: var(--text-dim); }
 .hero-input {
   width: min(760px, 94%); max-width: 100%; background: var(--bg); border: 1px solid var(--border-lit);

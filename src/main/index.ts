@@ -5,6 +5,7 @@ import * as dbmod from './db'
 import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPagesCached } from './ingest'
 import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
 import { importPapers, previewImport, movePaperToCategory, createCategory, deleteCategory, deletePaper, renamePaper } from './import'
+import { lookupRefMeta, downloadRefPdf } from './refmeta'
 import { embed } from './embed'
 import { listLocalFonts } from './fonts'
 import { preprocessQuery } from './query'
@@ -179,6 +180,51 @@ function registerIpc(): void {
     send('papers:changed', { ids: [id] })
     return r
   })
+
+  // ---------- 参考文献弹窗：元数据查询 + OA PDF 下载入库 ----------
+  // 弹窗点开时查一次学术元数据（CrossRef 主路 + Unpaywall/S2 OA 收集，详见 refmeta.ts）
+  ipcMain.handle('ref:lookup', (_e, raw: string) => lookupRefMeta(String(raw ?? '')))
+  // 下载开放获取 PDF → 走常规导入链（meta 直填元数据、归入指定分类）→ 扫库触发索引
+  ipcMain.handle(
+    'ref:import-pdf',
+    async (
+      _e,
+      args: { urls?: unknown; category?: unknown; title?: unknown; authors?: unknown; year?: unknown; venue?: unknown }
+    ) => {
+      const urls = (Array.isArray(args?.urls) ? (args.urls as unknown[]) : [])
+        .map(String)
+        .filter((u) => /^https:\/\//i.test(u))
+      if (!urls.length) return { ok: false, error: '没有可用的开放获取直链' }
+      const tmp = path.join(app.getPath('temp'), `paperlens-ref-${Date.now()}.pdf`)
+      const dl = await downloadRefPdf(urls, tmp)
+      if (!dl.ok) return { ok: false, error: dl.error }
+      try {
+        const outcomes = await importPapers(
+          [
+            {
+              path: tmp,
+              category: String(args.category ?? ''),
+              meta: {
+                title: String(args.title ?? '').slice(0, 300) || '未命名',
+                authors: args.authors ? String(args.authors) : '',
+                year: typeof args.year === 'number' ? args.year : null,
+                venue: args.venue ? String(args.venue) : ''
+              }
+            }
+          ],
+          send
+        )
+        const ok = outcomes.find((o) => o.ok)
+        if (!ok) return { ok: false, error: outcomes[0]?.error ?? '导入失败' }
+        const r = dbmod.scanLibrary(dbmod.getSettings().libraryPath)
+        queueIndex()
+        send('papers:changed', { ids: [] })
+        return { ok: true, slug: ok.slug, title: ok.title }
+      } finally {
+        fs.rmSync(tmp, { force: true })
+      }
+    }
+  )
 
   // 手动归类：右键菜单 / 拖拽都走这里（移动文件夹 + 原地改写 DB，保留行身份）
   ipcMain.handle('papers:move', (_e, id: number, category: string) => {
