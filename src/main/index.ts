@@ -67,6 +67,9 @@ function createWindow(): void {
     minWidth: 1080,
     minHeight: 640,
     backgroundColor: '#1f1e1d',
+    // 首帧绘制完成（ready-to-show）才显示：窗口出现即是成型的界面，
+    // 没有先亮底色再渲染内容的「闪一下」；超时兜底防加载异常时永远黑屏
+    show: false,
     title: 'PaperLens',
     titleBarStyle: process.platform === 'linux' ? 'default' : 'hidden',
     ...(process.platform === 'win32'
@@ -80,6 +83,11 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+  win.once('ready-to-show', () => win?.show())
+  const created = win
+  setTimeout(() => {
+    if (!created.isDestroyed() && !created.isVisible()) created.show()
+  }, 4000)
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {

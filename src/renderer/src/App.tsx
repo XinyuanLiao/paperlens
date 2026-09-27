@@ -29,6 +29,11 @@ const PanelIcon = (): JSX.Element => (
 
 type MenuItem = { label: string; hint?: string; action?: () => void; sep?: boolean }
 
+// 先行应用上次会话的主题：设置经 IPC 异步加载，之前的空白首帧会按 CSS 默认浅色渲染，
+// 深色主题用户就会看到一闪；localStorage 同步可读，import 时即上色
+const bootTheme = localStorage.getItem('pl.theme')
+if (bootTheme === 'light' || bootTheme === 'dark') document.documentElement.dataset.theme = bootTheme
+
 const MenuBar = ({ menus, openMenu, setOpenMenu }: { menus: Array<{ name: string; items: MenuItem[] }>; openMenu: string | null; setOpenMenu: (m: string | null) => void }): JSX.Element => (
   <div className="app-menu">
     {menus.map((m) => (
@@ -77,7 +82,7 @@ const PROVIDER_LABEL: Record<string, string> = {
   custom: '自定义'
 }
 
-export default function App(): JSX.Element {
+export default function App(): JSX.Element | null {
   const [papers, setPapers] = useState<Paper[]>([])
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeId, setActiveId] = useState<number | null>(null)
@@ -138,6 +143,7 @@ export default function App(): JSX.Element {
     const apply = () => {
       const t = settings.theme === 'system' ? (mq.matches ? 'light' : 'dark') : settings.theme
       document.documentElement.dataset.theme = t
+      localStorage.setItem('pl.theme', t)
       window.api.syncTheme(t)
     }
     apply()
@@ -192,11 +198,19 @@ export default function App(): JSX.Element {
     }
   }, [settings?.apiKey, settings?.model, settings?.apiBase])
 
+  // 启动加载是否完成：settings 与文献列表都异步加载，完成前不渲染任何界面。
+  // 否则向导条件里的「papers.length === 0」会在列表加载完成前误判——
+  // 跳过向导的老用户（setupDone=false 但库里有文献）每次启动都会闪一下引导窗
+  const [booted, setBooted] = useState(false)
   useEffect(() => {
     void (async () => {
-      setSettings(await window.api.getSettings())
-      await refreshPapers()
+      const s = await window.api.getSettings()
+      setSettings(s)
+      const ps = await refreshPapers()
       setIndexedCount(await window.api.indexStatus())
+      // 老用户补写 setupDone：状态落库，日后清空文献库也不会再被向导拦住
+      if (!s.setupDone && ps.length > 0) void window.api.saveSettings({ setupDone: true }).then(setSettings)
+      setBooted(true)
     })()
     const off = window.api.onIndexProgress((p) => {
       setIndexInfo(p)
@@ -517,6 +531,9 @@ export default function App(): JSX.Element {
   }, [saveSettings, refreshPapers])
 
   const statusLeft = importInfo || (indexInfo ? `正在索引 ${indexInfo.done}/${indexInfo.total}` : `已索引 ${indexedCount.indexed}/${indexedCount.papers} 篇 · ${indexedCount.chunks} 块`)
+
+  // 启动加载未完成前渲染空白（body 背景已按缓存主题上色）：既不闪向导也不闪主界面骨架
+  if (!booted) return null
 
   // 首次启动：走完「文献库 → LLM → 嵌入」向导才进主界面（已有文献库的老用户自动跳过）
   if (settings && !settings.setupDone && papers.length === 0) {
