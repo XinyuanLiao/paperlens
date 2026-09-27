@@ -450,7 +450,9 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 .textLayer span.ref-hot { cursor: pointer; }
 
 /* ---------- rag 来源面板 + 引用悬停卡（引用指向论文而非片段） ---------- */
-.chat-main-row { flex: 1; min-height: 0; display: flex; gap: 10px; }
+/* 面板悬浮（absolute）在对话窗口右上角：展开/收起不再挤压正文宽度；
+   正文列限宽居中（与空态输入框同宽），面板叠在右侧留白上，只在窄窗口时压到文字 */
+.chat-main-row { flex: 1; min-height: 0; display: flex; position: relative; }
 /* 正文列：log + 输入框一起被来源面板挤压 */
 .chat-left-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .chat-main-row .chat-log { flex: 1; min-width: 0; }
@@ -463,8 +465,8 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
   to { opacity: 1; transform: none; }
 }
 .src-panel {
-  width: 304px; flex-shrink: 0; align-self: flex-start; display: flex; flex-direction: column;
-  margin: 16px 12px 0 0;
+  position: absolute; top: 16px; right: 12px; z-index: 40;
+  width: 304px; display: flex; flex-direction: column;
   background: var(--bg); border: 1px solid var(--border-lit); border-radius: var(--radius-lg); overflow: hidden;
   box-shadow: var(--shadow);
   animation: src-pop-in 0.34s cubic-bezier(0.32, 0.72, 0, 1) both;
@@ -536,10 +538,11 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 .side-tab:hover { color: var(--text); }
 .side-tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .chat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
-.msg { max-width: 100%; }
+/* 正文列限宽居中：对话内容不再占满整窗，左右留白随窗口变宽（与空态 hero 输入框同宽对齐） */
+.msg { width: 100%; max-width: 760px; align-self: center; }
 .msg .bubble { padding: 0; border-radius: 0; line-height: 1.75; user-select: text; white-space: normal; word-break: break-word; font-size: var(--chat-fs); background: transparent; border: none; }
 /* 用户消息：灰色底块区分（AI 回答无标注、无底色） */
-.msg.user { align-self: stretch; max-width: 100%; }
+.msg.user { align-self: center; }
 .msg.user .bubble { background: var(--bg3); padding: 10px 14px; border-radius: 10px; color: var(--text); white-space: pre-wrap; }
 .msg.assistant .bubble { padding: 0; }
 .cite-chip {
@@ -599,7 +602,7 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 /* 生成中：发送按钮变为停止按钮 */
 .send-btn.stop { background: var(--danger); }
 .send-btn.stop:hover { opacity: 0.88; }
-.thinking { display: inline-flex; gap: 4px; align-items: center; color: var(--text-dim); font-size: 11px; }
+.thinking { display: inline-flex; gap: 4px; align-items: center; color: var(--text-dim); font-size: 11px; width: 100%; max-width: 760px; align-self: center; }
 .thinking .b { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: blink 1.2s infinite; }
 .thinking .b:nth-child(2) { animation-delay: 0.2s; }
 .thinking .b:nth-child(3) { animation-delay: 0.4s; }
@@ -786,7 +789,7 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 }
 .hero-suggest button:hover { border-color: var(--accent); color: var(--accent2); background: var(--accent-soft); }
 .chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 28px 12px; display: flex; flex-direction: column; gap: 22px; }
-.chat-view-input { flex-shrink: 0; margin: 0 28px; padding: 12px 0 16px; }
+.chat-view-input { flex-shrink: 0; width: 100%; max-width: 816px; margin: 0 auto; padding: 12px 28px 16px; }
 .chat-view-input .hero-input { width: 100%; background: var(--bg); border: 1px solid var(--border-lit); box-shadow: none; border-radius: 14px; }
 .page-ind { padding: 3px 6px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); min-width: 52px; text-align: center; }
 
