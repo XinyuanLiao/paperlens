@@ -120,27 +120,9 @@ export default function ChatView({
 
   // 来源面板（Google 风格）：最后一条回答的引用论文列表（主进程已按论文去重），
   // 显示 编号/题目/期刊·年份/作者/被引数（CrossRef best-effort，refcache 缓存），点击跳阅读界面。
-  // 折叠/展开带缩放淡入动画：退场期间 DOM 保留播完动画再卸载，入口动画由 CSS keyframes 承担
-  const [srcPanelMounted, setSrcPanelMounted] = useState(true)
-  const [srcClosing, setSrcClosing] = useState(false)
-  const srcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const collapseSrc = (): void => {
-    if (srcClosing) return
-    setSrcClosing(true)
-    srcTimerRef.current = setTimeout(() => {
-      setSrcPanelMounted(false)
-      setSrcClosing(false)
-      srcTimerRef.current = null
-    }, 170)
-  }
-  const expandSrc = (): void => {
-    if (srcTimerRef.current) {
-      clearTimeout(srcTimerRef.current)
-      srcTimerRef.current = null
-    }
-    setSrcClosing(false)
-    setSrcPanelMounted(true)
-  }
+  // 面板常驻（宽度与标题两个状态一致），只折叠标题下方的文献列表——
+  // 高度过渡用 grid 行 0fr→1fr（无需测量内容高度），缓动取 iOS 弹层曲线，收起后仅剩一行标题
+  const [srcOpen, setSrcOpen] = useState(true)
   const [citedByMap, setCitedByMap] = useState<Record<string, number | null>>({})
   const citedFetched = useRef(new Set<string>())
   const lastSources = useMemo(() => {
@@ -150,7 +132,7 @@ export default function ChatView({
     return []
   }, [msgs])
   useEffect(() => {
-    if (!srcPanelMounted || !lastSources.length) return
+    if (!lastSources.length) return
     for (const s of lastSources) {
       if (citedFetched.current.has(s.slug)) continue
       citedFetched.current.add(s.slug)
@@ -160,7 +142,7 @@ export default function ChatView({
         .then((n) => setCitedByMap((m) => ({ ...m, [s.slug]: n })))
         .catch(() => {})
     }
-  }, [srcPanelMounted, lastSources])
+  }, [lastSources])
 
   // 打开历史对话：载入消息停在底部；activeChatId 置 null（新建对话）只清空
   useEffect(() => {
@@ -231,7 +213,7 @@ export default function ChatView({
           },
           onSources: (srcs) => {
             srcRef.current = srcs as SourceRef[]
-            expandSrc() // 新回答到达时自动展开来源面板
+            setSrcOpen(true) // 新回答到达时自动展开来源面板
             setMsgs((ms) => {
               const next = [...ms]
               const last = next[next.length - 1]
@@ -402,42 +384,44 @@ export default function ChatView({
   )
 
   const srcPanel = lastSources.length > 0 ? (
-    srcPanelMounted ? (
-      <div className={`src-panel ${srcClosing ? 'closing' : ''}`}>
-        <div className="src-panel-head">
-          <span>来源文献 · {lastSources.length}</span>
-          <button className="src-panel-x" onClick={collapseSrc}>
-            收起
-          </button>
-        </div>
-        <div className="src-panel-list">
-          {lastSources.map((s) => (
-            <button key={s.n} className="src-card" onClick={() => onJump(s.slug, 1)} title="点击跳转到阅读界面">
-              <span className="src-card-top">
-                <span className="src-card-n" title={`引用编号 [${s.n}]`}>
-                  [{s.n}]
+    <div className={`src-panel ${srcOpen ? 'open' : ''}`}>
+      <button
+        className="src-panel-head"
+        onClick={() => setSrcOpen((v) => !v)}
+        title={srcOpen ? '收起来源列表' : '展开来源列表'}
+      >
+        <span>来源文献 · {lastSources.length}</span>
+        <svg className="src-panel-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      <div className="src-panel-body">
+        <div className="src-panel-clip">
+          <div className="src-panel-list">
+            {lastSources.map((s) => (
+              <button key={s.n} className="src-card" onClick={() => onJump(s.slug, 1)} title="点击跳转到阅读界面">
+                <span className="src-card-top">
+                  <span className="src-card-n" title={`引用编号 [${s.n}]`}>
+                    [{s.n}]
+                  </span>
+                  <span className="src-card-title">{s.title}</span>
                 </span>
-                <span className="src-card-title">{s.title}</span>
-              </span>
-              <span className="src-card-meta ellipsis">
-                {[
-                  s.venue,
-                  s.authors && s.authors.length > 42 ? `${s.authors.slice(0, 42)}…` : s.authors,
-                  s.year,
-                  citedByMap[s.slug] != null ? `被引 ${citedByMap[s.slug]}` : undefined
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
-            </button>
-          ))}
+                <span className="src-card-meta ellipsis">
+                  {[
+                    s.venue,
+                    s.authors && s.authors.length > 42 ? `${s.authors.slice(0, 42)}…` : s.authors,
+                    s.year,
+                    citedByMap[s.slug] != null ? `被引 ${citedByMap[s.slug]}` : undefined
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
-    ) : (
-      <button className="src-panel-restore" onClick={expandSrc}>
-        来源 · {lastSources.length} 篇
-      </button>
-    )
+    </div>
   ) : null
 
   return (
