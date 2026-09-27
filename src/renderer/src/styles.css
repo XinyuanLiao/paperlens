@@ -825,12 +825,15 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .md-copy { border: none; background: transparent; color: var(--text-dim); font: inherit; cursor: pointer; padding: 2px 7px; border-radius: 4px; }
 .md-copy:hover { background: var(--bg3); color: var(--text); }
 .md-codeblock pre { margin: 0; padding: 9px 11px; overflow-x: auto; font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: var(--text); user-select: text; }
-.bubble .md-table { margin: 8px 0; border-collapse: collapse; font-size: 0.94em; display: block; overflow-x: auto; }
+/* 表格随正文列宽自适应（永不横向滚动）：display:block+overflow-x 的滚动容器会裁剪
+   单元格内引用芯片的悬停卡片，导致表格引用与正文引用弹窗行为不一致；
+   单元格内换行/断词保证任何列数都装进正文列宽 */
+.bubble .md-table { margin: 8px 0; border-collapse: collapse; font-size: 0.94em; width: 100%; table-layout: auto; }
 .bubble .md-table th, .bubble .md-table td {
   border: 1px solid var(--border-lit); padding: 6px 10px; text-align: left;
-  line-height: 1.5; vertical-align: top;
+  line-height: 1.5; vertical-align: top; overflow-wrap: anywhere;
 }
-.bubble .md-table th { background: var(--bg3); font-weight: 650; white-space: nowrap; }
+.bubble .md-table th { background: var(--bg3); font-weight: 650; }
 .bubble .md-table tr:nth-child(even) td { background: var(--bg2); }
 /* 字号调节控件（A−/A+）：问答面板标签行与对话输入行各一份 */
 .fs-ctl { display: inline-flex; align-items: center; gap: 1px; flex-shrink: 0; margin-left: 8px; }
