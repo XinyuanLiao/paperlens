@@ -37,6 +37,80 @@ export type Jump = (slug: string, page: number, snippet?: string, ctx?: string) 
 
 // ---------- 代码块（带语言标签与复制） ----------
 
+// 引用芯片：片段级（整篇问答）显示页码、点击跳原文位置；论文级（rag）只显示 [n]、
+// 点击跳文章首页，悬停出简要信息卡（题目/期刊·年份/作者）。
+// 卡片 position:fixed 定点渲染——fixed 不受祖先滚动容器（表格横向滚动等）裁剪，
+// 表格内引用与正文引用行为一致。悬停时实测边界：默认在芯片上方展开，越出消息流
+// 上缘且下方放得下就翻到下方，左右越界平移收进最外层滚动容器（对话日志/侧栏流）内。
+// 不再设置 title（原生提示框会与卡片叠成白条）。内容一滚动就收起（fixed 不随内容走）
+function CiteChip({ src, ctx, onJump }: { src: SourceRef; ctx: string; onJump: Jump }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const wrapRef = useRef<HTMLSpanElement>(null)
+  const cardRef = useRef<HTMLSpanElement>(null)
+  const close = (): void => setOpen(false)
+  useLayoutEffect(() => {
+    if (!open) return
+    const chip = wrapRef.current
+    const card = cardRef.current
+    if (!chip || !card) return
+    // 边界 = 最外层可滚动祖先（对话日志/侧栏消息流），内层表格的滚动盒不算
+    let node: HTMLElement | null = chip.parentElement
+    let bounds = { left: 8, top: 8, right: window.innerWidth - 8, bottom: window.innerHeight - 8 }
+    while (node && node !== document.body) {
+      const oy = getComputedStyle(node).overflowY
+      if (oy === 'auto' || oy === 'scroll') bounds = node.getBoundingClientRect()
+      node = node.parentElement
+    }
+    // 只用与定位无关的量做几何计算（芯片矩形 + 卡片自身宽高），否则应用坐标后再测会振荡
+    const cr = chip.getBoundingClientRect()
+    const kd = card.getBoundingClientRect()
+    let top = cr.top - kd.height - 8
+    if (top < bounds.top + 8 && cr.bottom + kd.height + 12 < bounds.bottom - 8) top = cr.bottom + 8
+    let left = cr.left - 6
+    const overR = left + kd.width - (bounds.right - 8)
+    if (overR > 0) left -= overR
+    if (left < bounds.left + 8) left = bounds.left + 8
+    setPos({ top, left })
+    const onScroll = (): void => setOpen(false)
+    window.addEventListener('resize', onScroll)
+    document.addEventListener('scroll', onScroll, true)
+    return () => {
+      window.removeEventListener('resize', onScroll)
+      document.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open])
+  const paperLevel = !src.snippet && !src.sectionNo && !src.sectionTitle
+  return (
+    <span
+      ref={wrapRef}
+      className="cite-wrap"
+      onMouseEnter={() => {
+        setPos(null)
+        setOpen(true)
+      }}
+      onMouseLeave={close}
+    >
+      <span
+        className="cite-chip"
+        onClick={() => onJump(src.slug, src.page, paperLevel ? undefined : src.snippet, paperLevel ? undefined : ctx)}
+      >
+        {paperLevel ? `[${src.n}]` : `[${src.n}] p.${src.page}`}
+      </span>
+      {open && (
+        <span
+          ref={cardRef}
+          className="cite-card"
+          style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden', top: 0, left: 0 }}
+        >
+          <b className="cite-card-title">{src.title}</b>
+          <span className="cite-card-meta">{[src.venue, src.year, src.authors].filter(Boolean).join(' · ')}</span>
+        </span>
+      )}
+    </span>
+  )
+}
+
 function CodeBlock({ lang, code }: { lang: string; code: string }): JSX.Element {
   const [copied, setCopied] = useState(false)
   const copy = async (): Promise<void> => {
@@ -75,57 +149,6 @@ function CodeBlock({ lang, code }: { lang: string; code: string }): JSX.Element 
 // ---------- 行内元素：引用芯片 / 链接 / 粗体 / 斜体 / 行内码 / 删除线 / $公式$ ----------
 
 // 顺序敏感：[n] 引用 → 链接 → **粗** → ~~删~~ → `码` → $公式$ / \(公式\) → *斜*
-// 引用芯片：片段级（整篇问答）显示页码、点击跳原文位置；论文级（rag）只显示 [n]、
-// 点击跳文章首页，悬停出简要信息卡（题目/期刊·年份/作者）。
-// 卡片悬停时实测边界：默认在芯片上方展开，右缘超出聊天区就左移、上方放不下翻到下方，
-// 保证不被聊天区边缘与右侧来源面板遮挡；不再设置 title（原生提示框会与卡片叠成白条）
-function CiteChip({ src, ctx, onJump }: { src: SourceRef; ctx: string; onJump: Jump }): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const [adj, setAdj] = useState<{ dx: number; below: boolean }>({ dx: 0, below: false })
-  const wrapRef = useRef<HTMLSpanElement>(null)
-  const cardRef = useRef<HTMLSpanElement>(null)
-  const close = (): void => {
-    setOpen(false)
-    setAdj({ dx: 0, below: false })
-  }
-  useLayoutEffect(() => {
-    if (!open) return
-    const chip = wrapRef.current
-    const card = cardRef.current
-    const log = chip?.closest('.chat-log') as HTMLElement | null
-    if (!chip || !card || !log) return
-    // 只用与 transform 无关的量做几何计算（芯片矩形 + 卡片宽高），否则应用位移后再测会振荡
-    const cr = chip.getBoundingClientRect()
-    const lr = log.getBoundingClientRect()
-    const kd = card.getBoundingClientRect()
-    const naturalLeft = cr.left - 6
-    let dx = 0
-    let below = false
-    if (cr.top - kd.height - 8 < lr.top + 8 && cr.bottom + kd.height + 12 < lr.bottom - 8) below = true
-    const overR = naturalLeft + kd.width - (lr.right - 8)
-    if (overR > 0) dx -= overR
-    const overL = naturalLeft + dx - (lr.left + 8)
-    if (overL < 0) dx -= overL
-    if (dx !== adj.dx || below !== adj.below) setAdj({ dx, below })
-  }, [open])
-  const paperLevel = !src.snippet && !src.sectionNo && !src.sectionTitle
-  return (
-    <span ref={wrapRef} className="cite-wrap" onMouseEnter={() => setOpen(true)} onMouseLeave={close}>
-      <span
-        className="cite-chip"
-        onClick={() => onJump(src.slug, src.page, paperLevel ? undefined : src.snippet, paperLevel ? undefined : ctx)}
-      >
-        {paperLevel ? `[${src.n}]` : `[${src.n}] p.${src.page}`}
-      </span>
-      {open && (
-        <span ref={cardRef} className="cite-card" data-below={adj.below || undefined} style={adj.dx ? { transform: `translateX(${adj.dx}px)` } : undefined}>
-          <b className="cite-card-title">{src.title}</b>
-          <span className="cite-card-meta">{[src.venue, src.year, src.authors].filter(Boolean).join(' · ')}</span>
-        </span>
-      )}
-    </span>
-  )
-}
 
 // ---------- 引用去重 ----------
 // RAG 回答常在同一段里反复标注同一编号（……[7]……[7]……[7]）。规则：同一段文本内

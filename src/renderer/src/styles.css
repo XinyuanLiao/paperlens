@@ -503,15 +503,16 @@ html[data-theme='dark'] .float-bar { background: var(--bg); backdrop-filter: blu
 .src-card-n { flex-shrink: 0; font-size: 12px; font-weight: 700; color: var(--accent2); line-height: 1.4; }
 .src-card-title { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.4; }
 .src-card-meta { font-size: 11px; color: var(--text-dim); }
-/* 引用芯片的悬停信息卡：默认芯片上方展开，越界时按实测翻转/平移（CiteChip），不拦截鼠标 */
+/* 引用芯片的悬停信息卡：position:fixed + CiteChip 实测定点（默认芯片上方，越界翻转/平移）。
+   fixed 不受祖先滚动容器（表格横向滚动等）裁剪，各场景与正文引用行为一致；
+   内容滚动时卡片随 scroll 事件关闭（fixed 不随内容走，位置立即失效） */
 .cite-wrap { position: relative; }
 .cite-card {
-  position: absolute; bottom: calc(100% + 8px); left: -6px; z-index: 200; width: 320px;
+  position: fixed; z-index: 200; width: 320px;
   display: flex; flex-direction: column; gap: 3px; padding: 10px 12px;
   background: var(--bg); border: 1px solid var(--border-lit); border-radius: 10px; box-shadow: var(--shadow);
   pointer-events: none; cursor: default; text-align: left;
 }
-.cite-card[data-below] { bottom: auto; top: calc(100% + 8px); }
 .cite-card-title { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.45; }
 .cite-card-meta { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
 
@@ -825,15 +826,15 @@ html[data-theme='dark'] .modal-mask { background: rgba(0, 0, 0, 0.55); backdrop-
 .md-copy { border: none; background: transparent; color: var(--text-dim); font: inherit; cursor: pointer; padding: 2px 7px; border-radius: 4px; }
 .md-copy:hover { background: var(--bg3); color: var(--text); }
 .md-codeblock pre { margin: 0; padding: 9px 11px; overflow-x: auto; font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: var(--text); user-select: text; }
-/* 表格随正文列宽自适应（永不横向滚动）：display:block+overflow-x 的滚动容器会裁剪
-   单元格内引用芯片的悬停卡片，导致表格引用与正文引用弹窗行为不一致；
-   单元格内换行/断词保证任何列数都装进正文列宽 */
-.bubble .md-table { margin: 8px 0; border-collapse: collapse; font-size: 0.94em; width: 100%; table-layout: auto; }
+/* 表格横向滚动保留（宽表不挤压文字、保证可读性）；引用悬停卡为 position:fixed
+   定点渲染（CiteChip 实测定点），fixed 不受任何祖先滚动容器裁剪——
+   表格内引用与正文引用的弹窗行为完全一致 */
+.bubble .md-table { margin: 8px 0; border-collapse: collapse; font-size: 0.94em; display: block; overflow-x: auto; }
 .bubble .md-table th, .bubble .md-table td {
   border: 1px solid var(--border-lit); padding: 6px 10px; text-align: left;
-  line-height: 1.5; vertical-align: top; overflow-wrap: anywhere;
+  line-height: 1.5; vertical-align: top;
 }
-.bubble .md-table th { background: var(--bg3); font-weight: 650; }
+.bubble .md-table th { background: var(--bg3); font-weight: 650; white-space: nowrap; }
 .bubble .md-table tr:nth-child(even) td { background: var(--bg2); }
 /* 字号调节控件（A−/A+）：问答面板标签行与对话输入行各一份 */
 .fs-ctl { display: inline-flex; align-items: center; gap: 1px; flex-shrink: 0; margin-left: 8px; }
