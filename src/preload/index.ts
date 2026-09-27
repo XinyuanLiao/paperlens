@@ -80,6 +80,14 @@ const api = {
   testEmbed: () => ipcRenderer.invoke('embed:test'),
   testRerank: () => ipcRenderer.invoke('rerank:test'),
 
+  // 元信息回填：出处缺失的论文联网补全（菜单/命令面板手动触发，扫描后也会自动排）
+  enrichRun: () => ipcRenderer.invoke('enrich:run'),
+  onEnrichProgress: (cb: (p: { phase: string; done: number; total: number; fixed: number }) => void) => {
+    const h = (_e: unknown, p: { phase: string; done: number; total: number; fixed: number }) => cb(p)
+    ipcRenderer.on('enrich:progress', h)
+    return () => ipcRenderer.removeListener('enrich:progress', h)
+  },
+
   // 流式对话：返回 stop 中断句柄（主进程 abort 后照常走 onEnd 收尾）
   stream: (
     args: Record<string, unknown>,

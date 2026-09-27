@@ -34,8 +34,9 @@ async function jget(url: string, timeoutMs: number): Promise<any | null> {
 }
 
 // 字符 bigram 集合的 Dice 系数：宽过 S2 兜底检索的标题相似度门槛用，
-// 任一串过短（<2）没有 bigram 可比，直接 0
-function diceBigram(a: string, b: string): number {
+// 任一串过短（<2）没有 bigram 可比，直接 0。
+// 库内元信息回填也用它做严格门槛（导出给 enrich.ts）
+export function diceBigram(a: string, b: string): number {
   if (a.length < 2 || b.length < 2) return 0
   const ga = new Set<string>()
   for (let i = 0; i < a.length - 1; i++) ga.add(a.slice(i, i + 2))
@@ -78,9 +79,14 @@ function crossrefAuthors(author: any): string {
 
 // ---------- 各数据源 ----------
 
-async function crossrefLookup(q: string): Promise<RefMeta | null> {
+// mode: bib = 整条引文的书目检索（query.bibliographic，RefPopup 的输入形态）；
+// title = 纯标题字段检索（query.title，库内回填的输入形态）——
+// 后者对被聚合库蹭名的热门论文至关重要：bibliographic 检索的前 10 名可能全是
+// Faculty Opinions 之类的「recommendation of」条目，而 title 检索能把正主排到第一
+async function crossrefLookup(q: string, mode: 'bib' | 'title' = 'bib'): Promise<RefMeta | null> {
   const url =
-    'https://api.crossref.org/works?query.bibliographic=' +
+    'https://api.crossref.org/works?' +
+    (mode === 'bib' ? 'query.bibliographic=' : 'query.title=') +
     encodeURIComponent(q) +
     '&rows=4&select=title,author,issued,container-title,DOI,is-referenced-by-count'
   const data = await jget(url, 8_000)
@@ -95,6 +101,9 @@ async function crossrefLookup(q: string): Promise<RefMeta | null> {
     const rawTitle = Array.isArray(it?.title) && typeof it.title[0] === 'string' ? it.title[0] : ''
     const title = rawTitle.replace(/<[^>]+>/g, '').trim()
     if (!title) continue
+    // 聚合库的「推荐条目」（Faculty Opinions 等）标题形如 "<服务名> recommendation of <原文标题>"，
+    // 相似度极高但年份/期刊全是聚合服务自己的，会蹭掉正主——直接跳过，让检索落到 S2
+    if (/faculty opinions|post-publication peer review|recommendation of/i.test(title)) continue
     const doi = typeof it?.DOI === 'string' ? it.DOI : ''
     const yearNum = it?.issued?.['date-parts']?.[0]?.[0]
     const meta: RefMeta = {
@@ -204,16 +213,28 @@ export async function lookupCitedBy(title: string): Promise<number | null> {
 
 // ---------- 对外接口 ----------
 
-// 输入为一条参考文献条目原文（如 "[3] J. Smith, Power electronics, IEEE Trans., 2019"）。
-// 任何失败（无网/超时/无结果）返回 null，绝不 throw。
-export async function lookupRefMeta(raw: string): Promise<RefMeta | null> {
-  // 清洗：压缩空白、截 500 字符（API 对超长 query 会拒绝或稀释匹配）、去行首编号
-  const q = raw
+// 查询串清洗：压缩空白、截 500 字符（API 对超长 query 会拒绝或稀释匹配）、去行首编号
+function cleanQuery(raw: string): string {
+  return raw
     .trim()
     .replace(/\s+/g, ' ')
     .slice(0, 500)
     .replace(/^(?:\[\d+\]|\(\d+\)|\d+\.)\s*/, '')
     .trim()
+}
+
+// 纯书目检索：CrossRef 主路（按标题字段检索）+ S2 兜底，不做 OA PDF 的附加查询。
+// 库内元信息回填用它——一次命中只花一次检索请求，回填全库时对礼貌池友好
+export async function lookupBibMeta(raw: string): Promise<RefMeta | null> {
+  const q = cleanQuery(raw)
+  if (!q) return null
+  return (await crossrefLookup(q, 'title')) ?? (await s2Search(q))
+}
+
+// 输入为一条参考文献条目原文（如 "[3] J. Smith, Power electronics, IEEE Trans., 2019"）。
+// 任何失败（无网/超时/无结果）返回 null，绝不 throw。
+export async function lookupRefMeta(raw: string): Promise<RefMeta | null> {
+  const q = cleanQuery(raw)
   if (!q) return null
 
   const cr = await crossrefLookup(q)

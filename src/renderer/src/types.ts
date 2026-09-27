@@ -187,6 +187,8 @@ declare global {
       testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; quota?: string; error?: string }>
       testEmbed: () => Promise<{ ok: boolean; dim?: number; error?: string }>
       testRerank: () => Promise<{ ok: boolean; device?: string; scores?: number[]; error?: string }>
+      enrichRun: () => Promise<boolean>
+      onEnrichProgress: (cb: (p: { phase: string; done: number; total: number; fixed: number }) => void) => () => void
       stream: (
         args: Record<string, unknown>,
         handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: SourceRef[]) => void; onVerify?: (v: VerifyReport) => void }

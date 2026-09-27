@@ -4,6 +4,7 @@ import { shell } from 'electron'
 import { getDb, getSettings, scanLibrary, setExtraCats, getExtraCats } from './db'
 import { extractPages } from './ingest'
 import { chatStream } from './llm'
+import { bibFillsFor } from './enrich'
 
 export interface ImportOutcome {
   file: string
@@ -297,6 +298,16 @@ async function importPapersInternal(items: ImportItem[], send: (ev: string, p: u
         categorySlug = 'inbox'
       } else if (aiCat) {
         classified = true
+      }
+      // 出处缺失（AI 识别没给 / 引用导入没带）：查一次学术库把 期刊·作者·年份 补齐，
+      // 否则笔记里就是「待核实」；bibFillsFor 门槛严格，查不到宁缺勿错
+      if (!venue) {
+        const fills = await bibFillsFor(title, { venue, authors, year })
+        if (fills) {
+          venue = fills.venue ?? venue
+          authors = fills.authors || authors
+          year = year ?? fills.year ?? null
+        }
       }
       // 目标文件夹：已有分类复用，新分类建 NN-<名称>
       let dir = categorySlug === 'inbox' ? path.join(libPapers, '99-inbox') : findCategoryDir(libPapers, categorySlug)

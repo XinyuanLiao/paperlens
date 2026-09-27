@@ -96,6 +96,7 @@ export default function App(): JSX.Element | null {
   const [showSide, setShowSide] = useState(true)
   const [indexInfo, setIndexInfo] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [importInfo, setImportInfo] = useState('')
+  const [enrichInfo, setEnrichInfo] = useState('')
   const [cats, setCats] = useState<string[]>([])
   const [importFiles, setImportFiles] = useState<string[] | null>(null)
   const [importSeq, setImportSeq] = useState(0)
@@ -224,6 +225,16 @@ export default function App(): JSX.Element | null {
       if (p.total > 0 && p.done < p.total) setImportInfo(`导入中 ${p.done}/${p.total}`)
       else setImportInfo('')
     })
+    // 元信息回填进度（状态栏）：出处缺失的论文后台联网补全
+    const offEnrich = window.api.onEnrichProgress((p) => {
+      if (p.phase === 'done') {
+        if (p.fixed > 0) {
+          const msg = `已补全 ${p.fixed} 篇文献信息`
+          setEnrichInfo(msg)
+          setTimeout(() => setEnrichInfo((cur) => (cur === msg ? '' : cur)), 4000)
+        } else setEnrichInfo('')
+      } else setEnrichInfo(`正在补全文献信息 ${p.done}/${p.total}${p.fixed ? ` · 已补 ${p.fixed}` : ''}`)
+    })
     // 主进程菜单触发的变更（右键移动/删除空分类）与导入入口
     const offChg = window.api.onPapersChanged(() => void refreshPapers())
     const offReq = window.api.onImportRequest(() => {
@@ -236,6 +247,7 @@ export default function App(): JSX.Element | null {
     return () => {
       off()
       offImp()
+      offEnrich()
       offChg()
       offReq()
       clearInterval(timer)
@@ -530,7 +542,9 @@ export default function App(): JSX.Element | null {
     await refreshPapers()
   }, [saveSettings, refreshPapers])
 
-  const statusLeft = importInfo || (indexInfo ? `正在索引 ${indexInfo.done}/${indexInfo.total}` : `已索引 ${indexedCount.indexed}/${indexedCount.papers} 篇 · ${indexedCount.chunks} 块`)
+  const statusLeft =
+    importInfo ||
+    (indexInfo ? `正在索引 ${indexInfo.done}/${indexInfo.total}` : enrichInfo || `已索引 ${indexedCount.indexed}/${indexedCount.papers} 篇 · ${indexedCount.chunks} 块`)
 
   // 启动加载未完成前渲染空白（body 背景已按缓存主题上色）：既不闪向导也不闪主界面骨架
   if (!booted) return null
@@ -557,6 +571,7 @@ export default function App(): JSX.Element | null {
       items: [
         { label: '导入 PDF 文献…', hint: '拖入窗口也可以', action: addPapers },
         { label: '选择文献库文件夹…', action: () => void pickLibraryNow() },
+        { label: '补全文献元信息（联网检索）', action: () => void window.api.enrichRun() },
         { label: '重建全库索引', action: () => void window.api.rebuildIndex() },
         { sep: true, label: '' },
         { label: '设置…', action: () => setShowSettings(true) },
@@ -821,6 +836,7 @@ export default function App(): JSX.Element | null {
             { id: 'add', label: '导入 PDF 文献…', hint: '文件', run: addPapers },
             { id: 'picklib', label: '选择文献库文件夹…', hint: '文件', run: () => void pickLibraryNow() },
             { id: 'reindex', label: '重建全库索引', hint: '文件', run: () => void window.api.rebuildIndex() },
+            { id: 'enrich', label: '补全文献元信息（联网检索）', hint: '文件', run: () => void window.api.enrichRun() },
             { id: 'settings', label: '打开设置…', hint: '界面', run: () => setShowSettings(true) },
             { id: 'theme', label: '切换 深色/浅色 主题', hint: '界面', run: () => void saveSettings({ theme: document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark' }) },
             { id: 'sidebar', label: showLib ? '隐藏文献侧栏' : '显示文献侧栏', hint: '视图', run: () => setShowLib((v) => !v) },

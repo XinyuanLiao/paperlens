@@ -12,6 +12,7 @@ import { listLocalFonts } from './fonts'
 import { preprocessQuery } from './query'
 import { warmRerank, testRerank } from './rerank'
 import { verifyAnswer, shouldSkipVerify, skippedReport } from './verify'
+import { queueEnrich, clearEnrichTried } from './enrich'
 
 let win: BrowserWindow | null = null
 
@@ -38,6 +39,8 @@ function rescanLibrary(reason: string): void {
     queueIndex()
     // 重排序模型预热（首次自动下载，已就绪直接返回）
     warmRerank()
+    // 出处缺失的论文排队补元信息（单飞+节流，7 天失败记忆；已齐的论文零网络开销）
+    queueEnrich(send)
   } catch (e) {
     console.error('[scan]', e)
   }
@@ -528,6 +531,13 @@ function registerIpc(): void {
   })
   // 本地重排序测试（含 GPU→CPU 设备报告）
   ipcMain.handle('rerank:test', () => testRerank())
+
+  // 手动补全文献元信息：清掉失败重试记忆，强制把出处缺失的论文全查一遍
+  ipcMain.handle('enrich:run', () => {
+    clearEnrichTried()
+    queueEnrich(send)
+    return true
+  })
 
   // 文献库概况：各分类篇数 + 代表文献标题，供回答分类/数量/方向类问题。
   // 限定检索范围（分类/勾选文献）时只统计范围内——模型不应看到全库数字再"越界"回答
