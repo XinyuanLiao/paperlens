@@ -639,44 +639,50 @@ export default function App(): JSX.Element | null {
 
       <div className="body3">
         {showLib && (
-          <>
-            <LibraryPane
-              width={libWidth}
-              papers={papers}
-              cats={cats}
-              activeId={activeId}
-              q={q}
-              onSetQ={setQ}
-              onOpen={openPaperFromTree}
-              onCycleStatus={cycleStatus}
-              onAddPapers={addPapers}
-              onNewChat={newChat}
-              onAddPicks={addPicksToChat}
-              chats={chats}
-              curChatId={curChatId}
-              onOpenChat={openChat}
-              onDeleteChat={(id) => void deleteChat(id)}
-              onRenameChat={(id, title) => void renameChat(id, title)}
-              onMovePaper={(id, cat) => void movePaper(id, cat)}
-              onReindex={() => {
-                void window.api.rebuildIndex()
-              }}
-              onRescan={() => {
-                void (async () => {
-                  await window.api.scanLibrary()
-                  await refreshPapers()
-                })()
-              }}
-              onOpenPalette={() => setPaletteOpen(true)}
-              onOpenSettings={() => setShowSettings(true)}
-              mode={mode}
-              onModeChange={setMode}
-              onPapersChanged={refreshPapers}
-            />
-            <div className="col-resizer" onMouseDown={startDrag('lib')} title="拖动调节宽度，双击复位" onDoubleClick={() => { setLibWidth(264); localStorage.setItem('pl.libW', '264') }} />
-          </>
+          <LibraryPane
+            width={libWidth}
+            papers={papers}
+            cats={cats}
+            activeId={activeId}
+            q={q}
+            onSetQ={setQ}
+            onOpen={openPaperFromTree}
+            onCycleStatus={cycleStatus}
+            onAddPapers={addPapers}
+            onNewChat={newChat}
+            onAddPicks={addPicksToChat}
+            chats={chats}
+            curChatId={curChatId}
+            onOpenChat={openChat}
+            onDeleteChat={(id) => void deleteChat(id)}
+            onRenameChat={(id, title) => void renameChat(id, title)}
+            onMovePaper={(id, cat) => void movePaper(id, cat)}
+            onReindex={() => {
+              void window.api.rebuildIndex()
+            }}
+            onRescan={() => {
+              void (async () => {
+                await window.api.scanLibrary()
+                await refreshPapers()
+              })()
+            }}
+            onOpenPalette={() => setPaletteOpen(true)}
+            onOpenSettings={() => setShowSettings(true)}
+            mode={mode}
+            onModeChange={setMode}
+            onPapersChanged={refreshPapers}
+          />
         )}
         <div className="workspace">
+          {/* 侧栏拖宽把手骑在主卡左缘线上：阅读/对话两种卡都相对 workspace 内缩 10px，亮线即分割线 */}
+          {showLib && (
+            <div
+              className="col-resizer edge"
+              onMouseDown={startDrag('lib')}
+              title="拖动调节宽度，双击复位"
+              onDoubleClick={() => { setLibWidth(264); localStorage.setItem('pl.libW', '264') }}
+            />
+          )}
           {/* 阅读区：模式切换只隐藏不卸载，保留标签页与滚动状态 */}
           <div className={`main-win ${mode === 'read' ? '' : 'pane-hidden'}`}>
             {tabs.length === 0 ? (
