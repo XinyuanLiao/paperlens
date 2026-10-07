@@ -7,6 +7,7 @@ import SetupWizard from './SetupWizard'
 import CommandPalette from './CommandPalette'
 import ChatView from './ChatView'
 import ImportDialog from './ImportDialog'
+import BibExportDialog from './BibExportDialog'
 import type { ChatScope } from './ChatControls'
 import type { ChatMeta, Paper, Settings } from './types'
 
@@ -97,6 +98,7 @@ export default function App(): JSX.Element | null {
   const [indexInfo, setIndexInfo] = useState<{ done: number; total: number; phase: string } | null>(null)
   const [importInfo, setImportInfo] = useState('')
   const [enrichInfo, setEnrichInfo] = useState('')
+  const [bibExportOpen, setBibExportOpen] = useState(false)
   const [cats, setCats] = useState<string[]>([])
   const [importFiles, setImportFiles] = useState<string[] | null>(null)
   const [importSeq, setImportSeq] = useState(0)
@@ -572,6 +574,7 @@ export default function App(): JSX.Element | null {
         { label: '导入 PDF 文献…', hint: '拖入窗口也可以', action: addPapers },
         { label: '选择文献库文件夹…', action: () => void pickLibraryNow() },
         { label: '补全文献元信息（联网检索）', action: () => void window.api.enrichRun() },
+        { label: '导出 BibTeX…', hint: '联网核对后整库导出', action: () => setBibExportOpen(true) },
         { label: '重建全库索引', action: () => void window.api.rebuildIndex() },
         { sep: true, label: '' },
         { label: '设置…', action: () => setShowSettings(true) },
@@ -833,6 +836,7 @@ export default function App(): JSX.Element | null {
           onFinished={(outcomes) => void importDone(outcomes)}
         />
       )}
+      {bibExportOpen && <BibExportDialog onClose={() => setBibExportOpen(false)} />}
       {paletteOpen && (
         <CommandPalette
           papers={papers}
@@ -843,6 +847,7 @@ export default function App(): JSX.Element | null {
             { id: 'picklib', label: '选择文献库文件夹…', hint: '文件', run: () => void pickLibraryNow() },
             { id: 'reindex', label: '重建全库索引', hint: '文件', run: () => void window.api.rebuildIndex() },
             { id: 'enrich', label: '补全文献元信息（联网检索）', hint: '文件', run: () => void window.api.enrichRun() },
+            { id: 'bibexport', label: '导出 BibTeX（全部文献）', hint: '文件', run: () => setBibExportOpen(true) },
             { id: 'settings', label: '打开设置…', hint: '界面', run: () => setShowSettings(true) },
             { id: 'theme', label: '切换 深色/浅色 主题', hint: '界面', run: () => void saveSettings({ theme: document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark' }) },
             { id: 'sidebar', label: showLib ? '隐藏文献侧栏' : '显示文献侧栏', hint: '视图', run: () => setShowLib((v) => !v) },

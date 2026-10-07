@@ -14,10 +14,13 @@ export interface RefMeta {
   pdfUrls: string[]
   landing: string
   source: 'crossref' | 's2' | 'none'
+  // CrossRef 条目类型（journal-article/proceedings-article/...），S2 兜底无此信息为 ''
+  // —— BibTeX 导出用它区分 @article 与 @inproceedings
+  kind: string
 }
 
 // 统一 UA：CrossRef/Unpaywall 要求带联系方式的山羊头 UA，纯匿名请求会被限流
-const UA = 'PaperLens/0.2 (mailto:planck@users.noreply.github.com)'
+export const UA = 'PaperLens/0.2 (mailto:planck@users.noreply.github.com)'
 
 // ---------- 内部辅助 ----------
 
@@ -88,7 +91,7 @@ async function crossrefLookup(q: string, mode: 'bib' | 'title' = 'bib'): Promise
     'https://api.crossref.org/works?' +
     (mode === 'bib' ? 'query.bibliographic=' : 'query.title=') +
     encodeURIComponent(q) +
-    '&rows=4&select=title,author,issued,container-title,DOI,is-referenced-by-count'
+    '&rows=4&select=title,author,issued,container-title,DOI,is-referenced-by-count,type'
   const data = await jget(url, 8_000)
   const items = data?.message?.items
   if (!Array.isArray(items)) return null
@@ -115,7 +118,8 @@ async function crossrefLookup(q: string, mode: 'bib' | 'title' = 'bib'): Promise
       citedBy: typeof it?.['is-referenced-by-count'] === 'number' ? it['is-referenced-by-count'] : null,
       pdfUrls: [],
       landing: doi ? `https://doi.org/${doi}` : '',
-      source: 'crossref'
+      source: 'crossref',
+      kind: typeof it?.type === 'string' ? it.type : ''
     }
     const dice = diceBigram(title.toLowerCase(), ql)
     if (!best || dice > best.dice) best = { meta, dice }
@@ -182,7 +186,8 @@ async function s2Search(q: string): Promise<RefMeta | null> {
       citedBy: typeof it?.citationCount === 'number' ? it.citationCount : null,
       pdfUrls: cleanPdfUrls(pdfUrl ? [{ url: pdfUrl }] : []),
       landing: doi ? `https://doi.org/${doi}` : '',
-      source: 's2'
+      source: 's2',
+      kind: ''
     }
   }
   return null

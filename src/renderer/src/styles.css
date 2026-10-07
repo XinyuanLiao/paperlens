@@ -1072,6 +1072,57 @@ html.mac { --tb-h: 44px; }
   border-radius: 7px; padding: 6px 10px; line-height: 1.6;
 }
 
+/* ============ BibTeX 导出弹窗（核对进度 → 勾选确认，节奏同导入弹窗） ============ */
+.bib-modal .modal-head { border-bottom: 1px solid var(--border); border-radius: 0; flex-shrink: 0; }
+.bib-modal .modal-actions { margin: 0; padding: 13px 20px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.bib-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px 20px 16px; }
+.bib-checking { padding: 26px 8px 34px; }
+.bib-checking .progress-track { height: 3px; margin-top: 0; }
+.bib-checking-label { margin-top: 10px; font-size: 12px; color: var(--text); line-height: 1.6; }
+.bib-checking-sub { margin-top: 4px; font-size: 11px; color: var(--text-dim); }
+.bib-summary { font-size: 12px; color: var(--text-dim); flex-shrink: 0; line-height: 1.7; }
+.bib-summary .bib-src { font-weight: 650; }
+.bib-src.official { color: var(--ok); }
+.bib-src.web { color: var(--accent2); }
+.bib-src.local { color: var(--text-dim); }
+.bib-src.local.warn { color: var(--danger); }
+.bib-summary-note { color: var(--danger); font-size: 11px; }
+.bib-list-head {
+  display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 2px 2px 6px; flex-shrink: 0;
+  font-size: 11px; color: var(--text-dim);
+}
+.bib-checkall { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text); }
+.bib-rows {
+  flex: 1; min-height: 120px; max-height: 380px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 10px; padding: 5px; background: var(--bg);
+}
+.bib-row-wrap + .bib-row-wrap { margin-top: 1px; }
+.bib-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 7px;
+  font-size: 12px; cursor: pointer; transition: background var(--speed);
+}
+.bib-row:hover { background: var(--bg2); }
+.bib-row input[type='checkbox'] { flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
+.bib-row-title { flex: 1; min-width: 0; }
+.bib-key {
+  flex-shrink: 0; font-family: var(--mono); font-size: 10.5px; color: var(--text-dim);
+  background: var(--bg2); border-radius: 4px; padding: 1.5px 6px; max-width: 190px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bib-src-badge {
+  flex-shrink: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; border-radius: 4px; padding: 1.5px 6px;
+}
+.bib-src-badge.official { color: var(--ok); background: var(--accent-soft); }
+.bib-src-badge.web { color: var(--accent2); background: var(--accent-soft); }
+.bib-src-badge.local { color: var(--text-dim); background: var(--bg2); border: 1px solid var(--border); }
+.bib-row-wrap.local .bib-warn { color: var(--danger); }
+.bib-warn { flex-shrink: 0; font-size: 12px; cursor: help; }
+.bib-pre {
+  margin: 0 6px 6px 28px; padding: 9px 11px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 8px; font-family: var(--mono); font-size: 11px; line-height: 1.55; color: var(--text);
+  max-height: 210px; overflow: auto; white-space: pre; cursor: auto;
+}
+
 /* ============ PDF 全文搜索 ============ */
 .tool-btn {
   display: inline-flex; align-items: center; justify-content: center;

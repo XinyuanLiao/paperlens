@@ -13,6 +13,7 @@ import { preprocessQuery } from './query'
 import { warmRerank, testRerank } from './rerank'
 import { verifyAnswer, shouldSkipVerify, skippedReport } from './verify'
 import { queueEnrich, clearEnrichTried } from './enrich'
+import { queueBibExport, cancelBibExport, getLastBibResult, assembleBibFile } from './bibexport'
 
 let win: BrowserWindow | null = null
 
@@ -537,6 +538,47 @@ function registerIpc(): void {
     clearEnrichTried()
     queueEnrich(send)
     return true
+  })
+
+  // ---------- 批量 BibTeX 导出（矫正链见 bibexport.ts） ----------
+  // force=true 清缓存全量重查（界面「重新联网核对」）
+  ipcMain.handle('bib:export-run', (_e, force?: boolean) => {
+    queueBibExport(send, !!force)
+    return true
+  })
+  ipcMain.handle('bib:export-cancel', () => {
+    cancelBibExport()
+    return true
+  })
+  // 勾选确认后写盘：主进程持有核对结果（lastResult），渲染端只传选中的 slug。
+  // 写盘前整文件往返解析 + key 唯一校验，校验不过绝不落盘
+  ipcMain.handle('bib:export-save', async (_e, slugs: string[]) => {
+    const last = getLastBibResult()
+    if (!last) return { ok: false as const, error: '尚无核对结果，请先运行导出核对' }
+    const want = new Set(slugs.map(String))
+    const entries = last.entries.filter((e) => want.has(e.slug))
+    if (!entries.length) return { ok: false as const, error: '没有选中任何条目' }
+    const { content, errors } = assembleBibFile(entries)
+    if (errors.length) {
+      await dialog.showMessageBox(win!, {
+        type: 'warning',
+        message: '导出校验未通过，已取消写盘',
+        detail: errors.slice(0, 10).join('\n')
+      })
+      return { ok: false as const, error: '校验未通过' }
+    }
+    const r = await dialog.showSaveDialog(win!, {
+      title: '导出 BibTeX',
+      defaultPath: 'paperlens.bib',
+      filters: [{ name: 'BibTeX', extensions: ['bib'] }]
+    })
+    if (r.canceled || !r.filePath) return { ok: false as const, canceled: true }
+    try {
+      fs.writeFileSync(r.filePath, content, 'utf8')
+      return { ok: true as const, path: r.filePath, n: entries.length }
+    } catch (err) {
+      return { ok: false as const, error: String(err) }
+    }
   })
 
   // 文献库概况：各分类篇数 + 代表文献标题，供回答分类/数量/方向类问题。

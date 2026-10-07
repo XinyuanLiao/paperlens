@@ -88,6 +88,21 @@ const api = {
     return () => ipcRenderer.removeListener('enrich:progress', h)
   },
 
+  // 批量 BibTeX 导出：核对（进度+结果推送）→ 勾选确认 → 写盘（主进程持有核对结果）
+  bibExportRun: (force?: boolean) => ipcRenderer.invoke('bib:export-run', force),
+  bibExportCancel: () => ipcRenderer.invoke('bib:export-cancel'),
+  bibExportSave: (slugs: string[]) => ipcRenderer.invoke('bib:export-save', slugs),
+  onBibProgress: (cb: (p: { phase: string; done: number; total: number; cancelled?: boolean }) => void) => {
+    const h = (_e: unknown, p: { phase: string; done: number; total: number; cancelled?: boolean }) => cb(p)
+    ipcRenderer.on('bib:progress', h)
+    return () => ipcRenderer.removeListener('bib:progress', h)
+  },
+  onBibResult: (cb: (r: unknown) => void) => {
+    const h = (_e: unknown, r: unknown) => cb(r)
+    ipcRenderer.on('bib:result', h)
+    return () => ipcRenderer.removeListener('bib:result', h)
+  },
+
   // 流式对话：返回 stop 中断句柄（主进程 abort 后照常走 onEnd 收尾）
   stream: (
     args: Record<string, unknown>,

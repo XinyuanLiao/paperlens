@@ -141,6 +141,26 @@ export interface RefMeta {
   pdfUrls: string[]
   landing: string
   source: 'crossref' | 's2' | 'none'
+  // CrossRef 条目类型（BibTeX 导出区分期刊/会议用）
+  kind?: string
+}
+
+// 批量 BibTeX 导出：单条核对结果（见 src/main/bibexport.ts）
+// source 三档置信度：official=DOI 官方条目（双重比对通过）/ web=检索元数据拼装 / local=库内拼装
+export interface BibExportEntry {
+  slug: string
+  title: string
+  key: string
+  bibtex: string
+  source: 'official' | 'web' | 'local'
+  warnings: string[]
+}
+
+export interface BibExportResult {
+  entries: BibExportEntry[]
+  official: number
+  web: number
+  local: number
 }
 
 declare global {
@@ -189,6 +209,11 @@ declare global {
       testRerank: () => Promise<{ ok: boolean; device?: string; scores?: number[]; error?: string }>
       enrichRun: () => Promise<boolean>
       onEnrichProgress: (cb: (p: { phase: string; done: number; total: number; fixed: number }) => void) => () => void
+      bibExportRun: (force?: boolean) => Promise<boolean>
+      bibExportCancel: () => Promise<boolean>
+      bibExportSave: (slugs: string[]) => Promise<{ ok: boolean; path?: string; n?: number; canceled?: boolean; error?: string }>
+      onBibProgress: (cb: (p: { phase: string; done: number; total: number; cancelled?: boolean }) => void) => () => void
+      onBibResult: (cb: (r: BibExportResult) => void) => () => void
       stream: (
         args: Record<string, unknown>,
         handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: SourceRef[]) => void; onVerify?: (v: VerifyReport) => void }
