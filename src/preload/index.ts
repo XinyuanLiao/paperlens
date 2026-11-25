@@ -26,10 +26,17 @@ const api = {
     ipcRenderer.on('preview:progress', h)
     return () => ipcRenderer.removeListener('preview:progress', h)
   },
-  addHighlight: (paperId: number, page: number, rects: Array<{ x: number; y: number; w: number; h: number }>, text: string) =>
-    ipcRenderer.invoke('highlights:add', paperId, page, rects, text),
+  // 批注（高亮 + 颜色 + 批注文字）与笔记
+  addHighlight: (paperId: number, page: number, rects: Array<{ x: number; y: number; w: number; h: number }>, text: string, color?: string) =>
+    ipcRenderer.invoke('highlights:add', paperId, page, rects, text, color),
   listHighlights: (paperId: number) => ipcRenderer.invoke('highlights:list', paperId),
+  updateHighlight: (id: number, patch: { note?: string; color?: string }) => ipcRenderer.invoke('highlights:update', id, patch),
   deleteHighlight: (id: number) => ipcRenderer.invoke('highlights:delete', id),
+  listNotes: (paperId: number) => ipcRenderer.invoke('notes:list', paperId),
+  saveNote: (input: { id?: number; paperId: number; page?: number | null; content: string }) => ipcRenderer.invoke('notes:save', input),
+  deleteNote: (id: number) => ipcRenderer.invoke('notes:delete', id),
+  annotationCounts: () => ipcRenderer.invoke('notes:counts'),
+  exportNotes: (paperId: number) => ipcRenderer.invoke('notes:export', paperId),
   paperMenu: (id: number, x: number, y: number) => ipcRenderer.send('papers:menu', id, x, y),
   categoryMenu: (cat: string, x: number, y: number) => ipcRenderer.send('category:menu', cat, x, y),
   blankMenu: (x: number, y: number) => ipcRenderer.send('library:blank-menu', x, y),
@@ -77,6 +84,8 @@ const api = {
     return () => ipcRenderer.removeListener('import:file', h)
   },
   testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => ipcRenderer.invoke('llm:test', over),
+  // 向服务商拉取可用模型列表（设置页「同步模型」）：预设里的模型名会过期，以实时返回为准
+  listModels: (over?: { apiBase?: string; apiKey?: string; provider?: string }) => ipcRenderer.invoke('llm:models', over),
   testEmbed: () => ipcRenderer.invoke('embed:test'),
   testRerank: () => ipcRenderer.invoke('rerank:test'),
 
@@ -103,16 +112,24 @@ const api = {
     return () => ipcRenderer.removeListener('bib:result', h)
   },
 
-  // 流式对话：返回 stop 中断句柄（主进程 abort 后照常走 onEnd 收尾）
+  // 流式对话：返回 stop 中断句柄（主进程 abort 后照常走 onEnd 收尾）。
+  // onReason 收推理片段（reasoning_content）：思考模型在正文之前先输出推理过程，界面据此显示「思考中」
   stream: (
     args: Record<string, unknown>,
-    handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: unknown[]) => void; onVerify?: (v: unknown) => void }
+    handlers: {
+      onDelta: (t: string) => void
+      onEnd: () => void
+      onSources?: (s: unknown[]) => void
+      onVerify?: (v: unknown) => void
+      onReason?: (t: string) => void
+    }
   ) => {
     const reqId = Date.now() + Math.floor(Math.random() * 1e6)
     const deltaCh = `llm:delta:${reqId}`
     const endCh = `llm:end:${reqId}`
     const srcCh = `llm:sources:${reqId}`
     const verCh = `llm:verify:${reqId}`
+    const rsnCh = `llm:reason:${reqId}`
     const onDelta = (_e: unknown, t: string) => handlers.onDelta(t)
     const onEnd = () => {
       cleanup()
@@ -120,16 +137,19 @@ const api = {
     }
     const onSources = (_e: unknown, s: unknown[]) => handlers.onSources?.(s)
     const onVerify = (_e: unknown, v: unknown) => handlers.onVerify?.(v)
+    const onReason = (_e: unknown, t: string) => handlers.onReason?.(t)
     function cleanup(): void {
       ipcRenderer.removeListener(deltaCh, onDelta)
       ipcRenderer.removeListener(endCh, onEnd)
       ipcRenderer.removeListener(srcCh, onSources)
       ipcRenderer.removeListener(verCh, onVerify)
+      ipcRenderer.removeListener(rsnCh, onReason)
     }
     ipcRenderer.on(deltaCh, onDelta)
     ipcRenderer.on(endCh, onEnd)
     ipcRenderer.on(srcCh, onSources)
     ipcRenderer.on(verCh, onVerify)
+    ipcRenderer.on(rsnCh, onReason)
     ipcRenderer.send('llm:stream', { reqId, ...args })
     return () => ipcRenderer.send('llm:stop', reqId)
   },
@@ -146,6 +166,23 @@ const api = {
   },
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
   syncTheme: (theme: string) => ipcRenderer.send('ui:theme', theme),
+
+  // 浏览器扩展导入：本地服务状态 / 扩展目录 / 最近通过扩展入库的记录
+  connectorStatus: () => ipcRenderer.invoke('connector:status'),
+  connectorRestart: () => ipcRenderer.invoke('connector:restart'),
+  connectorOpenDir: () => ipcRenderer.invoke('connector:open-dir'),
+  setConnectorCategory: (cat: string) => ipcRenderer.invoke('connector:set-category', cat),
+  onConnectorActivity: (cb: (a: unknown) => void) => {
+    const h = (_e: unknown, a: unknown) => cb(a)
+    ipcRenderer.on('connector:activity', h)
+    return () => ipcRenderer.removeListener('connector:activity', h)
+  },
+  // 扩展导入完成后，主进程通知在这里打开新论文
+  onOpenPaperRequest: (cb: (p: { slug: string }) => void) => {
+    const h = (_e: unknown, p: { slug: string }) => cb(p)
+    ipcRenderer.on('app:open-paper', h)
+    return () => ipcRenderer.removeListener('app:open-paper', h)
+  },
 
   // 参考文献弹窗：元数据查询 + OA PDF 下载入库
   lookupRef: (raw: string) => ipcRenderer.invoke('ref:lookup', raw),

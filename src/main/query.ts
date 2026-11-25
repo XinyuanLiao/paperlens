@@ -1,5 +1,5 @@
 import { getDb, getSettings } from './db'
-import { chatOnce, rewriteMessages } from './llm'
+import { chatOnce, rewriteMessages, parseJsonLoose } from './llm'
 
 // 查询预处理：术语扩展 + 意图识别（精确匹配 vs 语义关联）+ 多轮指代消解。
 // 规则层零成本即时生效；LLM 层（默认开）用当前对话模型改写一次，4s 超时回退规则层。
@@ -48,16 +48,6 @@ function buildFtsQuery(keywords: string[], fallback: string): string {
     .slice(0, 8)
   if (!kws.length) return fallback
   return kws.map((k) => (k.includes(' ') ? `"${k}"` : k)).join(' OR ')
-}
-
-function parseJsonLoose(text: string): Record<string, unknown> | null {
-  const m = text.match(/\{[\s\S]*\}/)
-  if (!m) return null
-  try {
-    return JSON.parse(m[0])
-  } catch {
-    return null
-  }
 }
 
 export async function preprocessQuery(q: string, history?: Array<{ role: 'user' | 'assistant'; content: string }>): Promise<PreparedQuery> {

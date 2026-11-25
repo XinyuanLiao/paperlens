@@ -3,7 +3,7 @@ import path from 'node:path'
 import { getDb, getSettings } from './db'
 import { embed, embedModelId } from './embed'
 import { runLiteparse } from './liteparse'
-import { chunkMdBlocks, chunkPages, parseMdBlockPages, type ChunkJob } from './chunk'
+import { chunkMdBlocks, chunkPages, parseMdBlockPages, stripBackMatter, type ChunkJob } from './chunk'
 import { rerankChunks, rerankEnabled, rerankDevice } from './rerank'
 import type { PreparedQuery } from './query'
 
@@ -16,7 +16,8 @@ export function isIndexRunning(): boolean {
 // 分块算法版本：改动分块逻辑时递增，buildIndex 检测到旧版本索引会自动清空重建
 // v3：裁参考文献 + 分类前缀嵌入；v4：结构化三层分块；v5：块目标 1024 token、重叠 128；
 // v6：分组加入页码（修复无标题论文整篇页码坍缩到最后一页）+ 章节标题截断
-const CHUNK_VERSION = 6
+// v7：尾部章节须整行匹配（「Reference Signal Generation」这类小节不再被当成参考文献丢掉）+ 过短的落单段落不再丢弃 + 字母编号小节记作 3-A
+const CHUNK_VERSION = 7
 // 结构化解析引擎（liteparse 随应用内置，无 OCR；旧引擎值 'marker'/'builtin' 不一致即触发重建）
 const PDF_ENGINE = 'liteparse'
 // 精排候选数（固定）：GPU = 40；仅 CPU 轻量 = 24
@@ -47,27 +48,6 @@ export function indexNeedsRebuild(): boolean {
 // 嵌入向量与检索片段的语义边界都更干净；单行超长时才在句读处硬切
 // （v4 起由 chunk.ts 的三层结构化分块取代，此函数仅保留给内置路径之外的临时抽取）
 
-// 参考文献/致谢/作者简介等尾部章节标题：这些页是引文清单与作者信息，
-// 进入 RAG 会污染检索片段（且引用跳转会落在奇怪的页面），从索引起点剔除
-const BACK_MATTER_RE = /^(?:\d+(?:\.\d+)*\.?\s+)?(?:references(?:\s+cited)?|bibliography|acknowledg?ments?|biograph(?:y|ies)|author biographies?|参考文献|致谢|作者简介)\s*$/i
-
-// 尾部章节裁剪：命中标题起（同页只留标题前的正文，后续页清空）；
-// 保持数组长度不变，页码/总页数语义不受影响
-function stripBackMatter(pages: string[]): string[] {
-  for (let p = 0; p < pages.length; p++) {
-    const lines = pages[p].split('\n')
-    for (let i = 0; i < lines.length; i++) {
-      const t = lines[i].trim()
-      if (t.length > 48 || !BACK_MATTER_RE.test(t)) continue
-      const out = pages.slice()
-      out[p] = lines.slice(0, i).join('\n').trim()
-      for (let q = p + 1; q < out.length; q++) out[q] = ''
-      return out
-    }
-  }
-  return pages
-}
-
 export async function extractPages(pdfPath: string, maxPages = Infinity): Promise<string[]> {
   const { app } = await import('electron')
   const assetRoot = app.isPackaged ? path.join(process.resourcesPath, 'app.asar') : app.getAppPath()
@@ -81,6 +61,7 @@ export async function extractPages(pdfPath: string, maxPages = Infinity): Promis
     cMapPacked: true
   }).promise
   const pages: string[] = []
+  try {
   for (let p = 1; p <= doc.numPages && p <= maxPages; p++) {
     const page = await doc.getPage(p)
     const tc = await page.getTextContent()
@@ -102,10 +83,15 @@ export async function extractPages(pdfPath: string, maxPages = Infinity): Promis
     pages.push(lines.join('\n'))
   }
   return stripBackMatter(pages)
+  } finally {
+    // 用完即销毁：pdf.js 文档持有 worker 与解析缓存。不销毁的话，给大库建索引时每篇都会在内存里留一份
+    await doc.destroy().catch(() => {})
+  }
 }
 
 // 带缓存的整文抽取（问答整篇模式用；按 mtime 失效）
 const pageCache = new Map<string, { mtime: number; pages: string[] }>()
+const PAGE_CACHE_MAX = 12 // 整篇文本缓存条数上限（超出淘汰最久未用的），避免开过的论文越积越多
 export async function extractPagesCached(pdfPath: string): Promise<string[]> {
   let mtime = 0
   try {
@@ -116,6 +102,7 @@ export async function extractPagesCached(pdfPath: string): Promise<string[]> {
   const hit = pageCache.get(pdfPath)
   if (hit && hit.mtime === mtime) return hit.pages
   const pages = await extractPages(pdfPath)
+  if (pageCache.size >= PAGE_CACHE_MAX) pageCache.delete(pageCache.keys().next().value as string)
   pageCache.set(pdfPath, { mtime, pages })
   return pages
 }
@@ -324,6 +311,7 @@ export async function hybridSearch(
   // 每篇论文的最强块：整篇级相关度 = max(块余弦)（在全部块上统计，不受 top-50 截断影响）
   const bestByPaper = new Map<number, { chunkId: number; max: number }>()
   for (const r of rows) {
+    if (!paperById.has(r.paper_id)) continue // 分类 / 勾选范围之外
     if (scopePaperId && r.paper_id !== scopePaperId) continue
     if (scopeSet && !scopeSet.has(r.paper_id)) continue
     const fv = new Float32Array(r.vec.buffer, r.vec.byteOffset, r.vec.byteLength / 4)
@@ -353,6 +341,8 @@ export async function hybridSearch(
       for (const x of fts) {
         const pid = pidOf.get(Number(x.rowid))
         if (pid === undefined) continue
+        // 范围外的命中直接不计分：否则它们会占掉融合名额和重排名额，真正范围内的候选反而被挤出去
+        if (!paperById.has(pid)) continue
         if (scopePaperId && pid !== scopePaperId) continue
         if (scopeSet && !scopeSet.has(pid)) continue
         bump(Number(x.rowid), rank++, bw)

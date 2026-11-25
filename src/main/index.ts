@@ -1,9 +1,21 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, nativeImage, nativeTheme } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, nativeImage, nativeTheme, net } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import * as dbmod from './db'
 import { buildIndex, isIndexRunning, indexNeedsRebuild, hybridSearch, extractPagesCached } from './ingest'
-import { chatStream, translateMessages, explainMessages, ragMessages, paperFullMessages, testLLM, type ChatMessage } from './llm'
+import {
+  chatStream,
+  translateMessages,
+  explainMessages,
+  ragMessages,
+  paperFullMessages,
+  notesMessages,
+  testLLM,
+  listModels,
+  finishNote,
+  type ChatMessage,
+  type LlmEndpoint
+} from './llm'
 import { importPapers, previewImport, movePaperToCategory, createCategory, deleteCategory, deletePaper, renamePaper } from './import'
 import { lookupRefMeta, downloadRefPdf, lookupCitedBy } from './refmeta'
 import { freeTranslate } from './freetranslate'
@@ -14,6 +26,32 @@ import { warmRerank, testRerank } from './rerank'
 import { verifyAnswer, shouldSkipVerify, skippedReport } from './verify'
 import { queueEnrich, clearEnrichTried } from './enrich'
 import { queueBibExport, cancelBibExport, getLastBibResult, assembleBibFile } from './bibexport'
+import { httpFetch, setHttpFetch } from './http'
+import {
+  addAnnotation,
+  listAnnotations,
+  updateAnnotation,
+  deleteAnnotation,
+  listNotes,
+  saveNote,
+  deleteNote,
+  annotationCounts,
+  notesMarkdown,
+  type AnnotationCount,
+  type HighlightRect,
+  type NotePaper
+} from './notes'
+import {
+  startConnector,
+  stopConnector,
+  restartConnector,
+  connectorStatus,
+  recentActivity,
+  setConnectorCategory,
+  connectorCategory,
+  openConnectorDir,
+  type ConnectorHost
+} from './connector'
 
 let win: BrowserWindow | null = null
 
@@ -111,6 +149,8 @@ if (process.env.PAPERLENS_DATA_DIR) {
 }
 
 app.whenReady().then(() => {
+  // 联网请求改走 Chromium 网络栈：跟随系统代理 / PAC 与系统证书（见 http.ts）。必须在首次联网之前
+  setHttpFetch((url, init) => net.fetch(url, init))
   dbmod.initDb()
   registerIpc()
   createWindow()
@@ -139,7 +179,37 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
+app.on('will-quit', () => stopConnector())
+
 function registerIpc(): void {
+  // ---------- 浏览器扩展导入 ----------
+  // 应用在本机开一个只对浏览器扩展开放的 HTTP 服务（见 connector.ts）。
+  // 入库成功后：排队建索引 + 通知主窗口刷新列表，并在阅读区打开新论文
+  const connectorHost: ConnectorHost = {
+    send,
+    onImported: (slug: string) => {
+      queueIndex()
+      send('papers:changed', { ids: [slug] })
+      // 不抢焦点：用户还在浏览器里；回到主窗口时新论文已经打开
+      send('app:open-paper', { slug })
+    }
+  }
+  startConnector(connectorHost)
+  // 下面几个接口只响应主窗口自己的页面
+  const fromMain = (e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean => !!win && !win.isDestroyed() && e.sender === win.webContents
+  const connectorInfo = (): import('./connector').ConnectorStatus & { recent: import('./connector').ConnectorActivity[]; defaultCategory: string } => ({
+    ...connectorStatus(),
+    recent: recentActivity(),
+    defaultCategory: connectorCategory()
+  })
+  ipcMain.handle('connector:status', (e) => (fromMain(e) ? connectorInfo() : null))
+  ipcMain.handle('connector:restart', (e) => (fromMain(e) ? { ...restartConnector(connectorHost), recent: recentActivity(), defaultCategory: connectorCategory() } : null))
+  // 打开扩展目录：返回空串表示成功，否则是错误信息
+  ipcMain.handle('connector:open-dir', (e) => (fromMain(e) ? openConnectorDir() : ''))
+  // 扩展弹窗里的默认分类（应用这边记着，扩展每次保存时带上）
+  ipcMain.handle('connector:set-category', (e, cat: unknown) => {
+    if (fromMain(e)) setConnectorCategory(typeof cat === 'string' ? cat.slice(0, 60) : '')
+  })
   ipcMain.handle('settings:get', () => dbmod.getSettings())
   ipcMain.handle('settings:save', (_e, patch) => dbmod.saveSettings(patch))
 
@@ -348,28 +418,55 @@ function registerIpc(): void {
     menu.popup({ window: win, x: Math.round(x), y: Math.round(y) })
   })
 
-  // 划词高亮持久化
-  ipcMain.handle(
-    'highlights:add',
-    (_e, paperId: number, page: number, rects: Array<{ x: number; y: number; w: number; h: number }>, text: string) => {
-      const r = dbmod
-        .getDb()
-        .prepare('INSERT INTO highlights(paper_id,page,rects,text) VALUES(?,?,?,?)')
-        .run(paperId, page, JSON.stringify(rects), text.slice(0, 500))
-      return Number(r.lastInsertRowid)
+  // ---------- 批注（高亮 + 颜色 + 批注文字）与笔记 ----------
+  ipcMain.handle('highlights:add', (_e, paperId: number, page: number, rects: unknown, text: string, color?: string) => {
+    if (!Array.isArray(rects) || rects.length === 0) throw new Error('批注缺少位置信息')
+    return addAnnotation(Number(paperId), Number(page), rects as HighlightRect[], String(text ?? ''), color)
+  })
+  ipcMain.handle('highlights:list', (_e, paperId: number) => listAnnotations(Number(paperId)))
+  ipcMain.handle('highlights:update', (_e, id: number, patch: { note?: unknown; color?: unknown } | undefined) =>
+    updateAnnotation(Number(id), {
+      ...(typeof patch?.note === 'string' ? { note: patch.note } : {}),
+      ...(typeof patch?.color === 'string' ? { color: patch.color } : {})
+    })
+  )
+  ipcMain.handle('highlights:delete', (_e, hid: number) => deleteAnnotation(Number(hid)))
+  ipcMain.handle('notes:list', (_e, paperId: number) => listNotes(Number(paperId)))
+  ipcMain.handle('notes:save', (_e, input: { id?: number; paperId: number; page?: number | null; content: string } | undefined) => {
+    if (!input || !Number.isFinite(Number(input.paperId))) return 0
+    return saveNote({ id: input.id, paperId: Number(input.paperId), page: input.page ?? null, content: String(input.content ?? '') })
+  })
+  ipcMain.handle('notes:delete', (_e, id: number) => deleteNote(Number(id)))
+  // 文献列表上的批注角标：只返回有内容的论文
+  ipcMain.handle('notes:counts', () => {
+    const out: Record<number, AnnotationCount> = {}
+    for (const [id, c] of annotationCounts()) out[id] = c
+    return out
+  })
+  // 笔记导出为 Markdown：保存位置由用户选择，返回是否真的导出
+  ipcMain.handle('notes:export', async (_e, paperId: number) => {
+    const p = dbmod.getDb().prepare('SELECT id, title, authors, venue, year FROM papers WHERE id=?').get(Number(paperId)) as
+      | (NotePaper & { id: number })
+      | undefined
+    if (!p) throw new Error('论文不存在（可能已被删除）')
+    if (!win) return { ok: false as const, canceled: true }
+    const content = notesMarkdown(p, listAnnotations(p.id), listNotes(p.id))
+    const safe = (p.title || 'paper').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
+    const r = await dialog.showSaveDialog(win, {
+      title: '导出笔记',
+      defaultPath: `${safe}-笔记.md`,
+      filters: [
+        { name: 'Markdown', extensions: ['md'] },
+        { name: '纯文本', extensions: ['txt'] }
+      ]
+    })
+    if (r.canceled || !r.filePath) return { ok: false as const, canceled: true }
+    try {
+      fs.writeFileSync(r.filePath, content, 'utf8')
+      return { ok: true as const, path: r.filePath }
+    } catch (err) {
+      return { ok: false as const, error: String(err) }
     }
-  )
-  ipcMain.handle('highlights:list', (_e, paperId: number) =>
-    (dbmod.getDb().prepare('SELECT id, page, rects, text FROM highlights WHERE paper_id=?').all(paperId) as Array<{
-      id: number
-      page: number
-      rects: string
-      text: string
-    }>).map((h) => ({ ...h, rects: JSON.parse(h.rects) }))
-  )
-  ipcMain.handle('highlights:delete', (_e, hid: number) => {
-    dbmod.getDb().prepare('DELETE FROM highlights WHERE id=?').run(hid)
-    return true
   })
 
   ipcMain.handle('pdf:read', (_e, pdfPath: string) => {
@@ -521,7 +618,9 @@ function registerIpc(): void {
   ipcMain.on('index:start', () => queueIndex())
 
   // 连接测试：over = 渲染端当前编辑值（先保存再测会读到旧全局配置，正确 key 也测不过）
-  ipcMain.handle('llm:test', (_e, over?: import('./llm').LlmEndpoint) => testLLM(over))
+  ipcMain.handle('llm:test', (_e, over?: LlmEndpoint) => testLLM(over))
+  // 向服务商拉取可用模型（设置页「同步模型」）：预设里的模型名会过期，以实时返回为准
+  ipcMain.handle('llm:models', (_e, over?: LlmEndpoint) => listModels(over))
   ipcMain.handle('embed:test', async () => {
     try {
       const { dim } = await embed(['connection test'])
@@ -673,8 +772,8 @@ function registerIpc(): void {
     })
   }
 
-  // LLM 流式：reqId 关联渲染端回调；inflight 供「停止生成」abort 进行中的请求
-  const inflight = new Map<number, AbortController>()
+// LLM 流式：reqId 关联渲染端回调；inflight 供「停止生成」abort 进行中的请求
+const inflight = new Map<number, AbortController>()
   ipcMain.on('llm:stop', (_e, reqId: number) => {
     inflight.get(Number(reqId))?.abort()
   })
@@ -684,7 +783,8 @@ function registerIpc(): void {
       _e,
       args: {
         reqId: number
-        mode: 'chat' | 'translate' | 'explain' | 'rag'
+        mode: 'chat' | 'translate' | 'explain' | 'rag' | 'notes'
+        paperId?: number
         messages?: ChatMessage[]
         text?: string
         context?: string
@@ -698,6 +798,8 @@ function registerIpc(): void {
     ) => {
       const controller = new AbortController()
       inflight.set(args.reqId, controller)
+      // 是否已向界面产出过内容（出错时决定错误提示前要不要空行）
+      let produced = false
       try {
         let msgs: ChatMessage[] = []
         let sources: import('./ingest').RetrievedChunk[] = []
@@ -714,6 +816,17 @@ function registerIpc(): void {
             directTranslate = true
           }
         } else if (args.mode === 'explain') msgs = explainMessages(args.text!, args.context ?? '')
+        else if (args.mode === 'notes') {
+          // 笔记整理：本篇的批注与笔记交给模型归纳（不检索、不带引用编号）
+          const paperId = Number(args.paperId)
+          const paper = dbmod.getDb().prepare('SELECT title FROM papers WHERE id=?').get(paperId) as { title: string } | undefined
+          const items = [
+            ...listAnnotations(paperId).map((a) => ({ page: a.page, quote: a.text, note: a.note })),
+            ...listNotes(paperId).map((n) => ({ page: n.page, note: n.content }))
+          ]
+          if (!paper || !items.length) throw new Error('这篇论文还没有批注或笔记')
+          msgs = notesMessages(paper.title, items)
+        }
         else if (args.mode === 'rag') {
           if (args.scopePaperId) {
             // 整篇模式：完整论文正文进提示词（按页标记，引用为 [页码]），无需检索预处理
@@ -790,9 +903,24 @@ function registerIpc(): void {
         }
 
         let answer = ''
-        for await (const delta of chatStream(msgs, { signal: controller.signal })) {
+        let finish = ''
+        for await (const delta of chatStream(msgs, {
+          signal: controller.signal,
+          // 推理片段单独走一个通道：界面据此显示「思考中」，不混进正文
+          onReason: (t) => send(`llm:reason:${args.reqId}`, t),
+          onFinish: (r) => {
+            finish = r
+          }
+        })) {
           answer += delta
+          produced = true
           send(`llm:delta:${args.reqId}`, delta)
+        }
+        // 截断、审查拦截、空回答：明确说出来，不留空气泡也不留半截话
+        const note = finishNote(finish, answer)
+        if (note) {
+          answer += note
+          send(`llm:delta:${args.reqId}`, note)
         }
         if (args.mode === 'rag') {
           if (fullPaper) {
@@ -840,7 +968,11 @@ function registerIpc(): void {
         send(`llm:end:${args.reqId}`, null)
       } catch (err) {
         // 用户主动停止：不追加错误提示，静默收尾即可
-        if (!controller.signal.aborted) send(`llm:delta:${args.reqId}`, `\n\n❌ ${String(err)}`)
+        if (!controller.signal.aborted) {
+          const msg = err instanceof Error ? err.message : String(err)
+          // 一个字都还没产出时不必先空两行（错误提示单独成行更好读）
+          send(`llm:delta:${args.reqId}`, `${produced ? '\n\n' : ''}❌ ${msg}`)
+        }
         send(`llm:end:${args.reqId}`, null)
       } finally {
         inflight.delete(args.reqId)
@@ -918,7 +1050,7 @@ function registerIpc(): void {
   ipcMain.handle('update:check', async () => {
     const cur = app.getVersion()
     try {
-      const r = await fetch('https://api.github.com/repos/XinyuanLiao/paperlens/releases/latest', {
+      const r = await httpFetch('https://api.github.com/repos/XinyuanLiao/paperlens/releases/latest', {
         headers: { 'User-Agent': `paperlens/${cur}`, Accept: 'application/vnd.github+json' },
         signal: AbortSignal.timeout(15_000)
       })

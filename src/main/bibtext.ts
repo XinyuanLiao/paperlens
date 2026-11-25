@@ -81,7 +81,9 @@ export function parseBibtexEntry(src: string): ParsedEntry | null {
       val = s.slice(start, i + 1)
       i += 2
     } else {
-      m = /^[^\s,}]+/.exec(s.slice(i))
+      // 裸值不能吞掉收尾括号（圆括号形式的最后一个字段：year = 2020)）
+      const bare = closeCh === ')' ? /^[^\s,})]+/ : /^[^\s,}]+/
+      m = bare.exec(s.slice(i))
       if (!m) return null
       val = m[0]
       i += m[0].length
@@ -163,10 +165,12 @@ export function dedupeKeys(entries: Array<{ key: string }>): void {
 // LaTeX 特殊字符转义（用于库内/检索原始文本写入字段值时）
 export function latexEscape(s: string): string {
   return s
-    .replace(/\\/g, '\\textbackslash{}')
+    // 反斜杠先换成占位符，最后再还原成 \textbackslash{}：直接替换的话，它自带的花括号会被下一步转义成 \{\}
+    .replace(/\\/g, '\u0001')
     .replace(/([&%$#_{}])/g, '\\$1')
     .replace(/~/g, '\\textasciitilde{}')
     .replace(/\^/g, '\\textasciicircum{}')
+    .replace(/\u0001/g, '\\textbackslash{}')
 }
 
 // 常见非 ASCII → LaTeX 命令：pdflatex（IEEE 投稿主用）遇到裸 Unicode 会编译报错。
@@ -206,7 +210,8 @@ const UNICODE_MAP: Array<[RegExp, string]> = [
 // 折叠 Unicode；映射表之外的非 ASCII（中日韩等）直接剔除——出现在英文题录里
 // 通常是从 PDF 抽取的噪声，剔除比保留编译失败更安全
 export function foldUnicode(s: string): string {
-  let out = s
+  // 控制字符（PDF 抽取残留的换页符、记录分隔符等）在 .bib 里会让 pdfLaTeX 直接报错：先清掉
+  let out = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ')
   for (const [re, rep] of UNICODE_MAP) out = out.replace(re, rep)
   return out.replace(/[^\x00-\x7F]/g, '')
 }

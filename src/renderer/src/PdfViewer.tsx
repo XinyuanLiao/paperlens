@@ -2,19 +2,37 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { Tab } from './App'
-import type { Highlight, Paper } from './types'
+import type { Highlight, HlColor, Note, Paper } from './types'
 import { locateSnippet, locateByKeywords, flashHit } from './locate'
 import { buildRefIndex, resolveRefClick, resolveRefHover, invalidateRefLayout, lookupEntry, type RefIndex } from './reflink'
 import RefPopup from './RefPopup'
+import {
+  useAnnotations,
+  useNotes,
+  loadAnnotations,
+  addAnnotation,
+  updateAnnotation,
+  removeAnnotation,
+  upsertNote,
+  removeNote,
+  getLastColor,
+  setLastColor
+} from './annotations'
+import { AnnotationPopup, PageNotePopover, type Anchor } from './AnnotationPopup'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
 export interface ViewerHandle {
   scrollToPage: (n: number) => void
-  highlightSelection: () => Promise<void>
+  // 用指定颜色高亮当前选区，返回新建的批注（没有选区 / 没打开论文时为 null）
+  highlight: (color?: HlColor) => Promise<Highlight | null>
+  // 高亮当前选区并立刻弹出批注卡
+  annotate: () => Promise<void>
+  // 滚到某条批注并让它闪一下（笔记页点条目用）
+  focusAnnotation: (id: number) => void
+  getCurrentPage: () => number
   zoomBy: (delta: number) => void
   zoomReset: () => void
-  removeHighlightLocal: (hid: number) => void
 }
 
 // ---------- 全文搜索 ----------
@@ -120,9 +138,13 @@ interface Props {
   onCloseTab: (id: number) => void
   pendingJump: { slug: string; page: number; snippet?: string; probe?: string } | null
   onJumped: () => void
-  onPageContext: (text: string) => void
+  // 当前页文本 + 页码（侧栏翻译的上下文 / 新建页面笔记用）
+  onPageContext: (text: string, page: number) => void
   onSelect: (text: string, x: number, y: number) => void
-  onDeleteHighlight: (id: number) => void
+  // 批注卡上的「解释 / 翻译」：转给侧栏
+  onAsk: (kind: 'explain' | 'translate', text: string) => void
+  // 工具栏「笔记」：打开侧栏笔记页
+  onOpenNotes: () => void
   // 面板常驻但 chat 模式下隐藏：隐藏时全局缩放快捷键不生效（让位给引用面板）
   visible: boolean
   // 参考文献弹窗：本地库比对「是否已在文库」+ 导入完成后打开
@@ -170,7 +192,7 @@ function normalizeSelText(raw: string): string {
 }
 
 const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
-  { tabs, activeId, onActivate, onCloseTab, pendingJump, onJumped, onPageContext, onSelect, onDeleteHighlight, visible, papers, onOpenPaperBySlug },
+  { tabs, activeId, onActivate, onCloseTab, pendingJump, onJumped, onPageContext, onSelect, onAsk, onOpenNotes, visible, papers, onOpenPaperBySlug },
   ref
 ): JSX.Element {
   const active = tabs.find((t) => t.paper.id === activeId) ?? null
@@ -182,7 +204,16 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   const textCache = useRef<PageTextMap>({})
   const baseVwRef = useRef(0)
   const curPageRef = useRef(1)
-  const [hls, setHls] = useState<Highlight[]>([])
+  // 批注与笔记：与侧栏笔记页、文献列表角标共用同一份镜像（见 annotations.ts）
+  const hls = useAnnotations()
+  const notes = useNotes()
+  // 正在弹出批注卡的高亮 / 正在就地编辑的页面笔记
+  const [annPop, setAnnPop] = useState<number | null>(null)
+  const [notePop, setNotePop] = useState<number | null>(null)
+  const closePops = useCallback((): void => {
+    setAnnPop(null)
+    setNotePop(null)
+  }, [])
   const [zoom, setZoom] = useState(1)
   const [baseScale, setBaseScale] = useState(1)
   const [curPage, setCurPage] = useState(1)
@@ -242,12 +273,41 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     return cc.building ?? Promise.resolve(cc.index ?? null)
   }, [])
 
+  // 点击点落在哪条批注上。高亮层不拦截鼠标（选区可以跨过高亮起选），所以自己按矩形命中测试；
+  // 后创建的叠在上面，倒序找
+  const annotationAt = useCallback(
+    (cx: number, cy: number): Highlight | null => {
+      for (const [n, el] of pageRefs.current) {
+        const r = el.getBoundingClientRect()
+        if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) continue
+        const x = (cx - r.left) / r.width
+        const y = (cy - r.top) / r.height
+        for (let i = hls.length - 1; i >= 0; i--) {
+          const h = hls[i]
+          if (h.page !== n) continue
+          if (h.rects.some((rc) => x >= rc.x && x <= rc.x + rc.w && y >= rc.y && y <= rc.y + rc.h)) return h
+        }
+        return null
+      }
+      return null
+    },
+    [hls]
+  )
+
   const onViewerClick = useCallback(
     (e: React.MouseEvent) => {
-      // 高亮/搜索层有自己的交互；拖选（非折叠选区）不是点击
-      if ((e.target as Element).closest('.hl, .find-layer')) return
+      // 搜索层与各类浮层有自己的交互；拖选（非折叠选区）不是点击
+      if ((e.target as Element).closest('.find-layer, .pop, .page-note-mark')) return
       const sel = window.getSelection()
       if (sel && !sel.isCollapsed) return
+      // 点在批注上：弹出批注卡（换色 / 写批注 / 解释翻译 / 删除）。
+      // 以前是「点击即删」——想擦掉高亮的同时，选区里的字也选不了，误触即丢
+      const ann = annotationAt(e.clientX, e.clientY)
+      if (ann) {
+        setNotePop(null)
+        setAnnPop(ann.id)
+        return
+      }
       const hit = resolveRefClick(e.clientX, e.clientY)
       if (!hit) return
       void (async () => {
@@ -256,10 +316,11 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
         // 行内编号优先，其次整行反查条目（精确 → 模糊，文献表任意行可点）
         const entry = lookupEntry(idx, hit.num, hit.lineText)
         if (!entry) return
+        closePops()
         setRefPop({ x: e.clientX, y: e.clientY, num: entry.num, raw: entry.raw })
       })()
     },
-    [ensureRefIndex]
+    [ensureRefIndex, annotationAt, closePops]
   )
 
   // ---------- 引用悬停高亮 ----------
@@ -445,7 +506,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
       sc.scrollTo({ top: Math.max(0, focus), behavior: 'auto' })
       setCurPage(hit.page)
       curPageRef.current = hit.page
-      onPageContext(textCache.current[hit.page] ?? '')
+      onPageContext(textCache.current[hit.page] ?? '', hit.page)
     },
     [onPageContext]
   )
@@ -488,7 +549,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     setPageDims([])
     setNumPages(0)
     setError('')
-    setHls([])
+    closePops()
     textCache.current = {}
     // 换文档：搜索索引作废、结果清空（搜索框保持打开状态便于连续检索新文档）
     findIndexRef.current = null
@@ -498,17 +559,13 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     setRefPop(null)
     refIdxRef.current = null
     invalidateRefLayout()
+    // 批注与笔记镜像跟着换论文（没有打开的论文就清空）
+    void loadAnnotations(active ? active.paper.id : null)
     if (!active) return
     let cancelled = false
     void (async () => {
       try {
         const buf = await window.api.readPdf(active.paper.path)
-        void window.api
-          .listHighlights(active.paper.id)
-          .then((hs) => {
-            if (!cancelled) setHls(hs)
-          })
-          .catch(() => {})
         // 兼容 dev(http) 与打包(file://) 两种环境的静态资源基路径
         const assetBase = window.location.href.replace(/[^/]*$/, '')
         const d = await pdfjsLib.getDocument({
@@ -581,12 +638,22 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
 
   const scale = baseScale * zoom
 
+  // 换论文后销毁上一份 pdf.js 文档：它持有 worker 与页面缓存，不销毁的话这次会话里开过的每篇
+  // 都会留在内存里。等 doc 状态变了再销毁——此时页面组件已经换成新文档（或空态），不会打断渲染
+  const prevDocRef = useRef<any>(null)
+  useEffect(() => {
+    const prev = prevDocRef.current
+    prevDocRef.current = doc
+    if (prev && prev !== doc) void prev.destroy().catch(() => {})
+  }, [doc])
+
   // 缩放变化时弹窗锚点已失效（内容重排），直接关闭；悬停高亮与矩形缓存同样作废
   useEffect(() => {
     invalidateRefLayout()
     setRefPop(null)
+    closePops()
     clearHover()
-  }, [zoom, baseScale, clearHover])
+  }, [zoom, baseScale, clearHover, closePops])
 
   // 横向滚动按需开启：最宽页放得下时禁止横滚（消除 fit 状态下右侧空白可滑的问题）。
   // ResizeObserver 盯容器本身：窗口缩放、侧栏拖宽都会触发重算
@@ -618,7 +685,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
       // 跳页立即同步页码指示（窗口被遮挡时 scroll 事件不会触发）
       setCurPage(n)
       curPageRef.current = n
-      onPageContext(textCache.current[n] ?? '')
+      onPageContext(textCache.current[n] ?? '', n)
     },
     [onPageContext]
   )
@@ -631,51 +698,70 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
     [numPages, scrollToPage]
   )
 
-  // 把当前选区保存为持久化高亮
-  const highlightSelection = useCallback(async () => {
-    const sel = window.getSelection()
-    if (!sel || sel.isCollapsed || !active) return
-    const range = sel.getRangeAt(0)
-    let node: Node | null = range.startContainer
-    let wrap: HTMLElement | null = null
-    while (node) {
-      if (node instanceof HTMLElement && node.classList.contains('page-wrap')) {
-        wrap = node
-        break
+  // 把当前选区保存为批注（高亮）。颜色缺省用上次用过的——连续划词不必每次重选
+  const highlight = useCallback(
+    async (color?: HlColor): Promise<Highlight | null> => {
+      const sel = window.getSelection()
+      if (!sel || sel.isCollapsed || !active) return null
+      const range = sel.getRangeAt(0)
+      let node: Node | null = range.startContainer
+      let wrap: HTMLElement | null = null
+      while (node) {
+        if (node instanceof HTMLElement && node.classList.contains('page-wrap')) {
+          wrap = node
+          break
+        }
+        node = node.parentNode
       }
-      node = node.parentNode
-    }
-    if (!wrap) return
-    let pageNum = 0
-    for (const [n, el] of pageRefs.current.entries()) if (el === wrap) pageNum = n
-    if (!pageNum) return
-    const wrapRect = wrap.getBoundingClientRect()
-    const rects = [...range.getClientRects()]
-      .filter((r) => r.width > 1 && r.height > 1)
-      .map((r) => ({
-        x: (r.left - wrapRect.left) / wrapRect.width,
-        y: (r.top - wrapRect.top) / wrapRect.height,
-        w: r.width / wrapRect.width,
-        h: r.height / wrapRect.height
-      }))
-    if (rects.length === 0) return
-    const text = normalizeSelText(sel.toString())
-    const id = await window.api.addHighlight(active.paper.id, pageNum, rects, text)
-    setHls((hs) => [...hs, { id, page: pageNum, rects, text }])
-    sel.removeAllRanges()
-  }, [active])
+      if (!wrap) return null
+      let pageNum = 0
+      for (const [n, el] of pageRefs.current.entries()) if (el === wrap) pageNum = n
+      if (!pageNum) return null
+      const wrapRect = wrap.getBoundingClientRect()
+      const rects = [...range.getClientRects()]
+        .filter((r) => r.width > 1 && r.height > 1)
+        .map((r) => ({
+          x: (r.left - wrapRect.left) / wrapRect.width,
+          y: (r.top - wrapRect.top) / wrapRect.height,
+          w: r.width / wrapRect.width,
+          h: r.height / wrapRect.height
+        }))
+      if (rects.length === 0) return null
+      const text = normalizeSelText(sel.toString())
+      sel.removeAllRanges()
+      const c = color ?? getLastColor()
+      setLastColor(c)
+      closePops()
+      return addAnnotation(pageNum, rects, text, c)
+    },
+    [active, closePops]
+  )
 
   useImperativeHandle(ref, () => ({
     scrollToPage,
-    highlightSelection,
+    highlight,
+    async annotate() {
+      const item = await highlight()
+      if (item) setAnnPop(item.id)
+    },
+    focusAnnotation(id: number) {
+      const h = hls.find((x) => x.id === id)
+      if (!h) return
+      scrollToPage(h.page)
+      // 滚到位后让这条高亮闪两下（不弹批注卡：笔记页里本来就能直接编辑）
+      window.setTimeout(() => {
+        const el = pageRefs.current.get(h.page)?.querySelector(`[data-ann="${id}"]`)
+        if (!el) return
+        el.classList.add('pulse')
+        window.setTimeout(() => el.classList.remove('pulse'), 1900)
+      }, 260)
+    },
+    getCurrentPage: () => curPageRef.current,
     zoomBy(delta: number) {
       setZoom((z) => Math.max(0.4, Math.min(3, z + delta)))
     },
     zoomReset() {
       fitWidth()
-    },
-    removeHighlightLocal(hid: number) {
-      setHls((hs) => hs.filter((h) => h.id !== hid))
     }
   }))
 
@@ -708,7 +794,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           sc.scrollTo({ top: Math.max(0, focus), behavior: 'auto' })
           setCurPage(hitPage)
           curPageRef.current = hitPage
-          onPageContext(textCache.current[hitPage] ?? '')
+          onPageContext(textCache.current[hitPage] ?? '', hitPage)
           if (hit) flashHit(el, hit)
           onJumped()
         })()
@@ -723,6 +809,7 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
   const onScroll = useCallback(() => {
     clearHover() // 悬停高亮与弹窗都是固定定位，滚动即失效
     setRefPop(null)
+    closePops()
     const sc = scrollRef.current
     if (!sc) return
     // 用视口相对位置判定当前页（offsetTop 受 offsetParent 影响，不可靠）
@@ -732,17 +819,19 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
       if (el && el.getBoundingClientRect().bottom > scTop + 80) {
         setCurPage(n)
         curPageRef.current = n
-        onPageContext(textCache.current[n] ?? '')
+        onPageContext(textCache.current[n] ?? '', n)
         return
       }
     }
-  }, [numPages, onPageContext, clearHover])
+  }, [numPages, onPageContext, clearHover, closePops])
 
   const onMouseUp = useCallback(
     (e: React.MouseEvent) => {
       const sel = window.getSelection()
       const text = normalizeSelText(sel?.toString() ?? '')
       if (!sel || sel.isCollapsed || text.length < 2) return
+      // 重新划选 = 换了一处关注点，收起上一条的批注卡
+      closePops()
       const range = sel.getRangeAt(0)
       const rect = range.getBoundingClientRect()
       if (rect.width === 0 && rect.height === 0) return
@@ -750,8 +839,36 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
       const barTop = rect.top > 54 ? rect.top - 42 : rect.bottom + 8
       onSelect(text, rect.left, barTop)
     },
-    [onSelect]
+    [onSelect, closePops]
   )
+
+  // 正在弹出的批注卡 / 页面笔记（批注刚被删掉时镜像里找不到，浮层随之消失）
+  const annPopItem = annPop !== null ? (hls.find((x) => x.id === annPop) ?? null) : null
+  const notePopItem = notePop !== null ? (notes.find((x) => x.id === notePop) ?? null) : null
+  // 批注卡的锚点：高亮首行矩形在视口里的位置（由页面元素实测，与缩放无关）
+  const anchorOf = (a: Highlight): Anchor => {
+    const el = pageRefs.current.get(a.page)
+    const r = a.rects[0]
+    if (!el || !r) return { left: window.innerWidth / 2, top: 96, bottom: 96 }
+    const pr = el.getBoundingClientRect()
+    return { left: pr.left + r.x * pr.width, top: pr.top + r.y * pr.height, bottom: pr.top + (r.y + r.h) * pr.height }
+  }
+  // 页面笔记浮层的锚点：页面右上角的笔记标记处
+  const noteAnchorOf = (page: number): Anchor => {
+    const pr = pageRefs.current.get(page)?.getBoundingClientRect()
+    return pr ? { left: pr.right - 40, top: pr.top + 34, bottom: pr.top + 34 } : { left: 120, top: 96, bottom: 96 }
+  }
+  // 批注按页归组（渲染时每页只取自己那组）
+  const hlsByPage = useMemo(() => {
+    const m = new Map<number, Highlight[]>()
+    for (const h of hls) m.set(h.page, [...(m.get(h.page) ?? []), h])
+    return m
+  }, [hls])
+  const pageNotesByPage = useMemo(() => {
+    const m = new Map<number, Note[]>()
+    for (const n of notes) if (n.page != null) m.set(n.page, [...(m.get(n.page) ?? []), n])
+    return m
+  }, [notes])
 
   if (!active) {
     return (
@@ -840,6 +957,12 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           <button onClick={fitWidth} title="适应宽度（点击自适应当前阅读窗）">{Math.round(scale * 100)}%</button>
           <button onClick={() => setZoom((z) => Math.min(3, z + 0.15))}>+</button>
         </div>
+        <button className="tool-btn" title="笔记与批注（在右侧面板打开）" onClick={onOpenNotes}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 14.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8.5z" />
+            <path d="M15 20v-4a1 1 0 0 1 1-1h4M8 9h8M8 13h5" />
+          </svg>
+        </button>
         <button
           className={`tool-btn ${findOpen ? 'on' : ''}`}
           title={`搜索（${isMacKey()}F）`}
@@ -911,16 +1034,21 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
               num={i + 1}
               scale={scale}
               dim={pageDims[i]}
-              hls={hls.filter((h) => h.page === i + 1)}
+              hls={hlsByPage.get(i + 1) ?? []}
+              notes={pageNotesByPage.get(i + 1) ?? []}
+              activeAnn={annPop}
               find={findMap.get(i + 1) ?? null}
-              onDeleteHl={onDeleteHighlight}
               registerRef={(el) => {
                 if (el) pageRefs.current.set(i + 1, el)
                 else pageRefs.current.delete(i + 1)
               }}
               onPageText={(n, txt) => {
                 textCache.current[n] = txt
-                if (n === curPage) onPageContext(txt)
+                if (n === curPage) onPageContext(txt, n)
+              }}
+              onOpenNote={(id) => {
+                setAnnPop(null)
+                setNotePop(id)
               }}
             />
           ))}
@@ -938,6 +1066,28 @@ const PdfViewer = forwardRef<ViewerHandle, Props>(function PdfViewer(
           onClose={() => setRefPop(null)}
         />
       )}
+      {annPopItem && (
+        <AnnotationPopup
+          key={annPopItem.id}
+          annotation={annPopItem}
+          anchor={anchorOf(annPopItem)}
+          onChange={(patch) => void updateAnnotation(annPopItem.id, patch)}
+          onDelete={() => void removeAnnotation(annPopItem.id)}
+          onExplain={(t) => onAsk('explain', t)}
+          onTranslate={(t) => onAsk('translate', t)}
+          onClose={() => setAnnPop(null)}
+        />
+      )}
+      {notePopItem && notePopItem.page != null && (
+        <PageNotePopover
+          key={notePopItem.id}
+          note={notePopItem}
+          anchor={noteAnchorOf(notePopItem.page)}
+          onSave={(content) => void upsertNote({ id: notePopItem.id, page: notePopItem.page, content })}
+          onDelete={() => void removeNote(notePopItem.id)}
+          onClose={() => setNotePop(null)}
+        />
+      )}
     </div>
   )
 })
@@ -947,14 +1097,17 @@ interface PageViewProps {
   num: number
   scale: number
   dim?: { w: number; h: number }
+  // 本页的批注 / 页面笔记，以及正弹出批注卡的那条
   hls: Highlight[]
+  notes: Note[]
+  activeAnn: number | null
   find: { rects: NormRect[]; cur: NormRect[] } | null
-  onDeleteHl: (id: number) => void
   registerRef: (el: HTMLDivElement | null) => void
   onPageText: (n: number, text: string) => void
+  onOpenNote: (id: number) => void
 }
 
-function PageView({ doc, num, scale, dim, hls, find, onDeleteHl, registerRef, onPageText }: PageViewProps): JSX.Element {
+function PageView({ doc, num, scale, dim, hls, notes, activeAnn, find, registerRef, onPageText, onOpenNote }: PageViewProps): JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
@@ -1074,26 +1227,47 @@ function PageView({ doc, num, scale, dim, hls, find, onDeleteHl, registerRef, on
     >
       <canvas ref={canvasRef} style={dim ? { width: Math.floor(dim.w * scale), height: Math.floor(dim.h * scale) } : undefined} />
       <div className="textLayer" ref={textRef} />
-      {/* 高亮层置于文本层之上：点击高亮即删除 */}
+      {/* 高亮层置于文本层之上，但不拦截鼠标：选区可以跨过高亮起选；
+          点击由阅读器按矩形命中（annotationAt）后弹出批注卡 */}
       <div className="hl-layer" data-n={hls.length}>
         {hls.map((h) => (
-          <div
-            key={h.id}
-            className="hl-group"
-            title={`${h.text.slice(0, 80)}\n（点击删除高亮）`}
-            onClick={(e) => {
-              e.stopPropagation()
-              onDeleteHl(h.id)
-            }}
-          >
+          <div key={h.id} className={`hl-group ${activeAnn === h.id ? 'active' : ''}`} data-ann={h.id}>
             {h.rects.map((r, i) => (
               <div
                 key={i}
                 className="hl"
+                data-color={h.color}
                 style={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` }}
               />
             ))}
+            {/* 写了批注的高亮在行尾挂一枚小标记：一眼看得出这里有话 */}
+            {h.note.trim() && h.rects[0] && (
+              <span
+                className="hl-note-mark"
+                data-color={h.color}
+                style={{ left: `${Math.min(h.rects[0].x + h.rects[0].w + 0.004, 0.982) * 100}%`, top: `${h.rects[0].y * 100}%` }}
+              />
+            )}
           </div>
+        ))}
+        {/* 页面笔记：页面右上角的标记，点击就地编辑 */}
+        {notes.map((n, i) => (
+          <button
+            key={n.id}
+            type="button"
+            className="page-note-mark"
+            style={{ right: `${8 + i * 22}px` }}
+            title={`第 ${num} 页笔记（点击编辑）：${n.content.slice(0, 80)}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenNote(n.id)
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12.5V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5.5z" />
+              <path d="M14 20v-4a1 1 0 0 1 1-1h4" />
+            </svg>
+          </button>
         ))}
       </div>
       {/* 全文搜索高亮层：全部命中淡黄，当前命中强调 */}

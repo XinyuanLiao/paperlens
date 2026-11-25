@@ -55,11 +55,32 @@ export interface HighlightRect {
   h: number
 }
 
+// 批注颜色（白名单，主进程 src/main/notes.ts 同一份）
+export type HlColor = 'yellow' | 'green' | 'blue' | 'pink' | 'purple'
+
+// 批注 = 高亮 + 颜色 + 批注文字
 export interface Highlight {
   id: number
   page: number
   rects: HighlightRect[]
   text: string
+  color: HlColor
+  note: string
+  created_at: string
+}
+
+// 自由笔记：page 为空 = 整篇笔记（每篇一条），否则是页面笔记
+export interface Note {
+  id: number
+  paper_id: number
+  page: number | null
+  content: string
+  updated_at: string
+}
+
+export interface AnnotationCount {
+  hl: number
+  notes: number
 }
 
 export interface ImportOutcome {
@@ -163,6 +184,39 @@ export interface BibExportResult {
   local: number
 }
 
+// 浏览器扩展导入（见 src/shared/connector.ts）
+export interface ConnectorActivity {
+  at: number
+  // ping = 扩展在探测服务；save = 一次保存请求
+  kind: 'ping' | 'save'
+  title?: string
+  // saved = 新入库；duplicate = 已在文库；no-pdf = 没取到全文；error = 失败
+  status?: 'saved' | 'duplicate' | 'no-pdf' | 'error'
+  message?: string
+  // pdf = 浏览器把 PDF 一起传来了；metadata = 只传来元数据、全文由应用自己取
+  via?: 'pdf' | 'metadata'
+}
+
+export interface ConnectorInfo extends ConnectorStatus {
+  recent: ConnectorActivity[]
+  // 扩展弹窗里的默认分类：'' = 未分类；'__auto__' = AI 归类；其余为分类名
+  defaultCategory: string
+}
+
+export interface ConnectorStatus {
+  running: boolean
+  port: number | null
+  // 启动失败的原因（如端口全部被占用）
+  error?: string
+  // 扩展目录（用户把它加载进浏览器）
+  dir: string
+  // 目录确实存在（打包或源码里带了扩展）
+  dirExists: boolean
+  // 扩展是否连过（自启动以来收到过请求）
+  seen: boolean
+  lastSeenAt: number | null
+}
+
 declare global {
   interface Window {
     api: {
@@ -183,9 +237,17 @@ declare global {
       previewImport: (paths: string[]) => Promise<ImportPreviewItem[]>
       onPreviewFile: (cb: (p: ImportPreviewItem) => void) => () => void
       onPreviewProgress: (cb: (p: { done: number; total: number; current: string }) => void) => () => void
-      addHighlight: (paperId: number, page: number, rects: HighlightRect[], text: string) => Promise<number>
+      addHighlight: (paperId: number, page: number, rects: HighlightRect[], text: string, color?: HlColor) => Promise<number>
       listHighlights: (paperId: number) => Promise<Highlight[]>
+      updateHighlight: (id: number, patch: { note?: string; color?: HlColor }) => Promise<boolean>
       deleteHighlight: (id: number) => Promise<boolean>
+      // 自由笔记（整篇 / 按页）；存成空白等于删除，返回笔记 id（删除时为 0）
+      listNotes: (paperId: number) => Promise<Note[]>
+      saveNote: (input: { id?: number; paperId: number; page?: number | null; content: string }) => Promise<number>
+      deleteNote: (id: number) => Promise<boolean>
+      // 各论文的批注 / 笔记条数（文献列表角标），只含有内容的论文
+      annotationCounts: () => Promise<Record<number, AnnotationCount>>
+      exportNotes: (paperId: number) => Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>
       paperMenu: (id: number, x: number, y: number) => void
       categoryMenu: (cat: string, x: number, y: number) => void
       blankMenu: (x: number, y: number) => void
@@ -205,6 +267,8 @@ declare global {
       onImportRequest: (cb: () => void) => () => void
       onImportFile: (cb: (o: ImportOutcome) => void) => () => void
       testLLM: (over?: { apiBase?: string; apiKey?: string; model?: string; provider?: string }) => Promise<{ ok: boolean; model?: string; latencyMs?: number; balance?: { amount: string; currency: string } | null; quota?: string; error?: string }>
+      // 向服务商拉取可用模型列表（设置页「同步模型」）
+      listModels: (over?: { apiBase?: string; apiKey?: string; provider?: string }) => Promise<{ ok: true; models: string[] } | { ok: false; error: string }>
       testEmbed: () => Promise<{ ok: boolean; dim?: number; error?: string }>
       testRerank: () => Promise<{ ok: boolean; device?: string; scores?: number[]; error?: string }>
       enrichRun: () => Promise<boolean>
@@ -216,12 +280,29 @@ declare global {
       onBibResult: (cb: (r: BibExportResult) => void) => () => void
       stream: (
         args: Record<string, unknown>,
-        handlers: { onDelta: (t: string) => void; onEnd: () => void; onSources?: (s: SourceRef[]) => void; onVerify?: (v: VerifyReport) => void }
+        handlers: {
+          onDelta: (t: string) => void
+          onEnd: () => void
+          onSources?: (s: SourceRef[]) => void
+          onVerify?: (v: VerifyReport) => void
+          // 推理片段（思考模型先于正文输出的推理过程）
+          onReason?: (t: string) => void
+        }
       ) => () => void
       onIndexProgress: (cb: (p: { done: number; total: number; phase: string; current?: string }) => void) => () => void
       onImportProgress: (cb: (p: { done: number; total: number; current: string }) => void) => () => void
       openExternal: (url: string) => void
       syncTheme: (theme: string) => void
+      // 浏览器扩展导入
+      connectorStatus: () => Promise<ConnectorInfo | null>
+      connectorRestart: () => Promise<ConnectorInfo | null>
+      // 打开扩展目录：返回空串表示成功，否则是错误信息
+      connectorOpenDir: () => Promise<string>
+      // 扩展弹窗里的默认分类（'' = 未分类，'__auto__' = AI 归类）
+      setConnectorCategory: (cat: string) => Promise<void>
+      onConnectorActivity: (cb: (a: ConnectorActivity) => void) => () => void
+      // 扩展导入完成后，主进程通知在这里打开新论文
+      onOpenPaperRequest: (cb: (p: { slug: string }) => void) => () => void
       lookupRef: (raw: string) => Promise<RefMeta | null>
       importRefPdf: (args: { urls: string[]; category: string; title: string; authors?: string; year?: number | null; venue?: string }) => Promise<{ ok: boolean; slug?: string; title?: string; error?: string }>
       citedBy: (slug: string, title: string) => Promise<number | null>

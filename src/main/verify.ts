@@ -1,5 +1,5 @@
 import { getSettings } from './db'
-import { chatOnce, verifyMessages } from './llm'
+import { chatOnce, verifyMessages, parseJsonLoose } from './llm'
 
 // 回答后校验（仅 rag 模式）：规则层（免费、始终）+ LLM 层（默认开，15s 超时回退）。
 // 规则层：引用编号存在性、从未被引用的来源、答案提及的论文名不在来源清单。
@@ -57,16 +57,6 @@ function ruleCheck(answer: string, sources: Array<{ n: number; title: string }>)
       ruleCitations: { ok: missing.length === 0, missing, unused },
       issues
     }
-  }
-}
-
-function parseJsonLoose(text: string): Record<string, unknown> | null {
-  const m = text.match(/\{[\s\S]*\}/)
-  if (!m) return null
-  try {
-    return JSON.parse(m[0])
-  } catch {
-    return null
   }
 }
 

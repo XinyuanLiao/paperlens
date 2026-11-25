@@ -1,15 +1,7 @@
 import { useState } from 'react'
 import type { Settings } from './types'
-
-const PRESETS: Array<{ id: string; label: string; base: string; model: string }> = [
-  { id: 'mimo', label: '小米 MiMo', base: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.6-flash' },
-  { id: 'zhipu', label: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.5-air' },
-  { id: 'deepseek', label: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-  { id: 'qwen', label: '通义千问 Qwen', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-  { id: 'moonshot', label: 'Kimi 月之暗面', base: 'https://api.moonshot.cn/v1', model: 'kimi-k2-0711-preview' },
-  { id: 'openai', label: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  { id: 'custom', label: '自定义 / 其他兼容服务', base: '', model: '' }
-]
+// 服务商预设与设置页、主进程共用同一份（曾经的第二份拷贝里，Kimi 的默认模型是早已下线的名字）
+import { PRESETS, guessPreset } from '../../shared/providers'
 
 const STEPS = ['文献库', 'LLM 配置', '本地模型']
 
@@ -119,25 +111,75 @@ export default function SetupWizard({ initial, onDone }: Props): JSX.Element {
                   <button
                     key={p.id}
                     className={`preset-chip ${form.provider === p.id ? 'on' : ''}`}
-                    onClick={() => set(p.id === 'custom' ? { provider: p.id } : { provider: p.id, apiBase: p.base, model: p.model })}
+                    onClick={() =>
+                      set(p.id === 'custom' ? { provider: p.id } : { provider: p.id, apiBase: p.base, model: p.model, models: [...p.models] })
+                    }
                   >
                     {p.label}
                   </button>
                 ))}
               </div>
+              {/* 地址命中哪家就显示哪家的说明（手动改过地址时与服务商芯片可能不同，以地址为准） */}
+              {(() => {
+                const preset = guessPreset(form.apiBase) ?? PRESETS.find((p) => p.id === form.provider)
+                return (
+                  preset?.note && (
+                    <div className="wizard-hint" style={{ margin: '0 0 12px' }}>
+                      {preset.note}
+                    </div>
+                  )
+                )
+              })()}
               <div className="field-row">
                 <div className="field">
                   <label>API Base</label>
-                  <input value={form.apiBase} onChange={(e) => set({ apiBase: e.target.value })} placeholder="https://…" />
+                  <input value={form.apiBase} onChange={(e) => set({ apiBase: e.target.value })} placeholder="https://…" spellCheck={false} />
                 </div>
                 <div className="field">
                   <label>模型</label>
-                  <input value={form.model} onChange={(e) => set({ model: e.target.value })} placeholder="模型名" />
+                  <input
+                    value={form.model}
+                    onChange={(e) => set({ model: e.target.value })}
+                    onBlur={(e) => {
+                      const v = e.currentTarget.value.trim()
+                      if (v !== e.currentTarget.value) set({ model: v })
+                    }}
+                    placeholder="模型名"
+                    list="wizard-model-sug"
+                    spellCheck={false}
+                  />
+                  <datalist id="wizard-model-sug">
+                    {(guessPreset(form.apiBase) ?? PRESETS.find((p) => p.id === form.provider))?.models.map((m) => (
+                      <option key={m} value={m} />
+                    ))}
+                  </datalist>
                 </div>
               </div>
               <div className="field">
-                <label>API Key</label>
-                <input type="password" value={form.apiKey} onChange={(e) => set({ apiKey: e.target.value })} placeholder="sk-…" />
+                <label>
+                  API Key
+                  {(() => {
+                    const url = (guessPreset(form.apiBase) ?? PRESETS.find((p) => p.id === form.provider))?.keyUrl
+                    return url ? (
+                      <span className="field-link" onClick={() => window.api.openExternal(url)}>
+                        获取 Key ↗
+                      </span>
+                    ) : null
+                  })()}
+                </label>
+                <input
+                  type="password"
+                  value={form.apiKey}
+                  onChange={(e) => set({ apiKey: e.target.value })}
+                  onBlur={(e) => {
+                    // 粘贴的 Key 常带首尾空白：失焦时清掉
+                    const v = e.currentTarget.value.trim()
+                    if (v !== e.currentTarget.value) set({ apiKey: v })
+                  }}
+                  placeholder="sk-…"
+                  spellCheck={false}
+                  autoComplete="off"
+                />
               </div>
               <div className="wizard-actions">
                 <button className="btn ghost" onClick={() => void testLlm()}>

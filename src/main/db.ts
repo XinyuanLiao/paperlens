@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import path from 'node:path'
 import fs from 'node:fs'
 import { app } from 'electron'
+import { migrateRetiredModels } from '../shared/providers'
 
 export interface Paper {
   id: number
@@ -139,12 +140,25 @@ export function initDb(): void {
       cited_by INTEGER,
       fetched_at TEXT DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS notes(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      paper_id INTEGER REFERENCES papers(id) ON DELETE CASCADE,
+      page INTEGER, -- NULL = 整篇笔记（每篇一条）
+      content TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_notes_paper ON notes(paper_id);
   `)
   // 迁移：v4 结构化分块的章节元数据 + 回答校验报告
   const ccols = (db.prepare('PRAGMA table_info(chunks)').all() as Array<{ name: string }>).map((c) => c.name)
   if (!ccols.includes('section_no')) db.exec("ALTER TABLE chunks ADD COLUMN section_no TEXT DEFAULT ''")
   if (!ccols.includes('section_title')) db.exec("ALTER TABLE chunks ADD COLUMN section_title TEXT DEFAULT ''")
   if (!ccols.includes('kind')) db.exec("ALTER TABLE chunks ADD COLUMN kind TEXT DEFAULT 'body'")
+  const colsHl = (db.prepare('PRAGMA table_info(highlights)').all() as Array<{ name: string }>).map((c) => c.name)
+  // 迁移：批注 = 高亮 + 批注文字；v0.2.3 及之前的高亮只有黄色、点了即删
+  if (!colsHl.includes('note')) db.exec("ALTER TABLE highlights ADD COLUMN note TEXT DEFAULT ''")
+  if (!colsHl.includes('updated_at')) db.exec('ALTER TABLE highlights ADD COLUMN updated_at TEXT')
   const mcols = (db.prepare('PRAGMA table_info(chatmsgs)').all() as Array<{ name: string }>).map((c) => c.name)
   if (!mcols.includes('verify')) db.exec('ALTER TABLE chatmsgs ADD COLUMN verify TEXT')
   // 迁移：papers 增加 pvec（整篇级向量：标题+作者+首页）与 opened_at（最近打开时间）
@@ -155,10 +169,12 @@ export function initDb(): void {
   db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(
     title, authors, venue, slug, tokenize='trigram'
   );`)
-  // 清理孤儿块（外键级联默认关闭，删除论文行后块会残留）
+  // 清理孤儿块（外键级联默认关闭，删除论文行后块会残留）；批注与笔记同理
   db.exec('DELETE FROM chunks WHERE paper_id NOT IN (SELECT id FROM papers)')
   db.exec('DELETE FROM chunks_fts WHERE paper_id NOT IN (SELECT id FROM papers)')
   db.exec('DELETE FROM papers_fts WHERE rowid NOT IN (SELECT id FROM papers)')
+  db.exec('DELETE FROM highlights WHERE paper_id NOT IN (SELECT id FROM papers)')
+  db.exec('DELETE FROM notes WHERE paper_id NOT IN (SELECT id FROM papers)')
 
   // v0.1.1 的 chatlog 迁移：global 会话转成一条历史对话（论文问答按新需求不再持久化，直接丢弃）
   if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chatlog'").get()) {
@@ -193,6 +209,14 @@ export function initDb(): void {
       const moved = candidates.find((c) => fs.existsSync(c)) ?? defaultLibrary()
       db.prepare("UPDATE meta SET value=? WHERE key='settings'").run(JSON.stringify({ ...s, libraryPath: moved }))
     }
+  }
+  // 服务商下线旧模型后（Kimi 的 kimi-k2-0711-preview / kimi-latest / moonshot-v1-* 均已下线），
+  // 老配置里的模型名会直接 404。启动时换成现役模型；幂等，没有需要改的不写库
+  const before = getSettings()
+  const after = migrateRetiredModels(before)
+  if (after !== before) {
+    db.prepare("UPDATE meta SET value=? WHERE key='settings'").run(JSON.stringify(after))
+    console.log('[settings] 已将下线的模型替换为现役模型')
   }
 }
 

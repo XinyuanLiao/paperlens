@@ -8,8 +8,11 @@ import CommandPalette from './CommandPalette'
 import ChatView from './ChatView'
 import ImportDialog from './ImportDialog'
 import BibExportDialog from './BibExportDialog'
+import ConnectorDialog from './ConnectorDialog'
 import type { ChatScope } from './ChatControls'
-import type { ChatMeta, Paper, Settings } from './types'
+import type { AnnotationCount, ChatMeta, HlColor, Paper, Settings } from './types'
+import { providerLabel } from '../../shared/providers'
+import { HL_COLORS, HL_COLOR_NAME, getLastColor, setLastColor, useAnnotations, useNotes } from './annotations'
 
 export interface Tab {
   paper: Paper
@@ -73,16 +76,6 @@ const MenuBar = ({ menus, openMenu, setOpenMenu }: { menus: Array<{ name: string
   </div>
 )
 
-const PROVIDER_LABEL: Record<string, string> = {
-  mimo: '小米 MiMo',
-  zhipu: '智谱',
-  deepseek: 'DeepSeek',
-  qwen: '通义',
-  moonshot: 'Kimi',
-  openai: 'OpenAI',
-  custom: '自定义'
-}
-
 export default function App(): JSX.Element | null {
   const [papers, setPapers] = useState<Paper[]>([])
   const [tabs, setTabs] = useState<Tab[]>([])
@@ -99,6 +92,7 @@ export default function App(): JSX.Element | null {
   const [importInfo, setImportInfo] = useState('')
   const [enrichInfo, setEnrichInfo] = useState('')
   const [bibExportOpen, setBibExportOpen] = useState(false)
+  const [connectorOpen, setConnectorOpen] = useState(false)
   const [cats, setCats] = useState<string[]>([])
   const [importFiles, setImportFiles] = useState<string[] | null>(null)
   const [importSeq, setImportSeq] = useState(0)
@@ -109,7 +103,13 @@ export default function App(): JSX.Element | null {
   const [indexedCount, setIndexedCount] = useState({ papers: 0, indexed: 0, chunks: 0 })
   const [pendingJump, setPendingJump] = useState<{ slug: string; page: number; snippet?: string; probe?: string } | null>(null)
   const [pageCtx, setPageCtx] = useState('')
+  // 阅读器当前页（侧栏新建页面笔记用）
+  const [curPage, setCurPage] = useState(1)
   const [floatBar, setFloatBar] = useState<{ x: number; y: number; text: string; copied?: boolean } | null>(null)
+  // 划词浮条上选中的高亮颜色（记忆：连续划词用同一种）
+  const [hlColor, setHlColor] = useState<HlColor>(() => getLastColor())
+  // 各论文的批注 / 笔记条数（文献列表角标）
+  const [annCounts, setAnnCounts] = useState<Record<number, AnnotationCount>>({})
   const [q, setQ] = useState('')
   const [llmChip, setLlmChip] = useState('')
   const [openMenu, setOpenMenu] = useState<string | null>(null)
@@ -166,9 +166,14 @@ export default function App(): JSX.Element | null {
   // 刷新文献与分类列表；同时把打开的标签页/引用面板里的旧 paper 对象换成最新数据
   //（手动移动/重命名后 path 变了，不同步的话下次打开会读到失效路径）；已删除的论文同步关掉标签页/引用面板
   const refreshPapers = useCallback(async (): Promise<Paper[]> => {
-    const [ps, cs] = await Promise.all([window.api.listPapers(), window.api.listCategories()])
+    const [ps, cs, counts] = await Promise.all([
+      window.api.listPapers(),
+      window.api.listCategories(),
+      window.api.annotationCounts().catch((): Record<number, AnnotationCount> => ({}))
+    ])
     setPapers(ps)
     setCats(cs)
+    setAnnCounts(counts)
     setTabs((ts) => {
       const next: Tab[] = []
       for (const t of ts) {
@@ -302,9 +307,21 @@ export default function App(): JSX.Element | null {
   const onSelect = useCallback((text: string, x: number, y: number) => {
     setFloatBar({ x, y, text })
   }, [])
-  const doHighlight = useCallback(() => {
+  // 划词浮条：点颜色 = 用该颜色高亮（一划一点即完成，并记住这个颜色）
+  const doHighlight = useCallback(
+    (color?: HlColor) => {
+      setFloatBar(null)
+      const c = color ?? hlColor
+      setLastColor(c)
+      setHlColor(c)
+      void viewerRef.current?.highlight(c)
+    },
+    [hlColor]
+  )
+  // 「笔记」：先高亮，再弹出批注卡接着写
+  const doAnnotate = useCallback(() => {
     setFloatBar(null)
-    void viewerRef.current?.highlightSelection()
+    void viewerRef.current?.annotate()
   }, [])
   // 复制选中文本：按钮短暂变「已复制」再收起浮条，给用户操作成功的反馈
   const doCopy = useCallback((text: string) => {
@@ -326,10 +343,25 @@ export default function App(): JSX.Element | null {
     setShowSide(true)
     sideControl.current?.explain(text, pageCtxRef.current)
   }, [])
-  const onDeleteHighlight = useCallback((hid: number) => {
-    void window.api.deleteHighlight(hid)
-    viewerRef.current?.removeHighlightLocal(hid)
+  // 阅读器工具栏的「笔记」：打开侧栏并切到笔记页
+  const openNotes = useCallback(() => {
+    setShowSide(true)
+    sideControl.current?.notes()
   }, [])
+  // 笔记页点条目：跳到那一页；给了批注 id 就定位到那条并让它闪一下
+  const jumpToAnnotation = useCallback((page: number, id: number) => {
+    if (id >= 0) viewerRef.current?.focusAnnotation(id)
+    else viewerRef.current?.scrollToPage(page)
+  }, [])
+  // 批注 / 笔记一有增删改就刷新文献列表上的角标（镜像数组每次变化都是新引用）
+  const annsTick = useAnnotations()
+  const notesTick = useNotes()
+  useEffect(() => {
+    void window.api
+      .annotationCounts()
+      .then(setAnnCounts)
+      .catch(() => {})
+  }, [annsTick, notesTick])
 
   // 导入走弹窗（拖入窗口 = 直接带着文件打开并自动开始；导入进行中忽略新的窗口拖入）
   const addPapers = useCallback(() => {
@@ -383,6 +415,10 @@ export default function App(): JSX.Element | null {
     },
     [refreshPapers, openPaperFromTree]
   )
+
+  // 文献浏览器里导入完成（或点「已在文库 · 打开」）：回到阅读模式打开这篇论文。
+  // 先刷新列表——刚入库的那篇此时渲染端还没拿到
+  useEffect(() => window.api.onOpenPaperRequest(({ slug }) => void openPaperBySlug(slug)), [openPaperBySlug])
 
   // 导入完成后刷新并自动在阅读区打开第一篇成功导入的论文
   const importDone = useCallback(
@@ -572,6 +608,7 @@ export default function App(): JSX.Element | null {
       name: '文件',
       items: [
         { label: '导入 PDF 文献…', hint: '拖入窗口也可以', action: addPapers },
+        { label: '通过浏览器扩展导入…', hint: 'IEEE / arXiv 一键入库', action: () => setConnectorOpen(true) },
         { label: '选择文献库文件夹…', action: () => void pickLibraryNow() },
         { label: '补全文献元信息（联网检索）', action: () => void window.api.enrichRun() },
         { label: '导出 BibTeX…', hint: '联网核对后整库导出', action: () => setBibExportOpen(true) },
@@ -674,6 +711,7 @@ export default function App(): JSX.Element | null {
             mode={mode}
             onModeChange={setMode}
             onPapersChanged={refreshPapers}
+            annCounts={annCounts}
           />
         )}
         <div className="workspace">
@@ -707,6 +745,9 @@ export default function App(): JSX.Element | null {
                       <button className="add-btn ghost" onClick={addPapers}>
                         导入 PDF 文献
                       </button>
+                      <button className="add-btn ghost" onClick={() => setConnectorOpen(true)} title="装一个浏览器扩展，在 IEEE Xplore、arXiv 等页面上点一下即可入库">
+                        浏览器扩展导入
+                      </button>
                     </div>
                   )}
                 </div>
@@ -720,12 +761,14 @@ export default function App(): JSX.Element | null {
                 onCloseTab={closeTab}
                 pendingJump={pendingJump}
                 onJumped={() => setPendingJump(null)}
-                onPageContext={(t) => {
+                onPageContext={(t, page) => {
                   pageCtxRef.current = t
                   setPageCtx(t)
+                  setCurPage(page)
                 }}
                 onSelect={onSelect}
-                onDeleteHighlight={onDeleteHighlight}
+                onAsk={(kind, text) => (kind === 'explain' ? doExplain(text) : doTranslate(text))}
+                onOpenNotes={openNotes}
                 visible={mode === 'read'}
                 papers={papers}
                 onOpenPaperBySlug={(slug) => void openPaperBySlug(slug)}
@@ -757,6 +800,8 @@ export default function App(): JSX.Element | null {
                 onChangeThinkingOn={changeThinkingOn}
                 fs={chatFs}
                 onFs={changeFs}
+                page={curPage}
+                onJumpTo={jumpToAnnotation}
               />
             </div>
           </div>
@@ -793,7 +838,7 @@ export default function App(): JSX.Element | null {
         <span className="ellipsis">{statusLeft}</span>
         <span style={{ flex: 1 }} />
         <span className="chip" title={llmChip} onClick={() => void refreshLlmChip()}>
-          {llmChip || `${settings?.model ?? ''}${settings ? ` · ${PROVIDER_LABEL[settings.provider] ?? ''}` : ''}`}
+          {llmChip || `${settings?.model ?? ''}${settings ? ` · ${providerLabel(settings.provider)}` : ''}`}
         </span>
       </div>
 
@@ -801,15 +846,37 @@ export default function App(): JSX.Element | null {
         <div
           className={`float-bar ${floatBar.copied ? 'copied' : ''}`}
           style={{
-            left: Math.max(8, Math.min(floatBar.x, window.innerWidth - 238)),
+            left: Math.max(8, Math.min(floatBar.x, window.innerWidth - 356)),
             top: Math.max(8, Math.min(floatBar.y, window.innerHeight - 52))
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <button onClick={doHighlight}>高亮</button>
-          <button onClick={() => doCopy(floatBar.text)}>{floatBar.copied ? '已复制' : '复制'}</button>
-          <button onClick={() => doExplain(floatBar.text)}>解释</button>
-          <button className="fb-accent" onClick={() => doTranslate(floatBar.text)}>翻译</button>
+          {/* 点颜色 = 用该颜色高亮：一划一点即完成；当前颜色带描边，连着划词不必重选 */}
+          <span className="fb-colors">
+            {HL_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`fb-dot ${hlColor === c ? 'on' : ''}`}
+                data-color={c}
+                title={`${HL_COLOR_NAME[c]}高亮`}
+                onClick={() => doHighlight(c)}
+              />
+            ))}
+          </span>
+          <button type="button" title="高亮并写下批注" onClick={doAnnotate}>
+            笔记
+          </button>
+          <span className="fb-sep" />
+          <button type="button" onClick={() => doCopy(floatBar.text)}>
+            {floatBar.copied ? '已复制' : '复制'}
+          </button>
+          <button type="button" onClick={() => doExplain(floatBar.text)}>
+            解释
+          </button>
+          <button type="button" className="fb-accent" onClick={() => doTranslate(floatBar.text)}>
+            翻译
+          </button>
         </div>
       )}
       {showSettings && settings && (
@@ -834,9 +901,11 @@ export default function App(): JSX.Element | null {
           onBusyChange={setImportBusy}
           onClose={() => setImportFiles(null)}
           onFinished={(outcomes) => void importDone(outcomes)}
+          onConnectorImport={() => setConnectorOpen(true)}
         />
       )}
       {bibExportOpen && <BibExportDialog onClose={() => setBibExportOpen(false)} />}
+      {connectorOpen && <ConnectorDialog cats={cats} hasApiKey={!!settings?.apiKey} onClose={() => setConnectorOpen(false)} />}
       {paletteOpen && (
         <CommandPalette
           papers={papers}
@@ -844,6 +913,7 @@ export default function App(): JSX.Element | null {
           onOpenPaper={openPaperFromTree}
           commands={[
             { id: 'add', label: '导入 PDF 文献…', hint: '文件', run: addPapers },
+            { id: 'connector', label: '通过浏览器扩展导入（IEEE / arXiv…）', hint: '文件', run: () => setConnectorOpen(true) },
             { id: 'picklib', label: '选择文献库文件夹…', hint: '文件', run: () => void pickLibraryNow() },
             { id: 'reindex', label: '重建全库索引', hint: '文件', run: () => void window.api.rebuildIndex() },
             { id: 'enrich', label: '补全文献元信息（联网检索）', hint: '文件', run: () => void window.api.enrichRun() },

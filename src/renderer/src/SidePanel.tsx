@@ -2,6 +2,9 @@ import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { renderRich, renderMathText, type Jump } from './rich'
 import { ModelPill, ThinkingToggle } from './ChatControls'
 import VerifyBar from './VerifyBar'
+import { useReasoning, ReasonStrip } from './reason'
+import NotesPanel from './NotesPanel'
+import { useAnnotations, useNotes } from './annotations'
 import type { ChatMsg, Paper, SourceRef, VerifyReport } from './types'
 
 // 翻译译文渲染不需要引用跳转
@@ -12,6 +15,8 @@ export interface SideControl {
   explain: (text: string, context: string) => void
   quote: (text: string) => void
   reset: () => void
+  // 切到笔记页（阅读器工具栏的「笔记」按钮用）
+  notes: () => void
 }
 
 interface Props {
@@ -27,6 +32,10 @@ interface Props {
   // 对话字号（问答/翻译/对话共用）
   fs: number
   onFs: (delta: number) => void
+  // 阅读器当前页（新建页面笔记用）
+  page: number
+  // 笔记页点条目 → 跳到那一页（id >= 0 时定位到该条批注）
+  onJumpTo: (page: number, id: number) => void
 }
 
 interface Translation {
@@ -35,10 +44,13 @@ interface Translation {
 }
 
 const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
-  { paper, pageContext, onJump, models, model, thinkingOn, onChangeModel, onChangeThinkingOn, width, fs, onFs },
+  { paper, pageContext, onJump, models, model, thinkingOn, onChangeModel, onChangeThinkingOn, width, fs, onFs, page, onJumpTo },
   ref
 ): JSX.Element {
-  const [tab, setTab] = useState<'chat' | 'translate'>('translate') // 启动默认翻译页（划词即用）
+  const [tab, setTab] = useState<'chat' | 'translate' | 'notes'>('translate') // 启动默认翻译页（划词即用）
+  // 笔记页的数据镜像（与阅读器同一份）
+  const anns = useAnnotations()
+  const notes = useNotes()
   const [msgs, setMsgs] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -50,11 +62,14 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
   const curRef = useRef<Translation | null>(null)
   // 当前流式请求的中断句柄（发送按钮生成中变「停止」）
   const stopRef = useRef<(() => void) | null>(null)
+  // 推理过程（思考模型先于正文输出）：正文一开始就收起
+  const reason = useReasoning()
 
   const doStop = (): void => {
     stopRef.current?.()
     stopRef.current = null
     setBusy(false)
+    reason.clear()
   }
 
   const scrollBottom = () => setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' }), 50)
@@ -108,6 +123,9 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
       )
       scrollBottom()
     },
+    notes() {
+      setTab('notes')
+    },
     quote(text: string) {
       setTab('chat')
       // 追问预填保留原文（上限 2000 字防输入框被超长选区撑爆），可手动编辑
@@ -144,18 +162,22 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
     setTab('chat')
     setMsgs((ms) => [...ms, { role: 'user', content: q }, { role: 'assistant', content: '' }])
     setBusy(true)
+    reason.clear()
     scrollBottom()
     const ctxNote = ctxTranslation ? `\n\n（参考：我刚翻译了「${ctxTranslation.src.slice(0, 120)}」→「${ctxTranslation.out.slice(0, 300)}」）` : ''
     stopRef.current = window.api.stream(
       { mode: 'rag', question: q + ctxNote, scopePaperId: scope === 'paper' && paper ? paper.id : undefined, paperTitle: paper?.title, history },
       {
-        onDelta: (d) =>
+        onReason: reason.onReason,
+        onDelta: (d) => {
+          reason.clear()
           setMsgs((ms) => {
             const next = [...ms]
             const last = next[next.length - 1]
             if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content + d }
             return next
-          }),
+          })
+        },
         onSources: (srcs) =>
           setMsgs((ms) => {
             const next = [...ms]
@@ -173,6 +195,7 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
         onEnd: () => {
           // 输出完成后不滚动：用户可能已滚到上方阅读，强行拉底会打断
           setBusy(false)
+          reason.clear()
         }
       }
     )
@@ -187,6 +210,10 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
         </div>
         <div className={`side-tab ${tab === 'translate' ? 'active' : ''}`} onClick={() => setTab('translate')}>
           翻译
+        </div>
+        <div className={`side-tab ${tab === 'notes' ? 'active' : ''}`} onClick={() => setTab('notes')} title="批注与笔记">
+          笔记
+          {anns.length + notes.length > 0 && <span className="side-tab-n">{anns.length + notes.length}</span>}
         </div>
         <div className="side-tabs-actions">
           {/* 新对话只属于问答页：翻译页没有会话概念 */}
@@ -209,7 +236,16 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
           </div>
         </div>
       </div>
-      {tab === 'chat' ? (
+      {tab === 'notes' ? (
+        paper ? (
+          // key=论文 id：换论文即重建，全文笔记的草稿与展开状态不会串到别的论文上
+          <NotesPanel key={paper.id} paper={paper} anns={anns} notes={notes} page={page} onJump={onJumpTo} />
+        ) : (
+          <div className="chat-scroll">
+            <div className="side-hint">打开一篇论文后，可以在这里写全文笔记、按页记要点；在 PDF 里划词点「笔记」即可给原文写批注。</div>
+          </div>
+        )
+      ) : tab === 'chat' ? (
         <>
           <div className="chat-scroll" ref={scrollRef}>
             {msgs.length === 0 && (
@@ -241,10 +277,14 @@ const SidePanel = forwardRef<SideControl, Props>(function SidePanel(
                 </div>
               </div>
             ))}
-            {pendingFirstChar && (
-              <div className="thinking">
-                <span className="b" /> <span className="b" /> <span className="b" />
-              </div>
+            {reason.text ? (
+              <ReasonStrip text={reason.text} />
+            ) : (
+              pendingFirstChar && (
+                <div className="thinking">
+                  <span className="b" /> <span className="b" /> <span className="b" />
+                </div>
+              )
             )}
           </div>
           <div className="chat-input-area">

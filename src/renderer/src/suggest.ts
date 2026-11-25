@@ -8,7 +8,14 @@ const STOP = new Set([
   'can', 'its', 'their', 'than', 'then', 'when', 'what', 'which', 'how', 'why', 'does', 'not', 'but',
   'all', 'any', 'into', 'over', 'between', 'based', 'using', 'used', 'via', 'about', 'toward',
   'towards', 'new', 'novel', 'study', 'review', 'first', 'second', 'third', 'part', 'under', 'within',
-  'application', 'applications', 'approach', 'method', 'methods', 'analysis', 'design', 'research'
+  'application', 'applications', 'approach', 'method', 'methods', 'analysis', 'design', 'research',
+  // 学术标题里的通用词：不代表研究方向，不该成为建议问题里的关键词
+  'paper', 'papers', 'ieee', 'journal', 'proceedings', 'conference', 'transactions', 'letter', 'letters',
+  'model', 'models', 'system', 'control', 'modeling', 'modelling', 'optimization', 'optimisation',
+  'experimental', 'experiments', 'numerical', 'simulation', 'comparison', 'comparative', 'evaluation',
+  'high', 'low', 'wide', 'fast', 'small', 'large', 'improved', 'efficient', 'performance',
+  'identification', 'estimation', 'measurement', 'characterization', 'investigation',
+  'influence', 'impact', 'effect', 'effects', 'problem', 'problems', 'scheme', 'strategy', 'structure'
 ])
 
 // 标题词的文档频率（每篇只计一次），取跨论文复现最多的实词作为研究方向关键词

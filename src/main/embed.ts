@@ -52,7 +52,11 @@ export async function embed(texts: string[]): Promise<EmbedResult> {
           : `Ollama 嵌入 ${resp.status}: ${t.slice(0, 160)}`
       )
     }
-    const json = (await resp.json()) as { embeddings: number[][] }
+    const json = (await resp.json()) as { embeddings?: number[][] }
+    // 条数必须与输入一一对应：少了会让向量与文本错位（检索结果张冠李戴），直接报错让这一批重试
+    if (!Array.isArray(json.embeddings) || json.embeddings.length !== batch.length) {
+      throw new Error(`Ollama 嵌入结果异常：输入 ${batch.length} 段，返回 ${Array.isArray(json.embeddings) ? json.embeddings.length : 0} 个向量`)
+    }
     vectors.push(...json.embeddings.map(normalize))
   }
   return { vectors, dim: vectors[0]?.length ?? 0 }

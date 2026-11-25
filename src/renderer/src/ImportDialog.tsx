@@ -24,12 +24,14 @@ interface Props {
   onBusyChange: (busy: boolean) => void
   onClose: () => void
   onFinished: (outcomes: ImportOutcome[]) => void
+  // 「浏览器扩展导入…」：打开应用里的扩展引导窗
+  onConnectorImport?: () => void
 }
 
 const NEW_CAT = '__new__'
 
 // 导入弹窗：拖入 / 选文件 / 选文件夹 → AI 逐篇推荐分类（每行右侧可单独改）→ 确认导入
-export default function ImportDialog({ initialFiles, initialCats, hasApiKey, onBusyChange, onClose, onFinished }: Props): JSX.Element {
+export default function ImportDialog({ initialFiles, initialCats, hasApiKey, onBusyChange, onClose, onFinished, onConnectorImport }: Props): JSX.Element {
   const [items, setItems] = useState<QueueItem[]>(() =>
     initialFiles
       .filter((p) => p.toLowerCase().endsWith('.pdf'))
@@ -303,6 +305,11 @@ export default function ImportDialog({ initialFiles, initialCats, hasApiKey, onB
               <button className="btn ghost" onClick={() => void pickFolder()}>
                 选择文件夹…
               </button>
+              {onConnectorImport && (
+                <button className="btn ghost" onClick={onConnectorImport} title="装一个浏览器扩展，在 IEEE Xplore、arXiv 等页面上点一下即可入库">
+                  浏览器扩展导入…
+                </button>
+              )}
             </div>
           </div>
         )}

@@ -1,0 +1,94 @@
+/* PaperLens Connector 弹窗：配色与桌面应用一致（暖纸面 + 陶土红点缀） */
+:root {
+  --bg: #faf9f5;
+  --bg2: #f2f0e9;
+  --bg3: #e9e6dc;
+  --border: rgba(73, 63, 44, 0.11);
+  --border-lit: rgba(73, 63, 44, 0.22);
+  --text: #26231e;
+  --text-dim: #8b8578;
+  --accent: #c96442;
+  --accent2: #a8502f;
+  --ok: #5e9c76;
+  --danger: #c4554d;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #262624;
+    --bg2: #1f1e1d;
+    --bg3: #33312e;
+    --border: rgba(250, 249, 245, 0.08);
+    --border-lit: rgba(250, 249, 245, 0.16);
+    --text: #f5f3ec;
+    --text-dim: #a8a292;
+    --accent: #d97757;
+    --accent2: #e9a087;
+    --ok: #6dbf8e;
+    --danger: #e0736b;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  width: 340px;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.55 -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px 10px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+.head img { width: 24px; height: 24px; flex-shrink: 0; }
+.head-text { min-width: 0; }
+.name { font-size: 13px; font-weight: 650; letter-spacing: 0.2px; }
+.status { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status.on { color: var(--accent2); }
+.status.off { color: var(--text-dim); }
+
+.main { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
+
+.box {
+  padding: 11px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.box-title { font-size: 12.5px; font-weight: 650; line-height: 1.5; }
+.box-text { font-size: 12px; color: var(--text-dim); line-height: 1.65; user-select: text; word-break: break-word; }
+.box.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.box.ok .box-title { color: var(--ok); }
+.box.ok .box-text { color: var(--text); font-weight: 600; }
+.box.fail { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.box.fail .box-title { color: var(--danger); }
+
+.item-title { font-size: 13px; font-weight: 650; line-height: 1.45; user-select: text; word-break: break-word; }
+.item-meta { font-size: 11.5px; color: var(--text-dim); line-height: 1.55; user-select: text; word-break: break-word; }
+.field-label { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+.row { display: flex; }
+.select {
+  flex: 1; min-width: 0; height: 30px; padding: 0 8px;
+  background: var(--bg2); color: var(--text);
+  border: 1px solid var(--border-lit); border-radius: 8px;
+  font: inherit; font-size: 12.5px; outline: none; cursor: pointer; text-overflow: ellipsis;
+}
+.select:focus { border-color: var(--accent); }
+
+.primary {
+  height: 32px; margin-top: 4px;
+  background: var(--accent); color: #fff; border: none; border-radius: 8px;
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: opacity 0.13s ease, transform 0.1s ease;
+}
+.primary:hover { opacity: 0.88; }
+.primary:active { transform: scale(0.98); }

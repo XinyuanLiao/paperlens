@@ -3,6 +3,7 @@
 // 有 DOI 时并行问 Unpaywall 与 S2 收集开放获取 PDF 直链，供引用面板一键下载原文。
 
 import fs from 'node:fs'
+import { httpFetch, isAbortError, netErrorReason } from './http'
 
 export interface RefMeta {
   title: string
@@ -28,7 +29,7 @@ export const UA = 'PaperLens/0.2 (mailto:planck@users.noreply.github.com)'
 // 让上层走兜底而不是把整条引用查询打断
 async function jget(url: string, timeoutMs: number): Promise<any | null> {
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(timeoutMs) })
+    const res = await httpFetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return null
     return await res.json()
   } catch {
@@ -50,10 +51,38 @@ export function diceBigram(a: string, b: string): number {
   return (2 * hit) / (ga.size + gb.size)
 }
 
+// 标题实词里的通用词：比对两篇是否同一篇时不计入
+const TITLE_STOP = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'into', 'using', 'based', 'via', 'toward', 'towards',
+  'study', 'analysis', 'review', 'research', 'new', 'novel', 'design', 'method', 'methods', 'approach',
+  'effect', 'effects', 'performance', 'ieee', 'journal', 'proceedings', 'conference', 'international', 'annual'
+])
+const titleWords = (s: string): Set<string> =>
+  new Set(
+    (s.toLowerCase().match(/[a-z0-9][a-z0-9_-]{2,}/g) ?? [])
+      .filter((w) => !TITLE_STOP.has(w))
+      // 复数归一：modules / module 视为同一个词
+      .map((w) => (w.length > 4 && w.endsWith('s') && !w.endsWith('ss') && !w.endsWith('us') ? w.slice(0, -1) : w))
+  )
+
+// 两个标题是否指同一篇论文：字符 bigram 相似度过线之外，还要求实词大多对得上。
+// 单看 bigram，短而泛的标题很容易「撞」过门槛——「Categorised By Connector Paper」
+// 曾以 0.625 的相似度对上 CrossRef 里的「Companies Categorised by Sector」，把不相干的作者、年份、期刊安了上去。
+// 拉丁实词太少时（中文标题、极短标题）分不出词，只能退回 bigram 一项
+export function sameTitle(a: string, b: string, diceMin: number): boolean {
+  if (diceBigram(a.toLowerCase(), b.toLowerCase()) < diceMin) return false
+  const wa = titleWords(a)
+  const wb = titleWords(b)
+  if (wa.size < 3 || wb.size < 3) return true
+  let hit = 0
+  for (const w of wa) if (wb.has(w)) hit++
+  return hit / Math.min(wa.size, wb.size) >= 0.6
+}
+
 // PDF 候选清洗：只留 http(s)、按小写去重；
 // 排序权重 Unpaywall（编辑校验过的 OA 库）> 直链 .pdf > arxiv > 其余，
 // Array#sort 在 ES2019+ 稳定，同权重保持插入序；最多 5 个防止列表爆炸
-function cleanPdfUrls(cands: Array<{ url: string; fromUnpaywall?: boolean }>): string[] {
+export function cleanPdfUrls(cands: Array<{ url: string; fromUnpaywall?: boolean }>): string[] {
   const seen = new Set<string>()
   const list: Array<{ url: string; w: number }> = []
   for (const c of cands) {
@@ -156,6 +185,17 @@ async function s2ByDoi(doi: string): Promise<{ pdfUrl: string; citationCount: nu
     pdfUrl,
     citationCount: typeof data?.citationCount === 'number' ? data.citationCount : null
   }
+}
+
+// 有 DOI 时的开放获取 PDF 直链（Unpaywall 主 + S2 补），去重排序。
+// 浏览器扩展只传来元数据时，应用靠它自己取全文
+export async function oaPdfUrlsForDoi(doi: string): Promise<string[]> {
+  const d = doi.trim()
+  if (!d) return []
+  const [uw, s2] = await Promise.all([unpaywallCandidates(d), s2ByDoi(d)])
+  const cands = [...uw]
+  if (s2?.pdfUrl) cands.push({ url: s2.pdfUrl })
+  return cleanPdfUrls(cands)
 }
 
 // S2 兜底检索：CrossRef 没收录的会议文（ICLR/NeurIPS 等）从这里拿；
@@ -265,7 +305,7 @@ export async function downloadRefPdf(urls: string[], dest: string): Promise<{ ok
   let lastNetErr = ''
   for (const url of urls) {
     try {
-      const res = await fetch(url, {
+      const res = await httpFetch(url, {
         headers: { 'user-agent': UA, accept: 'application/pdf,*/*' },
         redirect: 'follow',
         signal: AbortSignal.timeout(60_000)
@@ -280,8 +320,8 @@ export async function downloadRefPdf(urls: string[], dest: string): Promise<{ ok
       return { ok: true }
     } catch (e) {
       // 单个 url 的 DNS/超时异常不致命，记下原因继续下一个
-      if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) lastNetErr = '请求超时'
-      else if (e instanceof TypeError) lastNetErr = '网络错误'
+      if (isAbortError(e)) lastNetErr = '请求超时'
+      else lastNetErr = netErrorReason(e)
     }
   }
   // 超时/网络错误另附简短原因，其余情况保持固定文案避免暴露技术细节

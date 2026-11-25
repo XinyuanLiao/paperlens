@@ -3,6 +3,7 @@ import { renderRich, type Jump } from './rich'
 import { buildSuggestions } from './suggest'
 import { ModelPill, ThinkingToggle, ScopePill, type ChatScope } from './ChatControls'
 import VerifyBar from './VerifyBar'
+import { useReasoning, ReasonStrip } from './reason'
 import type { ChatMsg, Paper, SourceRef, VerifyReport } from './types'
 
 interface Props {
@@ -106,10 +107,13 @@ export default function ChatView({
   const [editText, setEditText] = useState('')
   // 当前流式请求的中断句柄（发送按钮生成中变「停止」）
   const stopRef = useRef<(() => void) | null>(null)
+  // 推理过程（思考模型先于正文输出）：正文一开始就收起
+  const reason = useReasoning()
   const doStop = (): void => {
     stopRef.current?.()
     stopRef.current = null
     setBusy(false)
+    reason.clear()
   }
   const scrollBottom = () => setTimeout(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: 'smooth' }), 50)
   // 等待动画只在「模型还没吐出第一个字」时显示三个点；流式开始后完全隐藏
@@ -147,6 +151,7 @@ export default function ChatView({
   // 打开历史对话：载入消息停在底部；activeChatId 置 null（新建对话）只清空
   useEffect(() => {
     setEditIdx(null)
+    reason.clear()
     if (activeChatId == null) {
       setMsgs([])
       return
@@ -176,6 +181,7 @@ export default function ChatView({
     setEditIdx(null)
     setMsgs([...base, { role: 'user', content: q }, { role: 'assistant', content: '' }])
     setBusy(true)
+    reason.clear()
     outRef.current = ''
     srcRef.current = undefined
     verRef.current = undefined
@@ -202,7 +208,9 @@ export default function ChatView({
           history
         },
         {
+          onReason: reason.onReason,
           onDelta: (d) => {
+            reason.clear()
             outRef.current += d
             setMsgs((ms) => {
               const next = [...ms]
@@ -246,6 +254,7 @@ export default function ChatView({
             ]
             void window.api.chatSetMessages(chatId, final)
             setBusy(false)
+            reason.clear()
             onChatsChanged()
             scrollBottom()
           }
@@ -496,10 +505,14 @@ export default function ChatView({
                 )}
               </div>
             ))}
-            {pendingFirstChar && (
-              <div className="thinking">
-                <span className="b" /> <span className="b" /> <span className="b" />
-              </div>
+            {reason.text ? (
+              <ReasonStrip text={reason.text} />
+            ) : (
+              pendingFirstChar && (
+                <div className="thinking">
+                  <span className="b" /> <span className="b" /> <span className="b" />
+                </div>
+              )
             )}
             </div>
             <div className="chat-view-input">{inputBox}</div>

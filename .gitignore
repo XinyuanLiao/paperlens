@@ -8,3 +8,6 @@ dist/
 
 # 内置模型二进制（fetch-models.mjs 下载，不进 git）
 build/models/
+
+# 仓库测试脚本（scripts/test-*.mjs）的产物目录
+.zcode/

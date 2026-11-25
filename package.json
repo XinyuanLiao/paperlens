@@ -24,6 +24,13 @@
     "files": [
       "out/**"
     ],
+    "extraResources": [
+      {
+        "from": "connector",
+        "to": "connector",
+        "filter": ["**/*", "!README.md"]
+      }
+    ],
     "win": {
       "icon": "build/icon.png",
       "target": [

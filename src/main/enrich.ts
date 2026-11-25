@@ -9,7 +9,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import * as dbmod from './db'
-import { lookupBibMeta, diceBigram } from './refmeta'
+import { lookupBibMeta, sameTitle } from './refmeta'
 
 export interface BibFills {
   venue?: string
@@ -33,7 +33,7 @@ export async function bibFillsFor(
 ): Promise<BibFills | null> {
   const meta = await lookupBibMeta(title)
   if (!meta) return null
-  if (diceBigram(meta.title.toLowerCase(), title.toLowerCase()) < DICE_MIN) return null
+  if (!sameTitle(meta.title, title, DICE_MIN)) return null
   if (cur.year != null && meta.year != null && Math.abs(meta.year - cur.year) > 2) return null
   const fills: BibFills = {}
   // venue 黑名单：标题对得上但 container-title 是聚合服务名（蹭名条目漏网时），

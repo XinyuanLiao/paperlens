@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import ContextMenu, { type CtxItem } from './ContextMenu'
-import type { ChatMeta, Paper } from './types'
+import type { AnnotationCount, ChatMeta, Paper } from './types'
 
 interface Props {
   papers: Paper[]
@@ -29,6 +29,8 @@ interface Props {
   onModeChange: (m: 'read' | 'chat') => void
   width: number
   onPapersChanged: () => void
+  // 各论文的批注 / 笔记条数（行上的角标），只含有内容的论文
+  annCounts: Record<number, AnnotationCount>
 }
 
 // sqlite datetime('now') 是 UTC 无时区后缀，补 Z 再解析
@@ -72,7 +74,8 @@ export default function LibraryPane({
   mode,
   onModeChange,
   width,
-  onPapersChanged
+  onPapersChanged,
+  annCounts
 }: Props): JSX.Element {
   const tree = useMemo(() => {
     // 分类树 = 数据库分类列表（含空分类）+ 兜底（行里有但列表漏掉的）
@@ -230,6 +233,14 @@ export default function LibraryPane({
     { label: '删除', danger: true, action: () => onDeleteChat(c.id) }
   ]
 
+  // 危险操作两步确认：第一次点进入待确认（2.6 秒内再点才执行），误触一下不会丢数据
+  const [confirm, setConfirm] = useState<string | null>(null)
+  useEffect(() => {
+    if (!confirm) return
+    const t = setTimeout(() => setConfirm(null), 2600)
+    return () => clearTimeout(t)
+  }, [confirm])
+
   // 对话模式：搜索框过滤历史对话标题
   const chatKw = q.trim().toLowerCase()
   const chatFiltered = useMemo(
@@ -291,7 +302,7 @@ export default function LibraryPane({
         e.stopPropagation()
         window.api.paperMenu(p.id, e.clientX, e.clientY)
       }}
-      title="拖到分类上可移动；右键更多操作"
+      title={`${p.title}\n（拖到分类上可移动；右键更多操作）`}
     >
       <div className="t">
         <span
@@ -316,6 +327,18 @@ export default function LibraryPane({
           }}
         />
         <span>{p.year ?? '—'}</span>
+        {(() => {
+          const c = annCounts[p.id]
+          const n = (c?.hl ?? 0) + (c?.notes ?? 0)
+          return n > 0 ? (
+            <span className="ann-badge" title={`${c!.hl} 条批注 · ${c!.notes} 条笔记`}>
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 14.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8.5z" />
+              </svg>
+              {n}
+            </span>
+          ) : null
+        })()}
         {extra ?? <span className="cat">{catLabel(p.category)}</span>}
       </div>
     </div>
@@ -383,13 +406,22 @@ export default function LibraryPane({
               </svg>
               刷新
             </button>
-            <button className="mini-btn" onClick={onReindex} title="清空并重建全库索引">
+            <button
+              className={`mini-btn ${confirm === 'reindex' ? 'confirm' : ''}`}
+              onClick={() => {
+                if (confirm === 'reindex') {
+                  setConfirm(null)
+                  onReindex()
+                } else setConfirm('reindex')
+              }}
+              title={confirm === 'reindex' ? '再点一次确认：清空并重建全库索引（大库需要较长时间）' : '清空并重建全库索引'}
+            >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <ellipse cx="12" cy="5.5" rx="7" ry="2.8" />
                 <path d="M5 5.5v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6" />
                 <path d="M5 11.5v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6" />
               </svg>
-              重建索引
+              {confirm === 'reindex' ? '确认重建?' : '重建索引'}
             </button>
           </div>
         )}
@@ -417,14 +449,18 @@ export default function LibraryPane({
                   <span>{c.n} 条</span>
                   <span style={{ flex: 1 }} />
                   <button
-                    className="chat-x"
-                    title="删除该对话"
+                    className={`chat-x ${confirm === `chat:${c.id}` ? 'confirm' : ''}`}
+                    title={confirm === `chat:${c.id}` ? '再点一次确认删除（不可恢复）' : '删除该对话'}
                     onClick={(e) => {
                       e.stopPropagation()
-                      onDeleteChat(c.id)
+                      // 两步确认：悬停时冒出来的 ✕ 太容易误点，而对话一删就没了
+                      if (confirm === `chat:${c.id}`) {
+                        setConfirm(null)
+                        onDeleteChat(c.id)
+                      } else setConfirm(`chat:${c.id}`)
                     }}
                   >
-                    ✕
+                    {confirm === `chat:${c.id}` ? '确认?' : '✕'}
                   </button>
                 </div>
               </div>

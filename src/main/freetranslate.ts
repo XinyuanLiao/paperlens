@@ -3,6 +3,7 @@
 // signal 贯穿到每个 fetch：供「停止生成」中断等待中的翻译请求
 
 import { getSettings } from './db'
+import { httpFetch } from './http'
 
 const TIMEOUT_MS = 12_000
 
@@ -37,7 +38,7 @@ const withTimeout = (signal?: AbortSignal): AbortSignal =>
 async function googleTranslate(text: string, to: string, signal?: AbortSignal): Promise<string> {
   // 响应 [0] 是逐句 [译文, 原文] 数组
   const body = new URLSearchParams({ client: 'gtx', sl: 'auto', tl: to, dt: 't', ie: 'UTF-8', oe: 'UTF-8', q: text })
-  const r = await fetch('https://translate.googleapis.com/translate_a/single', {
+  const r = await httpFetch('https://translate.googleapis.com/translate_a/single', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
@@ -66,7 +67,7 @@ let bingParams: BingParams | null = null
 async function bingParamsFetch(signal?: AbortSignal, force = false): Promise<BingParams> {
   if (!force && bingParams && Date.now() - bingParams.at < 30 * 60_000) return bingParams
   const page = await (
-    await fetch('https://www.bing.com/translator', {
+    await httpFetch('https://www.bing.com/translator', {
       headers: { 'User-Agent': BING_UA },
       signal: withTimeout(signal)
     })
@@ -85,7 +86,7 @@ async function bingParamsFetch(signal?: AbortSignal, force = false): Promise<Bin
 async function bingTranslateOnce(text: string, to: string, p: BingParams, signal?: AbortSignal): Promise<string> {
   // 必应的简体中文代码是 zh-Hans（zh-CN 是谷歌系写法）；fromLang 只认 auto-detect，不认 auto
   const toBing = to === 'zh-CN' ? 'zh-Hans' : to
-  const r = await fetch(`https://www.bing.com/ttranslatev3?IG=${encodeURIComponent(p.ig)}&IID=${encodeURIComponent(p.iid)}`, {
+  const r = await httpFetch(`https://www.bing.com/ttranslatev3?IG=${encodeURIComponent(p.ig)}&IID=${encodeURIComponent(p.iid)}`, {
     method: 'POST',
     headers: {
       'User-Agent': BING_UA,

@@ -7,7 +7,8 @@
 //   local    — 未命中/离线，用库内字段拼装并挂 unverified 警告。
 // 任何网络失败都安静降级，绝不 throw。
 
-import { lookupBibMeta, diceBigram, UA } from './refmeta'
+import { lookupBibMeta, diceBigram, sameTitle, UA } from './refmeta'
+import { httpFetch } from './http'
 import { parseBibtexEntry, makeCiteKey, latexEscape, foldUnicode, type ParsedEntry } from './bibtext'
 
 export type BibSource = 'official' | 'web' | 'local'
@@ -52,7 +53,7 @@ export async function fetchOfficialBibtex(doi: string): Promise<ParsedEntry | nu
   const d = doi.trim()
   if (!d) return null
   try {
-    const res = await fetch(`https://doi.org/${encodeURIComponent(d)}`, {
+    const res = await httpFetch(`https://doi.org/${encodeURIComponent(d)}`, {
       headers: { Accept: 'application/x-bibtex; charset=utf-8', 'User-Agent': UA },
       redirect: 'follow',
       signal: AbortSignal.timeout(10_000)
@@ -120,7 +121,7 @@ export async function resolvePaperEntry(p: PaperMeta & { slug?: string }): Promi
   try {
     const meta = await lookupBibMeta(title)
     // 严格门槛：标题 dice 与年份差（与 enrich.ts 一致），不过线视为未命中
-    if (!meta || diceBigram(meta.title.toLowerCase(), title.toLowerCase()) < DICE_MIN) {
+    if (!meta || !sameTitle(meta.title, title, DICE_MIN)) {
       return buildAssembledEntry(p, null)
     }
     if (p.year != null && meta.year != null && Math.abs(p.year - meta.year) > YEAR_GAP_MAX) {

@@ -3,8 +3,9 @@ import path from 'node:path'
 import { shell } from 'electron'
 import { getDb, getSettings, scanLibrary, setExtraCats, getExtraCats } from './db'
 import { extractPages } from './ingest'
-import { chatStream } from './llm'
+import { chatStream, parseJsonLoose } from './llm'
 import { bibFillsFor } from './enrich'
+import { deletePaperAnnotations } from './notes'
 
 export interface ImportOutcome {
   file: string
@@ -57,19 +58,16 @@ async function classify(firstPages: string): Promise<{
   ])) {
     out += d
   }
-  try {
-    const json = JSON.parse(out.replace(/^```json\s*|```\s*$/g, ''))
-    if (!json.title || !json.category_slug) return null
-    return {
-      title: String(json.title),
-      authors: String(json.authors ?? ''),
-      year: parseInt(json.year) || null,
-      venue: String(json.venue ?? ''),
-      categorySlug: slugify(String(json.category_slug)),
-      paperSlug: String(json.paper_slug ?? '')
-    }
-  } catch {
-    return null
+  // 宽容解析：模型常在 JSON 外面裹 ```json 围栏或加一句寒暄，严格 JSON.parse 会让整篇识别作废
+  const json = parseJsonLoose<Record<string, unknown>>(out)
+  if (!json || !json.title || !json.category_slug) return null
+  return {
+    title: String(json.title),
+    authors: String(json.authors ?? ''),
+    year: parseInt(String(json.year ?? ''), 10) || null,
+    venue: String(json.venue ?? ''),
+    categorySlug: slugify(String(json.category_slug)),
+    paperSlug: String(json.paper_slug ?? '')
   }
 }
 
@@ -411,7 +409,8 @@ export async function deletePaper(paperId: number): Promise<void> {
     for (const id of chunkIds) delFts.run(id)
     db.prepare('DELETE FROM chunks WHERE paper_id=?').run(paperId)
     db.prepare('DELETE FROM papers_fts WHERE rowid=?').run(paperId)
-    db.prepare('DELETE FROM highlights WHERE paper_id=?').run(paperId)
+    // 批注与笔记同样手动清（外键级联默认关闭）
+    deletePaperAnnotations(paperId)
     db.prepare('DELETE FROM papers WHERE id=?').run(paperId)
   })
   tx()

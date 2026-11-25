@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Settings } from './types'
+// 服务商预设只有一份（与首次启动向导、主进程请求体适配共用），不在各处各抄一张表——
+// 曾经两张表各存一份，Kimi 的默认模型在两边都是早已下线的名字
+import { PRESETS, guessPreset } from '../../shared/providers'
 
 interface Props {
   settings: Settings
@@ -13,17 +16,6 @@ interface Props {
   onChatFs: (delta: number) => void
   onChatFsReset: () => void
 }
-
-// models = 该服务商的常用模型建议（模型输入框的 datalist 候选，均可自由增删）
-const PRESETS: Array<{ id: string; label: string; base: string; model: string; models: string[] }> = [
-  { id: 'mimo', label: '小米 MiMo', base: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.6-flash', models: ['mimo-v2.6-flash', 'mimo-v2.6-pro', 'mimo-v2.6', 'mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2-flash', 'mimo-v2-pro'] },
-  { id: 'zhipu', label: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.5-air', models: ['glm-4.5-air', 'glm-4.5', 'glm-4-plus'] },
-  { id: 'deepseek', label: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', models: ['deepseek-chat', 'deepseek-reasoner'] },
-  { id: 'qwen', label: '通义千问 Qwen', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', models: ['qwen-plus', 'qwen-max', 'qwen-turbo'] },
-  { id: 'moonshot', label: 'Kimi 月之暗面', base: 'https://api.moonshot.cn/v1', model: 'kimi-k2-0711-preview', models: ['kimi-k2-0711-preview', 'kimi-latest', 'moonshot-v1-128k'] },
-  { id: 'openai', label: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'o4-mini'] },
-  { id: 'custom', label: '自定义 / 其他兼容服务', base: '', model: '', models: [] }
-]
 
 const LANGS = ['中文', 'English', '日本語', '한국어', 'Français', 'Deutsch', 'Español', 'Русский', 'Português', 'Italiano']
 
@@ -73,13 +65,6 @@ const TABS: Array<{ id: TabId; label: string; icon: JSX.Element }> = [
     )
   }
 ]
-
-function guessProvider(apiBase: string): string {
-  const hit = PRESETS.find((p) => p.id !== 'custom' && apiBase.startsWith(p.base))
-  return hit?.id ?? 'custom'
-}
-
-const providerLabel = (id: string): string => PRESETS.find((p) => p.id === id)?.label ?? id
 
 function workspaceName(p: string): string {
   const parts = p.split(/[\\/]+/).filter(Boolean)
@@ -176,6 +161,8 @@ export default function SettingsDialog({
 
   // 默认模型切换：聚合所有服务商的模型，选中即激活所属服务商（与对话界面切换等效）
   const allModels = profiles.flatMap((p) => p.models.map((m) => ({ m, pf: p })))
+  // 卡片对应的预设：API Base 命中已知服务商就以它为准（与主进程的参数适配同一判定），否则看记下的服务商
+  const presetOf = (pf: { provider: string; apiBase: string }) => guessPreset(pf.apiBase) ?? PRESETS.find((p) => p.id === pf.provider) ?? PRESETS[PRESETS.length - 1]
   // 当前默认模型所属的服务商配置（与 save() 的同步逻辑一致），翻译引擎的 LLM 选项按它有无 Key 决定
   const activePf = profiles.find((p) => p.models.includes(form.model)) ?? profiles[0]
   const switchModel = async (m: string): Promise<void> => {
@@ -217,6 +204,30 @@ export default function SettingsDialog({
     } else {
       setLlmTests((t) => ({ ...t, [i]: `✗ ${r.error ?? '连接失败'}` }))
     }
+  }
+
+  // 向服务商拉取现役模型列表，替换该卡片的模型列表。预设里的模型名会随服务商迭代过期
+  //（Kimi 的 kimi-k2-0711-preview 等已整批下线），以服务商实时返回的为准
+  const syncModels = async (i: number): Promise<void> => {
+    const pf = profiles[i]
+    if (!pf) return
+    setLlmTests((t) => ({ ...t, [i]: '同步模型中…' }))
+    const r = await window.api.listModels({ apiBase: pf.apiBase, apiKey: pf.apiKey, provider: pf.provider })
+    if (!r.ok) {
+      setLlmTests((t) => ({ ...t, [i]: `✗ ${r.error}` }))
+      return
+    }
+    const next = profiles.map((x, idx) => (idx === i ? { ...x, models: r.models } : x))
+    saveProfiles(next)
+    setProfiles(next)
+    // 当前默认模型原本属于这张卡片、却不在新列表里（已下线）：换到该服务商的预设默认，再不行取列表首项
+    if (!r.models.includes(form.model) && pf.models.includes(form.model)) {
+      const preset = guessPreset(pf.apiBase)
+      const m = preset && r.models.includes(preset.model) ? preset.model : r.models[0]
+      set({ model: m })
+      await onSave({ model: m, provider: pf.provider, apiBase: pf.apiBase, apiKey: pf.apiKey, models: r.models })
+    }
+    setLlmTests((t) => ({ ...t, [i]: `✓ 已同步 ${r.models.length} 个模型` }))
   }
 
   const testEmbed = async (): Promise<void> => {
@@ -402,7 +413,7 @@ export default function SettingsDialog({
                     {allModels.length === 0 && <option value="">（先在下方填写模型）</option>}
                     {profiles.map((pf, i) =>
                       pf.models.length ? (
-                        <optgroup key={i} label={providerLabel(guessProvider(pf.apiBase) === 'custom' ? pf.provider : guessProvider(pf.apiBase))}>
+                        <optgroup key={i} label={presetOf(pf).label}>
                           {pf.models.map((m) => (
                             <option key={m} value={m}>
                               {m}
@@ -427,8 +438,8 @@ export default function SettingsDialog({
                     saveProfiles(next)
                     setProfiles(next)
                   }
-                  const presetId = pf.provider === 'custom' ? 'custom' : guessProvider(pf.apiBase)
-                  const suggestions = PRESETS.find((p) => p.id === presetId)?.models ?? []
+                  const preset = presetOf(pf)
+                  const suggestions = preset.models
                   // 添加模型：支持逗号/换行批量粘贴，去重
                   const addModels = (raw: string): void => {
                     const names = raw
@@ -455,7 +466,7 @@ export default function SettingsDialog({
                         <svg className={`chev ${isOpen ? 'open' : ''}`} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M9 18l6-6-6-6" />
                         </svg>
-                        <span className="profile-name">{providerLabel(pf.provider === 'custom' ? 'custom' : guessProvider(pf.apiBase))}</span>
+                        <span className="profile-name">{preset.label}</span>
                         <span className="profile-meta ellipsis">{pf.apiBase.replace(/^https?:\/\//, '') || '未配置地址'}</span>
                         {pf.models.length > 0 && <span className="profile-models-chip">{pf.models.length} 模型</span>}
                         {isActive ? <span className="active-tag">使用中</span> : null}
@@ -465,10 +476,21 @@ export default function SettingsDialog({
                           <div className="field">
                             <label>服务商</label>
                             <select
-                              value={pf.provider === 'custom' ? 'custom' : guessProvider(pf.apiBase)}
+                              value={preset.id}
                               onChange={(e) => {
-                                const preset = PRESETS.find((x) => x.id === e.target.value)!
-                                patchPf(preset.id === 'custom' ? { provider: 'custom' } : { provider: preset.id, apiBase: preset.base })
+                                const next = PRESETS.find((x) => x.id === e.target.value) ?? PRESETS[PRESETS.length - 1]
+                                if (next.id === 'custom') {
+                                  patchPf({ provider: 'custom' })
+                                  return
+                                }
+                                // 切服务商 = 换了一家的接口：旧模型名在新服务商那里并不存在，整份换成新家的模型
+                                //（以前只换地址不换模型，带着上一家的模型名去测，必然报「模型不存在」）
+                                patchPf({ provider: next.id, apiBase: next.base, models: [...next.models] })
+                                // 当前默认模型出自这张卡片：跟着切到新家的默认模型，并同步激活配置
+                                if (pf.models.includes(form.model)) {
+                                  set({ model: next.model })
+                                  void onSave({ model: next.model, provider: next.id, apiBase: next.base, apiKey: pf.apiKey, models: next.models })
+                                }
                               }}
                             >
                               {PRESETS.map((p) => (
@@ -480,12 +502,32 @@ export default function SettingsDialog({
                           </div>
                           <div className="field grow">
                             <label>API Base</label>
-                            <input value={pf.apiBase} onChange={(e) => patchPf({ apiBase: e.target.value })} />
+                            <input value={pf.apiBase} onChange={(e) => patchPf({ apiBase: e.target.value })} spellCheck={false} />
                           </div>
                         </div>
                         <div className="field">
-                          <label>API Key</label>
-                          <input type="password" value={pf.apiKey} onChange={(e) => patchPf({ apiKey: e.target.value })} placeholder="sk-…" />
+                          <label>
+                            API Key
+                            {preset.keyUrl && (
+                              <span className="field-link" title={preset.keyUrl} onClick={() => window.api.openExternal(preset.keyUrl!)}>
+                                获取 Key ↗
+                              </span>
+                            )}
+                          </label>
+                          <input
+                            type="password"
+                            value={pf.apiKey}
+                            onChange={(e) => patchPf({ apiKey: e.target.value })}
+                            onBlur={(e) => {
+                              // 粘贴的 Key 常带首尾空白：失焦时清掉
+                              const v = e.currentTarget.value.trim()
+                              if (v !== e.currentTarget.value) patchPf({ apiKey: v })
+                            }}
+                            placeholder="sk-…"
+                            spellCheck={false}
+                            autoComplete="off"
+                          />
+                          {preset.note && <div className="hint">{preset.note}</div>}
                         </div>
                         <div className="field">
                           <label>模型（可添加多个）</label>
@@ -584,6 +626,14 @@ export default function SettingsDialog({
                           <button className="btn ghost" onClick={() => void testLlm(i)} disabled={busy}>
                             测试连接
                           </button>
+                          <button
+                            className="btn ghost"
+                            onClick={() => void syncModels(i)}
+                            disabled={busy || !pf.apiBase || !pf.apiKey}
+                            title="向服务商拉取当前可用的模型列表并替换本卡片的模型（预设里的模型名可能已下线）"
+                          >
+                            同步模型
+                          </button>
                           <span className="test-result">{llmTests[i] ?? ''}</span>
                         </div>
                       </div>
@@ -593,7 +643,11 @@ export default function SettingsDialog({
                 <button
                   className="profile-add"
                   onClick={() => {
-                    const next = [...profiles, { provider: 'zhipu', apiBase: PRESETS[0].base, apiKey: '', models: [] }]
+                    // 默认补上还没配置的那家（按预设顺序轮）；服务商、地址、模型三者取自同一个预设。
+                    // 旧写法各取各的：服务商写智谱、地址却取了预设表首项（小米），请求带着智谱专有参数发往小米
+                    const used = new Set(profiles.map((p) => p.provider))
+                    const preset = PRESETS.find((p) => p.id !== 'custom' && !used.has(p.id)) ?? PRESETS[0]
+                    const next = [...profiles, { provider: preset.id, apiBase: preset.base, apiKey: '', models: [...preset.models] }]
                     saveProfiles(next)
                     setProfiles(next)
                     setOpenProfiles((s) => new Set([...s, next.length - 1]))
@@ -763,8 +817,9 @@ export default function SettingsDialog({
           <span className="progress-line" style={{ flex: 1 }}>
             {msg}
           </span>
+          {/* 主题 / 默认模型 / 服务商卡片改动即存，「取消」并不回滚它们——如实叫「关闭」 */}
           <button className="btn ghost" onClick={onClose}>
-            取消
+            关闭
           </button>
           <button className="btn" onClick={save}>
             保存

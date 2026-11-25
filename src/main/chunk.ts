@@ -16,8 +16,11 @@ export interface MdBlock {
 // ---------- liteparse 逐页 markdown → 结构块 ----------
 
 // 尾部章节（参考文献/致谢/作者简介）：块直接丢弃，不进索引
+// 必须整行就是尾部章节名（允许章节编号前缀与收尾标点）。以前是前缀匹配：
+// 「Reference Signal Generation」「Reference Frame Oriented Control」这类正经小节
+// 会被当成参考文献，整节内容从索引里消失
 const BACK_MATTER_HEADING =
-  /^(?:references?(?:\s+cited)?|bibliography|acknowledg?ments?|author\s+biographies?|biograph(?:y|ies)|参考文献|致\s*谢|作者简介)/i
+  /^(?:(?:[A-Z]?\.?\s*)?\d+(?:\.\d+)*\.?\s+)?(?:references?(?:\s+cited)?|bibliography|acknowledg(?:e)?ments?|author\s+biographies?|biograph(?:y|ies)|参考文献|致\s*谢|作者简介)\s*[.:：]?$/i
 const APPENDIX_HEADING = /^(?:appendix|appendices|supplementary|附\s*录)/i
 const ABSTRACT_HEADING = /^(?:abstract|summary|摘\s*要)\b/i
 const CAPTION_RE = /^(?:figure|fig\.|table|图|表)\s*\d+/i
@@ -25,7 +28,8 @@ const CAPTION_RE = /^(?:figure|fig\.|table|图|表)\s*\d+/i
 const NUM_ARABIC = /^(\d+(?:\.\d+)*)[.)]?\s+(.*)$/
 const NUM_ROMAN = /^(ix|iv|v?i{1,3})\.\s+(.*)$/i
 const NUM_CN = /^第([一二三四五六七八九十百\d]+)章\s*(.*)$/
-
+// 字母编号的小节（IEEE 惯例：「A. Reference Frame Oriented Control」）：挂在当前数字章节之下，记作 3-A
+const NUM_ALPHA = /^([A-Z])\.\s+(.+)$/
 // 把 liteparse 的逐页 markdown 解析为带章节元数据+页码的顺序块。
 // 章节状态跨页延续（同章多页不重置），页边界 flush（跨页段落自然断开，不丢内容）
 export function parseMdBlockPages(pagesMd: Array<{ page: number; md: string }>): MdBlock[] {
@@ -35,6 +39,8 @@ export function parseMdBlockPages(pagesMd: Array<{ page: number; md: string }>):
   const blocks: MdBlock[] = []
   let sectionNo = ''
   let sectionTitle = ''
+  // 当前所在的顶级数字章节（字母小节要挂在它下面）
+  let topNo = ''
   let kind: MdBlock['kind'] = 'body'
   let skipping = false
   let inFront = true // 首个标题之前的内容（题名/作者/关键词）整体视为摘要区
@@ -100,18 +106,26 @@ export function parseMdBlockPages(pagesMd: Array<{ page: number; md: string }>):
         const am = title.match(NUM_ARABIC)
         const rm = title.match(NUM_ROMAN)
         const cm = title.match(NUM_CN)
+        const lm = title.match(NUM_ALPHA)
         if (am) {
           sectionNo = am[1]
           sectionTitle = capTitle(am[2].trim())
+          topNo = am[1].split('.')[0]
         } else if (rm) {
           sectionNo = rm[1].toUpperCase()
           sectionTitle = capTitle(rm[2].trim())
+          topNo = ''
         } else if (cm) {
           sectionNo = cm[1]
           sectionTitle = capTitle(cm[2].trim() || `第${cm[1]}章`)
+          topNo = ''
+        } else if (lm) {
+          sectionNo = topNo ? `${topNo}-${lm[1]}` : lm[1]
+          sectionTitle = capTitle(lm[2].trim())
         } else {
           sectionNo = ''
           sectionTitle = capTitle(title)
+          topNo = ''
         }
         kind = ABSTRACT_HEADING.test(title) ? 'abstract' : 'body'
         continue
@@ -215,12 +229,15 @@ function aggregate(units: Unit[], meta: SectionMeta): RawChunk[] {
     buf = []
     used = 0
     if (tokens < MIN_CHUNK) {
-      // 过短的落单段落并进上一个块（首块前出现则丢弃）
+      // 过短的落单段落并进上一个块；前面没有可并的块就自成一块。
+      // 以前直接丢弃——跨页段落的残尾若恰好紧跟在标题前，那一两句就永远检索不到了
       const last = chunks[chunks.length - 1]
       if (last) {
         last.text += `\n${text}`
         last.tokens += tokens
         last.units.push(...unitsKept)
+      } else {
+        chunks.push({ ...meta, units: unitsKept, text, tokens })
       }
       return
     }
@@ -363,4 +380,53 @@ export function chunkPages(pages: string[]): ChunkJob[] {
     raw.push(...aggregate(units, meta))
   }
   return toJobs(raw)
+}
+
+// ---------- 整篇文本的尾部裁剪（pdfjs 抽取路径与整篇问答模式共用）----------
+//
+// 参考文献/致谢/作者简介等尾部章节：这些页是引文清单与作者信息，进入 RAG 会污染检索片段
+//（引用跳转会落在奇怪的页面上），从命中处起裁掉。保持数组长度不变，页码 / 总页数语义不受影响。
+
+// 参考文献/致谢/作者简介等尾部章节标题：这些页是引文清单与作者信息，
+// 进入 RAG 会污染检索片段（且引用跳转会落在奇怪的页面），从索引起点剔除
+const BACK_MATTER_RE = /^(?:(?:\d+(?:\.\d+)*|[IVXLC]+)\.?\s+)?(?:references(?:\s+cited)?|bibliography|acknowledg?ments?|biograph(?:y|ies)|author biographies?|参考文献|致谢|作者简介)\s*$/i
+// 「参考文献」这一类：出现即尾部，不看位置
+const REFS_RE = /^(?:(?:\d+(?:\.\d+)*|[IVXLC]+)\.?\s+)?(?:references(?:\s+cited)?|bibliography|参考文献)\s*$/i
+
+// 其余尾部章节（致谢、作者简介）不能只凭标题就裁。IEEE 系期刊常把致谢放在首页脚注里，
+// 双栏版面下它排在左栏末尾——照它裁，右栏和后面所有页都没了，论文只剩首页左栏。
+// 三条里满足一条才认：① 在末尾几页；② 到下一个「参考文献」标题前的内容很少（真正的致谢都很短）；
+// ③ 整篇只有一页
+const TAIL_ACK_MAX_CHARS = 1500
+const inTailPages = (n: number, p: number): boolean => n <= 1 || p >= n - Math.max(1, Math.ceil(n * 0.2))
+function shortUntilRefs(pages: string[], p0: number, i0: number): boolean {
+  let chars = 0
+  for (let p = p0; p < pages.length; p++) {
+    const lines = pages[p].split('\n')
+    for (let i = p === p0 ? i0 + 1 : 0; i < lines.length; i++) {
+      const t = lines[i].trim()
+      if (REFS_RE.test(t)) return true // 到参考文献为止都算致谢的内容
+      chars += t.length
+      if (chars > TAIL_ACK_MAX_CHARS) return false
+    }
+  }
+  return true
+}
+
+// 尾部章节裁剪：命中标题起（同页只留标题前的正文，后续页清空）；
+// 保持数组长度不变，页码/总页数语义不受影响
+export function stripBackMatter(pages: string[]): string[] {
+  for (let p = 0; p < pages.length; p++) {
+    const lines = pages[p].split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trim()
+      if (t.length > 48 || !BACK_MATTER_RE.test(t)) continue
+      if (!REFS_RE.test(t) && !inTailPages(pages.length, p) && !shortUntilRefs(pages, p, i)) continue
+      const out = pages.slice()
+      out[p] = lines.slice(0, i).join('\n').trim()
+      for (let q = p + 1; q < out.length; q++) out[q] = ''
+      return out
+    }
+  }
+  return pages
 }

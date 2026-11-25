@@ -146,9 +146,17 @@ export default function RefPopup({ x, y, num, raw, papers, category, onOpenPaper
               <button className="ref-pill pdf" disabled={busy} onClick={() => void doImport()}>
                 {busy ? '下载中…' : '[PDF] 加入文库'}
               </button>
+            ) : meta.landing ? (
+              <button
+                className="ref-pill pdf"
+                onClick={() => window.api.openExternal(meta.landing)}
+                title="在浏览器里打开发布页（可用浏览器扩展一键存进文库）"
+              >
+                去发布页取全文
+              </button>
             ) : (
-              <button className="ref-pill" onClick={() => window.api.openExternal(meta.landing || `https://scholar.google.com/scholar?q=${scholarQ}`)}>
-                打开发布页自行下载
+              <button className="ref-pill" onClick={() => window.api.openExternal(`https://scholar.google.com/scholar?q=${scholarQ}`)}>
+                Google 学术自行查找
               </button>
             )}
             <button className="ref-pill" onClick={() => window.api.openExternal(`https://scholar.google.com/scholar?q=${scholarQ}`)}>
@@ -168,6 +176,9 @@ export default function RefPopup({ x, y, num, raw, papers, category, onOpenPaper
           <div className="ref-pop-acts">
             <button className="ref-pill" onClick={() => window.api.openExternal(`https://scholar.google.com/scholar?q=${scholarQ}`)}>
               Google 学术搜索
+            </button>
+            <button className="ref-pill" onClick={() => window.api.openExternal(`https://ieeexplore.ieee.org/search/searchresult.jsp?queryText=${scholarQ}`)} title="在浏览器里用 IEEE Xplore 搜索，找到后可用浏览器扩展存进文库">
+              IEEE Xplore 搜索
             </button>
             {raw && (
               <button className="ref-pill" onClick={doCopy}>

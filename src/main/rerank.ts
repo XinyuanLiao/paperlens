@@ -11,7 +11,8 @@ import { deviceLabel, tfDeviceChain, type TfDevice } from './device'
 // 小体积重排模型：bge-reranker-base（278M，XLM-R 多语，中英查询均可），
 // 比 v2-m3（568M）小一半，CPU/GPU 都更快
 const RERANK_MODEL = 'Xenova/bge-reranker-base'
-const SCORE_WAIT_MS = 8000 // 单次检索里重排的等待预算（不含首次模型加载）
+const SCORE_WAIT_MS = 8000 // 单次检索里重排的等待预算：模型加载与逐对打分合计（纯 CPU 上 24 个候选可能打不完）
+const SCORE_SLICE_MS = SCORE_WAIT_MS // 打分阶段单独的预算，从同一个数派生
 const MAX_DOC_CHARS = 1200 // 文档侧截断（重排对长文不敏感，省时省显存）
 
 export function rerankEnabled(): boolean {
@@ -94,7 +95,11 @@ export async function rerankChunks(query: string, cands: Array<{ id: number; tex
   const t0 = Date.now()
   try {
     const scores = new Map<number, number>()
+    // 打分同样有时限：只对模型加载限时的话，纯 CPU 机器上每次提问都要先把候选逐对打完才轮到大模型。
+    // 超时即停，已打分的照常用，没轮到的由调用方按原融合序排在后面
+    const deadline = Date.now() + SCORE_SLICE_MS
     for (const c of cands) {
+      if (Date.now() > deadline) break
       // 逐对编码：transformers.js 的 tokenizer 批量形态不支持 text_pair 数组，逐对最稳
       const inputs = await loaded.tokenizer(query, {
         text_pair: c.text.slice(0, MAX_DOC_CHARS),
@@ -105,7 +110,7 @@ export async function rerankChunks(query: string, cands: Array<{ id: number; tex
       const out = await loaded.model(inputs)
       scores.set(c.id, sigmoid((out.logits.data as Float32Array)[0] ?? 0))
     }
-    console.log(`[rerank] ${cands.length} 候选 · ${deviceLabel(loaded.device)} · ${Date.now() - t0}ms`)
+    console.log(`[rerank] ${scores.size}/${cands.length} 候选 · ${deviceLabel(loaded.device)} · ${Date.now() - t0}ms`)
     return scores
   } catch (err) {
     console.warn('[rerank] 推理失败：', String(err).slice(0, 200))
